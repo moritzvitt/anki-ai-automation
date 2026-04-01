@@ -60,6 +60,8 @@ def fetch_model_options(*, api_key: str, pricing_overrides: dict[str, ModelPrici
         model_id = item.get("id")
         if not isinstance(model_id, str) or not model_id.strip():
             continue
+        if not _is_relevant_text_model(model_id):
+            continue
         if model_id in seen:
             continue
         seen.add(model_id)
@@ -78,7 +80,13 @@ def fetch_model_options(*, api_key: str, pricing_overrides: dict[str, ModelPrici
 
 
 def fallback_model_options(*, current_model: str, pricing_overrides: dict[str, ModelPricing]) -> list[ModelOption]:
-    candidates = {current_model, *BUILTIN_MODEL_PRICING.keys()}
+    candidates = {
+        model_id
+        for model_id in BUILTIN_MODEL_PRICING.keys()
+        if _is_relevant_text_model(model_id)
+    }
+    if current_model:
+        candidates.add(current_model)
     options = [
         ModelOption(
             model_id=model_id,
@@ -127,3 +135,51 @@ def _extract_error_message(error: HTTPError) -> str:
         return payload
     except Exception:
         return str(error)
+
+
+def _is_relevant_text_model(model_id: str) -> bool:
+    blocked_prefixes = (
+        "whisper",
+        "tts",
+        "dall-e",
+        "gpt-image",
+        "gpt-audio",
+        "gpt-realtime",
+        "gpt-4o-realtime",
+        "omni-moderation",
+        "text-embedding",
+        "computer-use",
+        "codex",
+        "babbage",
+        "davinci",
+    )
+    blocked_fragments = (
+        "audio",
+        "realtime",
+        "transcribe",
+        "tts",
+        "embedding",
+        "image",
+        "search",
+        "moderation",
+        "vision",
+        "deep-research",
+        "mini-transcribe",
+        "preview",
+    )
+    allowed_prefixes = (
+        "gpt-5",
+        "gpt-4.1",
+        "gpt-4o",
+        "o3",
+        "o4-mini",
+    )
+
+    lowered = model_id.lower()
+    if lowered.startswith(blocked_prefixes):
+        return False
+    if any(fragment in lowered for fragment in blocked_fragments):
+        return False
+    if lowered.startswith(allowed_prefixes):
+        return True
+    return False

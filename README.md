@@ -51,7 +51,7 @@ The add-on is configured through [`config.json`](./config.json) or Anki's built-
 
 In Anki itself, the add-on now registers a custom config window, so clicking `Config` from the add-on manager opens a structured settings dialog instead of raw JSON. Anki still persists the values in its normal add-on config storage for the profile.
 
-The model selector in that dialog loads the current model catalog from OpenAI's `GET /v1/models` endpoint using your API key and labels models with rough cost tiers such as `Very cheap`, `Cheap`, `Moderate`, `Expensive`, and `Very expensive`.
+The model selector in that dialog loads a curated flashcard-writing shortlist from OpenAI's `GET /v1/models` endpoint using your API key and labels models with rough cost tiers such as `Very cheap`, `Cheap`, `Moderate`, `Expensive`, and `Very expensive`.
 The note type rules are edited in a small dedicated UI instead of a raw `field_mappings` JSON block.
 
 Important keys:

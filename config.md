@@ -22,7 +22,7 @@ This same key is also used for the optional official spend lookup in `Tools -> A
 
 The model name used with the OpenAI Responses API.
 
-In the custom settings dialog, this is presented as a dropdown that can refresh from OpenAI's live model catalog. Each option includes a rough cost label based on known pricing, such as `Cheap` or `Very expensive`.
+In the custom settings dialog, this is presented as a dropdown that refreshes from a curated OpenAI model shortlist relevant to text generation for flashcards. Each option includes a rough cost label based on known pricing, such as `Cheap` or `Very expensive`.
 
 ### `system_prompt`
 

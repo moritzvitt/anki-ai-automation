@@ -187,7 +187,9 @@ class ConfigDialog(QDialog):
             ),
             current_model=str(self._config.get("model", "")),
         )
-        self.model_status_label.setText("Model list not loaded yet. Click Refresh Models to fetch the live list.")
+        self.model_status_label.setText(
+            "Showing a curated flashcard-writing model list. Click Refresh Models to load the current shortlist from OpenAI."
+        )
 
         self.prompt_history_list.clear()
         for prompt in self._config.get("prompt_history", []):
