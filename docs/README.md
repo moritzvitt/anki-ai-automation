@@ -1,9 +1,6 @@
 # Docs
 
-This folder is for project documentation that should stay close to the codebase.
+This folder contains release-facing and maintenance documentation for AI Automation.
 
-Suggested usage:
-
-- `architecture/` for runtime design notes
-- `release-description.md` for marketplace or release text
-- troubleshooting, compatibility, or implementation notes as the add-on grows
+- `architecture/overview.md` explains the runtime flow from Browser selection to note updates
+- `release-description.md` contains concise marketplace-ready copy

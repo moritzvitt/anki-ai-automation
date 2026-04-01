@@ -12,3 +12,13 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Minimal runnable add-on entry point and sample menu action.
 - Default Anki config files and documentation placeholders.
 - VS Code tasks for validation and packaging.
+
+## 1.0.0 - 2026-04-01
+
+### Added
+
+- Browser context-menu integration for processing selected notes with OpenAI.
+- Configurable prompt templates, note-type field mappings, and overwrite confirmation.
+- OpenAI Responses API integration using the official Python client with retries and timeouts.
+- Background batch processing with partial-failure reporting.
+- Updated installation, configuration, and architecture documentation.
