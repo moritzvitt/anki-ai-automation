@@ -48,6 +48,7 @@ def request_field_updates(
     }
 
     last_error: Exception | None = None
+    use_temperature = temperature is not None
     for attempt in range(max_retries + 1):
         try:
             payload: dict[str, Any] = {
@@ -64,7 +65,7 @@ def request_field_updates(
                 ],
                 "text": {"format": response_format},
             }
-            if temperature is not None:
+            if use_temperature and temperature is not None:
                 payload["temperature"] = temperature
             if reasoning_effort:
                 payload["reasoning"] = {"effort": reasoning_effort}
@@ -76,6 +77,10 @@ def request_field_updates(
             parsed = json.loads(response.output_text)
             return _validate_output(parsed, output_fields)
         except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+            if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
+                use_temperature = False
+                last_error = error
+                continue
             last_error = error
             if attempt >= max_retries:
                 break
@@ -107,3 +112,11 @@ def _validate_output(value: Any, output_fields: list[str]) -> dict[str, str]:
         updates[field_name] = field_value
 
     return updates
+
+
+def _is_unsupported_parameter_error(error: Exception, parameter_name: str) -> bool:
+    message = str(error).lower()
+    return (
+        "unsupported parameter" in message
+        and f"'{parameter_name.lower()}'" in message
+    )
