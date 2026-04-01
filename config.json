@@ -10,6 +10,10 @@
   "retry_backoff_seconds": 2,
   "temperature": 0.2,
   "reasoning_effort": "low",
+  "show_estimate_before_sending": true,
+  "estimated_output_tokens_per_note": 200,
+  "usage_history_limit": 20,
+  "model_pricing": {},
   "field_mappings": [
     {
       "note_type": "Basic",

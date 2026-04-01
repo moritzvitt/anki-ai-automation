@@ -10,9 +10,10 @@ AI Automation is an Anki Browser add-on that processes selected notes with the O
 4. Triggering the action loads and validates config from [`config.py`](../../config.py).
 5. [`processing.py`](../../processing.py) resolves note snapshots, matches `field_mappings`, and confirms overwrites.
 6. Requests are executed in a background `QueryOp`.
-7. [`prompting.py`](../../prompting.py) renders placeholders such as `{{Front}}`.
-8. [`openai_client.py`](../../openai_client.py) calls the official OpenAI client with a JSON schema for the configured output fields.
-9. Successful responses are applied to notes and saved through Anki's collection API.
+7. Before sending, [`processing.py`](../../processing.py) can estimate input tokens with the OpenAI input-token endpoint and show a confirmation dialog with projected token and cost usage.
+8. [`prompting.py`](../../prompting.py) renders placeholders such as `{{Front}}`.
+9. [`openai_client.py`](../../openai_client.py) calls the official OpenAI client with a JSON schema for the configured output fields.
+10. Successful responses are applied to notes, actual token usage is persisted locally, and notes are saved through Anki's collection API.
 
 ## Module Responsibilities
 
@@ -21,6 +22,8 @@ AI Automation is an Anki Browser add-on that processes selected notes with the O
 - [`prompting.py`](../../prompting.py): prompt template interpolation
 - [`openai_client.py`](../../openai_client.py): OpenAI Responses API request and retry logic
 - [`processing.py`](../../processing.py): note snapshot building, batching, failure handling, and note updates
+- [`pricing.py`](../../pricing.py): pricing lookup and cost estimation
+- [`usage_stats.py`](../../usage_stats.py): local usage persistence for the Tools menu monitor
 
 ## Safety
 

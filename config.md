@@ -50,6 +50,22 @@ Optional model temperature. Set to `null` to leave it unset.
 
 Optional Responses API reasoning effort. Supported values in this add-on are `minimal`, `low`, `medium`, and `high`.
 
+### `show_estimate_before_sending`
+
+When `true`, the add-on estimates token usage before requests are sent and shows a confirmation popup with estimated cost.
+
+### `estimated_output_tokens_per_note`
+
+Used for the pre-flight cost forecast. Input tokens are counted through the OpenAI input-token endpoint when available, while output tokens are estimated with this per-note value.
+
+### `usage_history_limit`
+
+Maximum number of recent runs stored in the local usage tracker shown from the Tools menu.
+
+### `model_pricing`
+
+Optional pricing overrides keyed by model name. Use this when you select a model that is not included in the add-on's built-in pricing table.
+
 ### `field_mappings`
 
 List of per-note-type processing rules.
@@ -77,6 +93,16 @@ Each mapping supports:
   "retry_backoff_seconds": 2,
   "temperature": 0.2,
   "reasoning_effort": "low",
+  "show_estimate_before_sending": true,
+  "estimated_output_tokens_per_note": 200,
+  "usage_history_limit": 20,
+  "model_pricing": {
+    "gpt-5-mini": {
+      "input_per_million_usd": 0.25,
+      "cached_input_per_million_usd": 0.025,
+      "output_per_million_usd": 2.0
+    }
+  },
   "field_mappings": [
     {
       "note_type": "Basic",

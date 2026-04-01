@@ -17,3 +17,6 @@ debug.txt
 
 # Vendored Python dependencies
 /vendor/
+
+# Local add-on usage data
+/user_data/

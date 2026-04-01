@@ -5,6 +5,8 @@ from typing import Any
 
 from aqt import mw
 
+from .pricing import ModelPricing
+
 
 ADDON_NAME = __name__.split(".")[0]
 
@@ -35,6 +37,10 @@ class AddonConfig:
     retry_backoff_seconds: float
     temperature: float | None
     reasoning_effort: str | None
+    show_estimate_before_sending: bool
+    estimated_output_tokens_per_note: int
+    usage_history_limit: int
+    model_pricing: dict[str, ModelPricing]
     field_mappings: list[FieldMapping]
 
 
@@ -71,11 +77,20 @@ def load_config() -> AddonConfig:
         minimum=0.0,
         maximum=2.0,
     )
+    show_estimate_before_sending = _read_bool(raw, "show_estimate_before_sending", default=True)
+    estimated_output_tokens_per_note = _read_int(
+        raw,
+        "estimated_output_tokens_per_note",
+        minimum=1,
+        default=200,
+    )
+    usage_history_limit = _read_int(raw, "usage_history_limit", minimum=1, default=20)
     reasoning_effort = _read_optional_choice(
         raw,
         "reasoning_effort",
         allowed={"minimal", "low", "medium", "high"},
     )
+    model_pricing = _read_model_pricing(raw.get("model_pricing", {}))
 
     field_mappings_raw = raw.get("field_mappings", [])
     if not isinstance(field_mappings_raw, list) or not field_mappings_raw:
@@ -95,6 +110,10 @@ def load_config() -> AddonConfig:
         retry_backoff_seconds=retry_backoff_seconds,
         temperature=temperature,
         reasoning_effort=reasoning_effort,
+        show_estimate_before_sending=show_estimate_before_sending,
+        estimated_output_tokens_per_note=estimated_output_tokens_per_note,
+        usage_history_limit=usage_history_limit,
+        model_pricing=model_pricing,
         field_mappings=field_mappings,
     )
 
@@ -150,6 +169,13 @@ def _read_string_list(source: dict[str, Any], key: str) -> list[str]:
     return items
 
 
+def _read_bool(source: dict[str, Any], key: str, *, default: bool) -> bool:
+    value = source.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"Config key '{key}' must be a boolean.")
+    return value
+
+
 def _read_int(source: dict[str, Any], key: str, *, minimum: int, default: int) -> int:
     value = source.get(key, default)
     if not isinstance(value, int):
@@ -203,3 +229,33 @@ def _read_optional_choice(source: dict[str, Any], key: str, *, allowed: set[str]
         options = ", ".join(sorted(allowed))
         raise ConfigError(f"Config key '{key}' must be one of: {options}.")
     return value
+
+
+def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError("Config key 'model_pricing' must be an object.")
+
+    parsed: dict[str, ModelPricing] = {}
+    for model_name, pricing in value.items():
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ConfigError("Config key 'model_pricing' must use non-empty string model names.")
+        if not isinstance(pricing, dict):
+            raise ConfigError(f"Config key 'model_pricing.{model_name}' must be an object.")
+
+        input_per_million_usd = _read_float(pricing, "input_per_million_usd", minimum=0.0, default=0.0)
+        output_per_million_usd = _read_float(pricing, "output_per_million_usd", minimum=0.0, default=0.0)
+        cached_input_per_million_usd = _read_optional_float(
+            pricing,
+            "cached_input_per_million_usd",
+            minimum=0.0,
+            maximum=1_000_000.0,
+        )
+        parsed[model_name] = ModelPricing(
+            input_per_million_usd=input_per_million_usd,
+            cached_input_per_million_usd=cached_input_per_million_usd,
+            output_per_million_usd=output_per_million_usd,
+        )
+
+    return parsed

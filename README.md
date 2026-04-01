@@ -12,6 +12,8 @@ Users can select one or many rows in the Anki Browser, right-click, and choose `
 - Structured JSON response handling for predictable field updates
 - Sequential batch processing with retries and timeout controls
 - Safe overwrite confirmation before existing fields are replaced
+- Pre-flight token and cost estimate before requests are sent
+- Tools menu usage monitor for tracked token totals and estimated spend
 
 ## File Structure
 
@@ -54,6 +56,9 @@ Important keys:
 - `prompt_template`: the default user prompt with placeholders like `{{Front}}`
 - `field_mappings`: per-note-type input and output field rules
 - `max_retries` and `request_timeout_seconds`: safety controls for batch processing
+- `show_estimate_before_sending`: enables the confirmation popup with estimated tokens and cost
+- `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent
+- `model_pricing`: optional overrides for cost estimation when you use a model not covered by built-in pricing
 
 Example mapping:
 
@@ -74,6 +79,8 @@ The prompt can reference the fields listed in the matched `input_fields` mapping
 3. The add-on resolves the matching `field_mappings` entry for each selected note.
 4. A prompt is rendered from the note fields and sent to OpenAI.
 5. Returned JSON field values are written back to the note and saved to the collection.
+
+Open `Tools -> AI Automation Usage` to review tracked totals and recent runs. These spend figures are local add-on estimates based on model pricing, not billing-invoice truth.
 
 ## Packaging
 
