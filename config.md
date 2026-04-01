@@ -2,6 +2,8 @@
 
 AI Automation stores its settings as a JSON object in Anki's add-on config.
 
+From inside Anki, clicking `Config` in the add-on manager opens a custom settings dialog. That dialog writes back to Anki's stored add-on configuration for the current profile. The repository's [`config.json`](./config.json) remains the default template, while your live edited values are persisted by Anki in the add-on metadata for the profile.
+
 ## Main Keys
 
 ### `enabled`
@@ -27,6 +29,8 @@ The default system prompt sent with every request. Keep this aligned with the JS
 Default prompt template for notes that do not override it in `field_mappings`.
 
 Supported placeholders include the configured `input_fields` for the matched note type, plus `{{NoteType}}`.
+
+When you change this prompt in the custom settings dialog and save, the previous prompt is automatically added to `prompt_history`.
 
 ### `batch_size`
 
@@ -67,6 +71,10 @@ Maximum number of recent runs stored in the local usage tracker shown from the T
 ### `model_pricing`
 
 Optional pricing overrides keyed by model name. Use this when you select a model that is not included in the add-on's built-in pricing table.
+
+### `prompt_history`
+
+List of previously saved prompt templates. This is maintained by the custom config window so you can quickly restore an older prompt version.
 
 ### `field_mappings`
 

@@ -41,6 +41,7 @@ class AddonConfig:
     estimated_output_tokens_per_note: int
     usage_history_limit: int
     model_pricing: dict[str, ModelPricing]
+    prompt_history: list[str]
     field_mappings: list[FieldMapping]
 
 
@@ -91,6 +92,7 @@ def load_config() -> AddonConfig:
         allowed={"minimal", "low", "medium", "high"},
     )
     model_pricing = _read_model_pricing(raw.get("model_pricing", {}))
+    prompt_history = _read_optional_string_list(raw.get("prompt_history", []), "prompt_history")
 
     field_mappings_raw = raw.get("field_mappings", [])
     if not isinstance(field_mappings_raw, list) or not field_mappings_raw:
@@ -114,6 +116,7 @@ def load_config() -> AddonConfig:
         estimated_output_tokens_per_note=estimated_output_tokens_per_note,
         usage_history_limit=usage_history_limit,
         model_pricing=model_pricing,
+        prompt_history=prompt_history,
         field_mappings=field_mappings,
     )
 
@@ -259,3 +262,19 @@ def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
         )
 
     return parsed
+
+
+def _read_optional_string_list(value: Any, key: str) -> list[str]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(f"Config key '{key}' must be a list of strings.")
+
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ConfigError(f"Config key '{key}' must only contain strings.")
+        stripped = item.strip()
+        if stripped:
+            items.append(stripped)
+    return items

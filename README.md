@@ -37,7 +37,7 @@ ai-automation/
 
 1. Install the add-on folder into Anki's add-ons directory.
 2. Install the official OpenAI client into Anki's Python environment.
-3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and set your API key plus field mappings.
+3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, prompts, and field mappings.
 
 If you need to install the dependency manually, use Anki's bundled Python. The exact path varies by platform, but the command is equivalent to:
 
@@ -49,6 +49,8 @@ If you need to install the dependency manually, use Anki's bundled Python. The e
 
 The add-on is configured through [`config.json`](./config.json) or Anki's built-in add-on config editor.
 
+In Anki itself, the add-on now registers a custom config window, so clicking `Config` from the add-on manager opens a structured settings dialog instead of raw JSON. Anki still persists the values in its normal add-on config storage for the profile.
+
 Important keys:
 
 - `openai_api_key`: your OpenAI API key
@@ -59,6 +61,7 @@ Important keys:
 - `show_estimate_before_sending`: enables the confirmation popup with estimated tokens and cost
 - `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent
 - `model_pricing`: optional overrides for cost estimation when you use a model not covered by built-in pricing
+- `prompt_history`: automatically maintained list of previous prompt templates for quick restore in the config window
 
 Example mapping:
 
