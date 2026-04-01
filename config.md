@@ -12,6 +12,8 @@ Global on/off switch for the add-on.
 
 Your OpenAI API key. The add-on will refuse to run until this is set.
 
+This same key is also used for the optional official spend lookup in `Tools -> AI Automation Usage`. OpenAI's organization Costs API typically requires an organization admin key, so a regular project key may not be able to fetch billing totals.
+
 ### `model`
 
 The model name used with the OpenAI Responses API.

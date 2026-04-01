@@ -82,6 +82,8 @@ The prompt can reference the fields listed in the matched `input_fields` mapping
 
 Open `Tools -> AI Automation Usage` to review tracked totals and recent runs. These spend figures are local add-on estimates based on model pricing, not billing-invoice truth.
 
+The same menu also attempts to fetch official OpenAI spend for today, last 7 days, and this month through OpenAI's organization Costs API. That endpoint typically requires an organization admin key; regular project API keys may not have access.
+
 ## Packaging
 
 To build a `.ankiaddon` archive manually:
