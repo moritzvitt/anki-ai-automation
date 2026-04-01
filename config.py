@@ -18,7 +18,6 @@ class ConfigError(RuntimeError):
 @dataclass(frozen=True)
 class FieldMapping:
     note_type: str
-    input_fields: list[str]
     output_fields: list[str]
     prompt_template: str | None = None
     system_prompt: str | None = None
@@ -126,14 +125,12 @@ def _parse_field_mapping(value: Any, *, index: int) -> FieldMapping:
         raise ConfigError(f"field_mappings[{index}] must be an object.")
 
     note_type = _read_string(value, "note_type", default="*")
-    input_fields = _read_string_list(value, "input_fields")
     output_fields = _read_string_list(value, "output_fields")
     prompt_template = _read_optional_string(value, "prompt_template")
     system_prompt = _read_optional_string(value, "system_prompt")
 
     return FieldMapping(
         note_type=note_type,
-        input_fields=input_fields,
         output_fields=output_fields,
         prompt_template=prompt_template,
         system_prompt=system_prompt,

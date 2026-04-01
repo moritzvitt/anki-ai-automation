@@ -17,7 +17,7 @@ from .openai_client import (
     request_field_updates,
 )
 from .pricing import estimate_cost_usd, resolve_model_pricing
-from .prompting import render_prompt
+from .prompting import extract_placeholders, render_prompt
 from .usage_stats import record_usage_run
 
 
@@ -71,24 +71,6 @@ def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]
         return
 
     overwrite_count, overwrite_fields = _count_overwrites(snapshots)
-    if config.show_estimate_before_sending:
-        op = QueryOp(
-            parent=browser,
-            op=lambda _col: _estimate_processing(config, snapshots),
-            success=lambda estimate: _confirm_and_start_processing(
-                browser,
-                config,
-                snapshots,
-                failures,
-                overwrite_count,
-                overwrite_fields,
-                estimate,
-            ),
-        )
-        op.with_progress(label=f"Estimating token usage for {len(snapshots)} note(s)...")
-        op.run_in_background()
-        return
-
     _confirm_and_start_processing(
         browser,
         config,
@@ -126,15 +108,21 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
             )
             continue
 
-        missing_inputs = [field for field in mapping.input_fields if field not in available_fields]
         missing_outputs = [field for field in mapping.output_fields if field not in available_fields]
-        if missing_inputs or missing_outputs:
-            missing = ", ".join(missing_inputs + missing_outputs)
+        system_prompt = mapping.system_prompt or config.system_prompt
+        prompt_template = mapping.prompt_template or config.default_prompt_template
+        missing_prompt_fields = _missing_prompt_fields(
+            prompt_template=prompt_template,
+            system_prompt=system_prompt,
+            available_fields=available_fields,
+        )
+        if missing_prompt_fields or missing_outputs:
+            missing = ", ".join(missing_prompt_fields + missing_outputs)
             failures.append(
                 NoteFailure(
                     note_id=note_id,
                     note_type_name=note_type_name,
-                    reason=f"Configured fields do not exist on the note: {missing}",
+                    reason=f"Referenced fields do not exist on the note: {missing}",
                 )
             )
             continue
@@ -300,10 +288,7 @@ def _chunked(items: list[Any], size: int) -> list[list[Any]]:
 def _render_snapshot_prompts(snapshot: NoteSnapshot, config: AddonConfig) -> tuple[str, str]:
     prompt_template = snapshot.mapping.prompt_template or config.default_prompt_template
     system_prompt = snapshot.mapping.system_prompt or config.system_prompt
-    prompt_values = {
-        field_name: snapshot.fields[field_name]
-        for field_name in snapshot.mapping.input_fields
-    }
+    prompt_values = dict(snapshot.fields)
     prompt_values["NoteType"] = snapshot.note_type_name
     prompt = render_prompt(prompt_template, prompt_values)
     return system_prompt, prompt
@@ -436,3 +421,21 @@ def _aggregate_usage(updates: list[NoteUpdate]) -> dict[str, int | float | None]
     if cost_known:
         totals["estimated_cost_usd"] = total_cost
     return totals
+
+
+def _missing_prompt_fields(
+    *,
+    prompt_template: str,
+    system_prompt: str,
+    available_fields: dict[str, str],
+) -> list[str]:
+    missing: list[str] = []
+    seen: set[str] = set()
+    placeholders = extract_placeholders(prompt_template) + extract_placeholders(system_prompt)
+    for placeholder in placeholders:
+        if placeholder == "NoteType":
+            continue
+        if placeholder not in available_fields and placeholder not in seen:
+            missing.append(placeholder)
+            seen.add(placeholder)
+    return missing

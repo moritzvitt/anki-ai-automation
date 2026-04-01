@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from aqt import mw
+from aqt.operations import QueryOp
 from aqt.qt import (
     QCheckBox,
     QComboBox,
@@ -27,6 +28,7 @@ from aqt.qt import (
 from aqt.utils import showCritical, showInfo
 
 from .config import ADDON_NAME
+from .model_catalog import ModelOption, fallback_model_options, fetch_model_options
 
 
 def register_config_action() -> None:
@@ -59,24 +61,26 @@ class ConfigDialog(QDialog):
         self.enabled_checkbox = QCheckBox("Enable AI Automation")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.model_edit = QLineEdit()
+        self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(320)
+        self.model_status_label = QLabel()
         self.system_prompt_edit = QPlainTextEdit()
         self.prompt_edit = QPlainTextEdit()
-        self.field_mappings_edit = QPlainTextEdit()
+        self.note_type_rules_list = QListWidget()
         self.model_pricing_edit = QPlainTextEdit()
         self.prompt_history_list = QListWidget()
-        self.show_estimate_checkbox = QCheckBox("Show token/cost estimate before sending")
         self.batch_size_spin = QSpinBox()
         self.request_timeout_spin = QSpinBox()
         self.max_retries_spin = QSpinBox()
         self.retry_backoff_spin = QDoubleSpinBox()
         self.temperature_spin = QDoubleSpinBox()
         self.reasoning_effort_combo = QComboBox()
-        self.estimated_output_tokens_spin = QSpinBox()
         self.usage_history_limit_spin = QSpinBox()
+        self.refresh_models_button = QPushButton("Refresh Models")
 
         self._build_ui()
         self._populate_fields()
+        self._refresh_model_options()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -107,14 +111,25 @@ class ConfigDialog(QDialog):
         form = QFormLayout(group)
 
         self.api_key_edit.setPlaceholderText("sk-...")
-        self.model_edit.setPlaceholderText("gpt-5-mini")
         self.system_prompt_edit.setPlaceholderText("System prompt sent with every request")
         self.prompt_edit.setPlaceholderText("Use placeholders like {{Front}}, {{Back}}, {{NoteType}}")
         self.prompt_edit.setMinimumHeight(180)
+        self.model_status_label.setWordWrap(True)
+        self.refresh_models_button.clicked.connect(self._refresh_model_options)
+
+        model_row = QWidget()
+        model_layout = QVBoxLayout(model_row)
+        model_layout.setContentsMargins(0, 0, 0, 0)
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.addWidget(self.model_combo, stretch=1)
+        top_row.addWidget(self.refresh_models_button)
+        model_layout.addLayout(top_row)
+        model_layout.addWidget(self.model_status_label)
 
         form.addRow(self.enabled_checkbox)
         form.addRow("API key", self.api_key_edit)
-        form.addRow("Model", self.model_edit)
+        form.addRow("Model", model_row)
         form.addRow("System prompt", self.system_prompt_edit)
         form.addRow("Prompt template", self.prompt_edit)
         return group
@@ -154,13 +169,11 @@ class ConfigDialog(QDialog):
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setSingleStep(0.1)
         self.reasoning_effort_combo.addItems(["", "minimal", "low", "medium", "high"])
-        self.estimated_output_tokens_spin.setRange(1, 100000)
         self.usage_history_limit_spin.setRange(1, 1000)
 
         temperature_help = QLabel("Set to -1 to store JSON null and omit temperature from requests.")
         temperature_help.setWordWrap(True)
 
-        form.addRow(self.show_estimate_checkbox)
         form.addRow("Batch size", self.batch_size_spin)
         form.addRow("Request timeout (seconds)", self.request_timeout_spin)
         form.addRow("Max retries", self.max_retries_spin)
@@ -168,20 +181,32 @@ class ConfigDialog(QDialog):
         form.addRow("Temperature", self.temperature_spin)
         form.addRow("", temperature_help)
         form.addRow("Reasoning effort", self.reasoning_effort_combo)
-        form.addRow("Estimated output tokens per note", self.estimated_output_tokens_spin)
         form.addRow("Usage history limit", self.usage_history_limit_spin)
         layout.addLayout(form)
 
-        mappings_label = QLabel(
-            "Field mappings and model pricing remain editable as JSON here so complex structures stay fully supported."
+        rules_label = QLabel(
+            "Choose how notes are written back by note type. Prompt placeholders determine what content is sent."
         )
-        mappings_label.setWordWrap(True)
-        layout.addWidget(mappings_label)
+        rules_label.setWordWrap(True)
+        layout.addWidget(rules_label)
 
-        self.field_mappings_edit.setMinimumHeight(180)
+        self.note_type_rules_list.setMinimumHeight(180)
+        layout.addWidget(QLabel("Note type rules"))
+        layout.addWidget(self.note_type_rules_list)
+
+        rules_buttons = QHBoxLayout()
+        add_rule_button = QPushButton("Add Rule")
+        edit_rule_button = QPushButton("Edit Rule")
+        delete_rule_button = QPushButton("Delete Rule")
+        add_rule_button.clicked.connect(self._add_rule)
+        edit_rule_button.clicked.connect(self._edit_rule)
+        delete_rule_button.clicked.connect(self._delete_rule)
+        rules_buttons.addWidget(add_rule_button)
+        rules_buttons.addWidget(edit_rule_button)
+        rules_buttons.addWidget(delete_rule_button)
+        layout.addLayout(rules_buttons)
+
         self.model_pricing_edit.setMinimumHeight(120)
-        layout.addWidget(QLabel("Field mappings JSON"))
-        layout.addWidget(self.field_mappings_edit)
         layout.addWidget(QLabel("Model pricing JSON"))
         layout.addWidget(self.model_pricing_edit)
         return group
@@ -189,10 +214,8 @@ class ConfigDialog(QDialog):
     def _populate_fields(self) -> None:
         self.enabled_checkbox.setChecked(bool(self._config.get("enabled", True)))
         self.api_key_edit.setText(str(self._config.get("openai_api_key", "")))
-        self.model_edit.setText(str(self._config.get("model", "")))
         self.system_prompt_edit.setPlainText(str(self._config.get("system_prompt", "")))
         self.prompt_edit.setPlainText(self._current_prompt)
-        self.show_estimate_checkbox.setChecked(bool(self._config.get("show_estimate_before_sending", True)))
         self.batch_size_spin.setValue(int(self._config.get("batch_size", 5)))
         self.request_timeout_spin.setValue(int(float(self._config.get("request_timeout_seconds", 90))))
         self.max_retries_spin.setValue(int(self._config.get("max_retries", 2)))
@@ -205,15 +228,21 @@ class ConfigDialog(QDialog):
         index = self.reasoning_effort_combo.findText(reasoning_effort)
         self.reasoning_effort_combo.setCurrentIndex(max(0, index))
 
-        self.estimated_output_tokens_spin.setValue(int(self._config.get("estimated_output_tokens_per_note", 200)))
         self.usage_history_limit_spin.setValue(int(self._config.get("usage_history_limit", 20)))
 
-        self.field_mappings_edit.setPlainText(
-            json.dumps(self._config.get("field_mappings", []), indent=2, ensure_ascii=True)
-        )
         self.model_pricing_edit.setPlainText(
             json.dumps(self._config.get("model_pricing", {}), indent=2, ensure_ascii=True)
         )
+        self._populate_rule_list()
+
+        self._set_model_options(
+            fallback_model_options(
+                current_model=str(self._config.get("model", "")),
+                pricing_overrides=self._config.get("model_pricing", {}),
+            ),
+            current_model=str(self._config.get("model", "")),
+        )
+        self.model_status_label.setText("Model list not loaded yet. Click Refresh Models to fetch the live list.")
 
         self.prompt_history_list.clear()
         for prompt in self._config.get("prompt_history", []):
@@ -222,15 +251,11 @@ class ConfigDialog(QDialog):
 
     def _save(self) -> None:
         try:
-            field_mappings = json.loads(self.field_mappings_edit.toPlainText() or "[]")
             model_pricing = json.loads(self.model_pricing_edit.toPlainText() or "{}")
         except json.JSONDecodeError as error:
             showCritical(f"Invalid JSON in advanced settings: {error}", parent=self)
             return
 
-        if not isinstance(field_mappings, list):
-            showCritical("Field mappings JSON must be a list.", parent=self)
-            return
         if not isinstance(model_pricing, dict):
             showCritical("Model pricing JSON must be an object.", parent=self)
             return
@@ -246,19 +271,19 @@ class ConfigDialog(QDialog):
             {
                 "enabled": self.enabled_checkbox.isChecked(),
                 "openai_api_key": self.api_key_edit.text().strip(),
-                "model": self.model_edit.text().strip(),
+                "model": self.model_combo.currentData() or self.model_combo.currentText().strip(),
                 "system_prompt": self.system_prompt_edit.toPlainText().strip(),
                 "prompt_template": new_prompt,
-                "show_estimate_before_sending": self.show_estimate_checkbox.isChecked(),
+                "show_estimate_before_sending": False,
                 "batch_size": self.batch_size_spin.value(),
                 "request_timeout_seconds": self.request_timeout_spin.value(),
                 "max_retries": self.max_retries_spin.value(),
                 "retry_backoff_seconds": self.retry_backoff_spin.value(),
                 "temperature": None if self.temperature_spin.value() < 0 else self.temperature_spin.value(),
                 "reasoning_effort": self.reasoning_effort_combo.currentText() or None,
-                "estimated_output_tokens_per_note": self.estimated_output_tokens_spin.value(),
+                "estimated_output_tokens_per_note": int(self._config.get("estimated_output_tokens_per_note", 200)),
                 "usage_history_limit": self.usage_history_limit_spin.value(),
-                "field_mappings": field_mappings,
+                "field_mappings": list(self._config.get("field_mappings", [])),
                 "model_pricing": model_pricing,
                 "prompt_history": prompt_history,
             }
@@ -267,6 +292,72 @@ class ConfigDialog(QDialog):
         self._addon_manager.writeConfig(ADDON_NAME, self._config)
         showInfo("AI Automation settings saved.", parent=self)
         self.accept()
+
+    def _populate_rule_list(self) -> None:
+        self.note_type_rules_list.clear()
+        for mapping in self._config.get("field_mappings", []):
+            if isinstance(mapping, dict):
+                self.note_type_rules_list.addItem(_rule_preview(mapping))
+
+    def _add_rule(self) -> None:
+        dialog = MappingDialog(parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            mappings = list(self._config.get("field_mappings", []))
+            mappings.append(dialog.mapping())
+            self._config["field_mappings"] = mappings
+            self._populate_rule_list()
+
+    def _edit_rule(self) -> None:
+        row = self.note_type_rules_list.currentRow()
+        mappings = self._config.get("field_mappings", [])
+        if not isinstance(mappings, list) or row < 0 or row >= len(mappings):
+            return
+
+        mapping = mappings[row]
+        if not isinstance(mapping, dict):
+            return
+
+        dialog = MappingDialog(parent=self, mapping=mapping)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            mappings[row] = dialog.mapping()
+            self._config["field_mappings"] = mappings
+            self._populate_rule_list()
+            self.note_type_rules_list.setCurrentRow(row)
+
+    def _delete_rule(self) -> None:
+        row = self.note_type_rules_list.currentRow()
+        mappings = self._config.get("field_mappings", [])
+        if not isinstance(mappings, list) or row < 0 or row >= len(mappings):
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Note Type Rule",
+            "Remove the selected note type rule?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        del mappings[row]
+        self._config["field_mappings"] = mappings
+        self._populate_rule_list()
+
+    def _refresh_model_options(self) -> None:
+        self.refresh_models_button.setEnabled(False)
+        self.model_status_label.setText("Loading live model list from OpenAI...")
+        pricing_overrides = self._config.get("model_pricing", {})
+        api_key = self.api_key_edit.text().strip()
+        current_model = str(self._config.get("model", ""))
+
+        op = QueryOp(
+            parent=self,
+            op=lambda _col: self._load_model_options(api_key, pricing_overrides, current_model),
+            success=self._apply_model_options_result,
+        )
+        op.with_progress(label="Loading OpenAI models...")
+        op.run_in_background()
 
     def _build_prompt_history(self, new_prompt: str) -> list[str]:
         history: list[str] = []
@@ -322,7 +413,132 @@ class ConfigDialog(QDialog):
             return {}
         return dict(config)
 
+    def _load_model_options(
+        self,
+        api_key: str,
+        pricing_overrides: dict[str, Any],
+        current_model: str,
+    ) -> dict[str, Any]:
+        try:
+            options = fetch_model_options(api_key=api_key, pricing_overrides=pricing_overrides)
+            return {"options": options, "message": "Loaded current models from OpenAI."}
+        except Exception as error:
+            return {
+                "options": fallback_model_options(
+                    current_model=current_model,
+                    pricing_overrides=pricing_overrides,
+                ),
+                "message": f"Using fallback model list: {error}",
+            }
+
+    def _apply_model_options_result(self, result: dict[str, Any]) -> None:
+        options = result.get("options", [])
+        current_model = self.model_combo.currentData() or str(self._config.get("model", ""))
+        if isinstance(options, list):
+            self._set_model_options(options, current_model=current_model)
+        message = result.get("message")
+        if isinstance(message, str):
+            self.model_status_label.setText(message)
+        self.refresh_models_button.setEnabled(True)
+
+    def _set_model_options(self, options: list[ModelOption], *, current_model: str) -> None:
+        self.model_combo.clear()
+        for option in options:
+            self.model_combo.addItem(option.label, option.model_id)
+
+        current_index = self.model_combo.findData(current_model)
+        if current_index >= 0:
+            self.model_combo.setCurrentIndex(current_index)
+            return
+
+        if current_model:
+            self.model_combo.insertItem(0, current_model + " (Current selection)", current_model)
+            self.model_combo.setCurrentIndex(0)
+
 
 def _history_preview(prompt: str) -> str:
     single_line = " ".join(prompt.split())
     return single_line[:100] + ("..." if len(single_line) > 100 else "")
+
+
+def _rule_preview(mapping: dict[str, Any]) -> str:
+    note_type = str(mapping.get("note_type", "*"))
+    output_fields = mapping.get("output_fields", [])
+    output_text = ", ".join(output_fields) if isinstance(output_fields, list) else ""
+    extras: list[str] = []
+    if mapping.get("prompt_template"):
+        extras.append("custom prompt")
+    if mapping.get("system_prompt"):
+        extras.append("custom system")
+    suffix = f" [{', '.join(extras)}]" if extras else ""
+    return f"{note_type} -> {output_text}{suffix}"
+
+
+class MappingDialog(QDialog):
+    def __init__(self, parent: QWidget, mapping: dict[str, Any] | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Note Type Rule")
+        self.resize(620, 520)
+
+        self.note_type_edit = QLineEdit()
+        self.output_fields_edit = QLineEdit()
+        self.prompt_template_edit = QPlainTextEdit()
+        self.system_prompt_edit = QPlainTextEdit()
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.note_type_edit.setPlaceholderText("Basic or *")
+        self.output_fields_edit.setPlaceholderText("Back or Japanese Notes, Extra Field")
+        self.prompt_template_edit.setPlaceholderText("Optional custom prompt for this note type")
+        self.system_prompt_edit.setPlaceholderText("Optional custom system prompt for this note type")
+        self.prompt_template_edit.setMinimumHeight(140)
+        self.system_prompt_edit.setMinimumHeight(120)
+        form.addRow("Note type", self.note_type_edit)
+        form.addRow("Output fields", self.output_fields_edit)
+        form.addRow("Prompt override", self.prompt_template_edit)
+        form.addRow("System override", self.system_prompt_edit)
+        layout.addLayout(form)
+
+        help_text = QLabel(
+            "Prompt placeholders are the source of truth for what gets sent. "
+            "Use output fields here to define which note fields the model should update."
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        if mapping:
+            self.note_type_edit.setText(str(mapping.get("note_type", "*")))
+            output_fields = mapping.get("output_fields", [])
+            if isinstance(output_fields, list):
+                self.output_fields_edit.setText(", ".join(str(field) for field in output_fields))
+            self.prompt_template_edit.setPlainText(str(mapping.get("prompt_template") or ""))
+            self.system_prompt_edit.setPlainText(str(mapping.get("system_prompt") or ""))
+
+    def mapping(self) -> dict[str, Any]:
+        mapping: dict[str, Any] = {
+            "note_type": self.note_type_edit.text().strip() or "*",
+            "output_fields": [
+                field.strip()
+                for field in self.output_fields_edit.text().split(",")
+                if field.strip()
+            ],
+        }
+        prompt_template = self.prompt_template_edit.toPlainText().strip()
+        system_prompt = self.system_prompt_edit.toPlainText().strip()
+        if prompt_template:
+            mapping["prompt_template"] = prompt_template
+        if system_prompt:
+            mapping["system_prompt"] = system_prompt
+        return mapping
+
+    def _validate_and_accept(self) -> None:
+        mapping = self.mapping()
+        if not mapping["output_fields"]:
+            showCritical("At least one output field is required.", parent=self)
+            return
+        self.accept()

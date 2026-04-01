@@ -37,7 +37,7 @@ ai-automation/
 
 1. Install the add-on folder into Anki's add-ons directory.
 2. Install the official OpenAI client into Anki's Python environment.
-3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, prompts, and field mappings.
+3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, choose a model from the live dropdown, edit prompts, and manage note type rules.
 
 If you need to install the dependency manually, use Anki's bundled Python. The exact path varies by platform, but the command is equivalent to:
 
@@ -50,6 +50,9 @@ If you need to install the dependency manually, use Anki's bundled Python. The e
 The add-on is configured through [`config.json`](./config.json) or Anki's built-in add-on config editor.
 
 In Anki itself, the add-on now registers a custom config window, so clicking `Config` from the add-on manager opens a structured settings dialog instead of raw JSON. Anki still persists the values in its normal add-on config storage for the profile.
+
+The model selector in that dialog loads the current model catalog from OpenAI's `GET /v1/models` endpoint using your API key and labels models with rough cost tiers such as `Very cheap`, `Cheap`, `Moderate`, `Expensive`, and `Very expensive`.
+The note type rules are edited in a small dedicated UI instead of a raw `field_mappings` JSON block.
 
 Important keys:
 
@@ -68,12 +71,11 @@ Example mapping:
 ```json
 {
   "note_type": "Basic",
-  "input_fields": ["Front", "Back"],
   "output_fields": ["Back"]
 }
 ```
 
-The prompt can reference the fields listed in the matched `input_fields` mapping, plus `{{NoteType}}`.
+The prompt can reference any field that exists on the note, plus `{{NoteType}}`. If a referenced field does not exist on a selected note, the add-on will show a clear error for that note instead of sending a broken request.
 
 ## How It Works
 

@@ -10,7 +10,7 @@
   "retry_backoff_seconds": 2,
   "temperature": 0.2,
   "reasoning_effort": "low",
-  "show_estimate_before_sending": true,
+  "show_estimate_before_sending": false,
   "estimated_output_tokens_per_note": 200,
   "usage_history_limit": 20,
   "model_pricing": {},
@@ -18,12 +18,10 @@
   "field_mappings": [
     {
       "note_type": "Basic",
-      "input_fields": ["Front", "Back"],
       "output_fields": ["Back"]
     },
     {
       "note_type": "*",
-      "input_fields": ["Front", "Back"],
       "output_fields": ["Back"]
     }
   ]

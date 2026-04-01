@@ -4,6 +4,8 @@ AI Automation stores its settings as a JSON object in Anki's add-on config.
 
 From inside Anki, clicking `Config` in the add-on manager opens a custom settings dialog. That dialog writes back to Anki's stored add-on configuration for the current profile. The repository's [`config.json`](./config.json) remains the default template, while your live edited values are persisted by Anki in the add-on metadata for the profile.
 
+The settings dialog now keeps note type rules in a dedicated editor instead of exposing raw `field_mappings` JSON directly.
+
 ## Main Keys
 
 ### `enabled`
@@ -20,6 +22,8 @@ This same key is also used for the optional official spend lookup in `Tools -> A
 
 The model name used with the OpenAI Responses API.
 
+In the custom settings dialog, this is presented as a dropdown that can refresh from OpenAI's live model catalog. Each option includes a rough cost label based on known pricing, such as `Cheap` or `Very expensive`.
+
 ### `system_prompt`
 
 The default system prompt sent with every request. Keep this aligned with the JSON-only output requirement.
@@ -28,7 +32,7 @@ The default system prompt sent with every request. Keep this aligned with the JS
 
 Default prompt template for notes that do not override it in `field_mappings`.
 
-Supported placeholders include the configured `input_fields` for the matched note type, plus `{{NoteType}}`.
+Supported placeholders include any actual field name on the note, plus `{{NoteType}}`.
 
 When you change this prompt in the custom settings dialog and save, the previous prompt is automatically added to `prompt_history`.
 
@@ -58,11 +62,11 @@ Optional Responses API reasoning effort. Supported values in this add-on are `mi
 
 ### `show_estimate_before_sending`
 
-When `true`, the add-on estimates token usage before requests are sent and shows a confirmation popup with estimated cost.
+Currently not shown in the UI and effectively disabled in the runtime flow. The add-on goes straight to the normal confirmation step without a pre-flight token estimate popup.
 
 ### `estimated_output_tokens_per_note`
 
-Used for the pre-flight cost forecast. Input tokens are counted through the OpenAI input-token endpoint when available, while output tokens are estimated with this per-note value.
+Reserved for future estimate UI work.
 
 ### `usage_history_limit`
 
@@ -83,7 +87,6 @@ List of per-note-type processing rules.
 Each mapping supports:
 
 - `note_type`: exact note type name, or `*` as a fallback
-- `input_fields`: fields expected on the note and available to the prompt
 - `output_fields`: fields that must be returned by the model as JSON
 - `prompt_template`: optional prompt override for this note type
 - `system_prompt`: optional system prompt override for this note type
@@ -116,18 +119,15 @@ Each mapping supports:
   "field_mappings": [
     {
       "note_type": "Basic",
-      "input_fields": ["Front", "Back"],
       "output_fields": ["Back"]
     },
     {
       "note_type": "Basic",
-      "input_fields": ["Front", "Back"],
       "output_fields": ["AI Rewrite"],
       "prompt_template": "Create a cleaner explanation for this flashcard.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}"
     },
     {
       "note_type": "*",
-      "input_fields": ["Front", "Back"],
       "output_fields": ["Back"]
     }
   ]
