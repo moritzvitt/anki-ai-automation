@@ -20,3 +20,6 @@ debug.txt
 
 # Local add-on usage data
 /user_data/
+
+# Live Anki profile config
+/meta.json
