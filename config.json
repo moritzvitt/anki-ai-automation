@@ -41,6 +41,41 @@
       "id": "full-card-optimization",
       "name": "Full Card Optimization",
       "prompt": "You are optimizing an Anki card for efficient long-term retention (intermediate Japanese learner).\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\n\nTasks:\n1. Evaluate card quality: GOOD / FIX / BAD\n\n2. If FIX or BAD:\n   - briefly explain why\n\n3. Improve:\n   - Front (clear, minimal, unambiguous)\n   - Back (precise, not overloaded)\n   - Japanese Notes (concise, nuance-focused)\n   - Notes (clear grammar explanation)\n\n4. Keep everything compact and high-signal.\n\nOutput format:\n--Front--\n...\n--Back--\n...\n--Japanese Notes--\n...\n--Notes--\n..."
+    },
+    {
+      "id": "mlr-card-quality-check",
+      "name": "MLR Card Quality Check",
+      "prompt": "You are evaluating an Anki card for efficient learning (intermediate Japanese learner).\n\nNote Type: Moritz Language Reactor\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTasks:\n1. Classify the card:\n   - GOOD -> ready to learn\n   - FIX -> small improvements needed\n   - BAD -> should not be learned\n\n2. Check specifically:\n   - Is the cloze deletion meaningful and unambiguous?\n   - Is Lemma correct and useful?\n   - Is the sentence (Subtitle) natural and informative?\n   - Is there unnecessary or missing info?\n   - Is the card testing ONE clear thing?\n\n3. If FIX or BAD:\n   - give short reason\n   - suggest concrete fixes\n\n4. If possible, provide an improved version of:\n   - Cloze\n   - Subtitle\n\nOutput format:\nQuality: ...\nReason: ...\nSuggestions:\n- ...\nImproved Cloze: ...\nImproved Subtitle: ..."
+    },
+    {
+      "id": "mlr-full-field-refactor",
+      "name": "MLR Full Field Refactor",
+      "prompt": "You are optimizing an Anki note for a B1-B2 Japanese learner.\n\nNote Type: Moritz Language Reactor\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTasks:\nUpdate the fields to maximize learning efficiency.\n\nGuidelines:\n- Keep everything concise and high-signal\n- Avoid beginner explanations\n- Focus on nuance, usage, and clarity\n- Do NOT repeat information across fields unnecessarily\n\nField-specific rules:\n- Lemma: dictionary form, correct kanji/kana\n- Japanese Notes: nuance, collocations, register, pitfalls\n- Word Definition: short, precise English meaning(s)\n- Notes: grammar/function explanation (if relevant)\n- Cloze: must test ONE clear element\n- Subtitle: natural full sentence without cloze markup\n\nOutput EXACTLY in this format:\n\n--Cloze--\n...\n\n--Lemma--\n...\n\n--Subtitle--\n...\n\n--Japanese Notes--\n...\n\n--Word Definition--\n...\n\n--Notes--\n..."
+    },
+    {
+      "id": "mlr-japanese-notes-improver",
+      "name": "MLR Japanese Notes Improver",
+      "prompt": "You are refining the \"Japanese Notes\" field for an intermediate learner.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\n\nTask:\nRewrite Japanese Notes to be:\n- concise\n- focused on nuance and usage\n- helpful at B1-B2 level\n\nInclude only if relevant:\n- nuance vs similar words\n- collocations\n- register (casual, formal, written, etc.)\n- restrictions / common mistakes\n\nAvoid:\n- basic explanations\n- redundancy\n\nOutput format:\n--Japanese Notes--\n..."
+    },
+    {
+      "id": "mlr-word-definition-optimizer",
+      "name": "MLR Word Definition Optimizer",
+      "prompt": "You are improving the \"Word Definition\" field.\n\nFields:\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\n\nTask:\nCreate a concise and precise definition.\n\nRules:\n- short (1-2 lines max)\n- capture core meaning\n- include multiple meanings ONLY if common\n- avoid dictionary clutter\n- prefer natural English over literal gloss\n\nOutput format:\n--Word Definition--\n..."
+    },
+    {
+      "id": "mlr-grammar-notes-generator",
+      "name": "MLR Grammar Notes Generator",
+      "prompt": "You are writing the \"Notes\" field (grammar explanation).\n\nFields:\nCloze: {{Cloze}}\nSubtitle: {{Subtitle}}\nNotes: {{Notes}}\n\nTask:\nExplain the grammar or structure being tested.\n\nGuidelines:\n- focus on function and nuance\n- include contrast if useful\n- optionally include 1 short example\n- keep concise\n\nAvoid:\n- beginner-level explanations\n- long paragraphs\n\nOutput format:\n--Notes--\n..."
+    },
+    {
+      "id": "mlr-cloze-optimization",
+      "name": "MLR Cloze Optimization",
+      "prompt": "You are improving the cloze deletion of a Japanese sentence.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\n\nTask:\n1. Ensure the cloze tests ONE clear item (word or grammar)\n2. Avoid ambiguity (only one correct answer)\n3. Keep sentence natural and useful\n\nOutput format:\n--Cloze--\n...\n\n--Subtitle--\n..."
+    },
+    {
+      "id": "mlr-fix-only-whats-wrong",
+      "name": "MLR Fix Only What's Wrong",
+      "prompt": "You are fixing an Anki note ONLY if necessary.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTask:\n- If the card is GOOD -> output nothing\n- If not -> output ONLY changed fields\n\nOutput format (only include fields that change):\n\n--FieldName--\nnew content"
     }
   ],
   "saved_system_prompts": [
@@ -88,12 +123,82 @@
       "mode": "overwrite",
       "multiple_target_fields": true,
       "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-full-field-refactor",
+      "name": "MLR Full Field Refactor",
+      "prompt_id": "mlr-full-field-refactor",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-japanese-notes",
+      "name": "MLR Japanese Notes Improver",
+      "prompt_id": "mlr-japanese-notes-improver",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-word-definition",
+      "name": "MLR Word Definition Optimizer",
+      "prompt_id": "mlr-word-definition-optimizer",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-grammar-notes",
+      "name": "MLR Grammar Notes Generator",
+      "prompt_id": "mlr-grammar-notes-generator",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-cloze-optimization",
+      "name": "MLR Cloze Optimization",
+      "prompt_id": "mlr-cloze-optimization",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    },
+    {
+      "id": "preset-mlr-fix-only",
+      "name": "MLR Fix Only What's Wrong",
+      "prompt_id": "mlr-fix-only-whats-wrong",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
     }
   ],
   "workflow_groups": [
     {
       "id": "japanese-maintenance",
       "name": "Japanese Maintenance"
+    },
+    {
+      "id": "mlr-maintenance",
+      "name": "Moritz Language Reactor"
     }
   ],
   "workflows": [
@@ -152,6 +257,104 @@
       "response_delimiter": "--{field}--",
       "group_id": "japanese-maintenance",
       "position": 3
+    },
+    {
+      "id": "workflow-mlr-card-quality-check",
+      "name": "MLR Card Quality Check",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-quality",
+      "prompt_id": "mlr-card-quality-check",
+      "target_field": "Notes",
+      "mode": "append",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "mlr-maintenance",
+      "position": 4
+    },
+    {
+      "id": "workflow-mlr-full-field-refactor",
+      "name": "MLR Full Field Refactor",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-refactor",
+      "prompt_id": "mlr-full-field-refactor",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 5
+    },
+    {
+      "id": "workflow-mlr-japanese-notes",
+      "name": "MLR Japanese Notes Improver",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-japanese-notes",
+      "prompt_id": "mlr-japanese-notes-improver",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 6
+    },
+    {
+      "id": "workflow-mlr-word-definition",
+      "name": "MLR Word Definition Optimizer",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-word-definition",
+      "prompt_id": "mlr-word-definition-optimizer",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 7
+    },
+    {
+      "id": "workflow-mlr-grammar-notes",
+      "name": "MLR Grammar Notes Generator",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-grammar",
+      "prompt_id": "mlr-grammar-notes-generator",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 8
+    },
+    {
+      "id": "workflow-mlr-cloze-optimization",
+      "name": "MLR Cloze Optimization",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-cloze",
+      "prompt_id": "mlr-cloze-optimization",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 9
+    },
+    {
+      "id": "workflow-mlr-fix-only",
+      "name": "MLR Fix Only What's Wrong",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-fix-only",
+      "prompt_id": "mlr-fix-only-whats-wrong",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 10
     }
   ],
   "field_mappings": [
