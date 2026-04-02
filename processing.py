@@ -860,6 +860,7 @@ def _markdown_to_html(value: str) -> str:
     blocks: list[str] = []
     paragraph_lines: list[str] = []
     list_items: list[str] = []
+    ordered_list_items: list[str] = []
 
     def flush_paragraph() -> None:
         nonlocal paragraph_lines
@@ -873,22 +874,47 @@ def _markdown_to_html(value: str) -> str:
             blocks.append("<ul>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ul>")
             list_items = []
 
+    def flush_ordered_list() -> None:
+        nonlocal ordered_list_items
+        if ordered_list_items:
+            blocks.append("<ol>" + "".join(f"<li>{item}</li>" for item in ordered_list_items) + "</ol>")
+            ordered_list_items = []
+
     for raw_line in lines:
         line = raw_line.rstrip()
         stripped = line.strip()
         if not stripped:
             flush_paragraph()
             flush_list()
+            flush_ordered_list()
+            continue
+        heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading_match:
+            flush_paragraph()
+            flush_list()
+            flush_ordered_list()
+            level = len(heading_match.group(1))
+            heading_text = _format_inline_markdown(heading_match.group(2).strip())
+            blocks.append(f"<h{level}>{heading_text}</h{level}>")
             continue
         if stripped.startswith(("- ", "* ")):
             flush_paragraph()
+            flush_ordered_list()
             list_items.append(_format_inline_markdown(stripped[2:].strip()))
             continue
+        ordered_list_match = re.match(r"^\d+\.\s+(.+)$", stripped)
+        if ordered_list_match:
+            flush_paragraph()
+            flush_list()
+            ordered_list_items.append(_format_inline_markdown(ordered_list_match.group(1).strip()))
+            continue
         flush_list()
+        flush_ordered_list()
         paragraph_lines.append(stripped)
 
     flush_paragraph()
     flush_list()
+    flush_ordered_list()
     return "\n".join(blocks)
 
 
