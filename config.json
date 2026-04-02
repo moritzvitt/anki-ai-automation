@@ -360,11 +360,15 @@
   "field_mappings": [
     {
       "note_type": "Basic",
-      "output_fields": ["Back"]
+      "output_fields": [
+        "Back"
+      ]
     },
     {
       "note_type": "*",
-      "output_fields": ["Back"]
+      "output_fields": [
+        "Back"
+      ]
     }
   ]
 }
