@@ -39,6 +39,19 @@ class SavedSystemPrompt:
 
 
 @dataclass(frozen=True)
+class ProcessingPreset:
+    preset_id: str
+    name: str
+    prompt_id: str
+    model: str | None = None
+    system_prompt_id: str | None = None
+    target_field: str = ""
+    mode: str = "overwrite"
+    multiple_target_fields: bool = False
+    response_delimiter: str | None = None
+
+
+@dataclass(frozen=True)
 class WorkflowGroup:
     group_id: str
     name: str
@@ -82,6 +95,7 @@ class AddonConfig:
     field_mappings: list[FieldMapping]
     saved_prompts: list[SavedPrompt]
     saved_system_prompts: list[SavedSystemPrompt]
+    processing_presets: list[ProcessingPreset]
     workflow_groups: list[WorkflowGroup]
     workflows: list[Workflow]
 
@@ -150,6 +164,11 @@ def load_config() -> AddonConfig:
         raw.get("saved_system_prompts", []),
         fallback_system_prompt=system_prompt,
     )
+    processing_presets = _read_processing_presets(
+        raw.get("saved_processing_presets", []),
+        saved_prompts=saved_prompts,
+        saved_system_prompts=saved_system_prompts,
+    )
     workflow_groups = _read_workflow_groups(raw.get("workflow_groups", []))
     workflows = _read_workflows(
         raw.get("workflows", []),
@@ -179,6 +198,7 @@ def load_config() -> AddonConfig:
         field_mappings=field_mappings,
         saved_prompts=saved_prompts,
         saved_system_prompts=saved_system_prompts,
+        processing_presets=processing_presets,
         workflow_groups=workflow_groups,
         workflows=workflows,
     )
@@ -386,6 +406,79 @@ def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> li
         )
 
     return prompts
+
+
+def _read_processing_presets(
+    value: Any,
+    *,
+    saved_prompts: list[SavedPrompt],
+    saved_system_prompts: list[SavedSystemPrompt],
+) -> list[ProcessingPreset]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'saved_processing_presets' must be a list.")
+
+    allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
+    allowed_system_prompt_ids = {prompt.prompt_id for prompt in saved_system_prompts}
+    allowed_modes = {"append", "overwrite"}
+    presets: list[ProcessingPreset] = []
+    seen_ids: set[str] = set()
+
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"saved_processing_presets[{index}] must be an object.")
+
+        preset_id = _read_string(item, "id", default=f"processing-preset-{index + 1}")
+        if preset_id in seen_ids:
+            raise ConfigError(
+                f"saved_processing_presets[{index}] uses duplicate id '{preset_id}'."
+            )
+        seen_ids.add(preset_id)
+
+        prompt_id = _read_string(item, "prompt_id")
+        if prompt_id not in allowed_prompt_ids:
+            raise ConfigError(
+                f"saved_processing_presets[{index}] references unknown prompt_id '{prompt_id}'."
+            )
+
+        system_prompt_id = _read_optional_string(item, "system_prompt_id")
+        if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
+            raise ConfigError(
+                f"saved_processing_presets[{index}] references unknown system_prompt_id '{system_prompt_id}'."
+            )
+
+        mode = _read_string(item, "mode", default="overwrite")
+        if mode not in allowed_modes:
+            raise ConfigError("Processing preset mode must be 'append' or 'overwrite'.")
+
+        multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
+        response_delimiter = _read_optional_string(item, "response_delimiter")
+        if multiple_target_fields and not response_delimiter:
+            raise ConfigError(
+                f"saved_processing_presets[{index}] enables multiple_target_fields but has no response_delimiter."
+            )
+
+        presets.append(
+            ProcessingPreset(
+                preset_id=preset_id,
+                name=_read_string(item, "name"),
+                prompt_id=prompt_id,
+                model=_read_optional_string(item, "model"),
+                system_prompt_id=system_prompt_id,
+                target_field=_read_string(
+                    item,
+                    "target_field",
+                    default="",
+                    allow_empty=multiple_target_fields,
+                ),
+                mode=mode,
+                multiple_target_fields=multiple_target_fields,
+                response_delimiter=response_delimiter,
+            )
+        )
+
+    return presets
 
 
 def _read_workflows(

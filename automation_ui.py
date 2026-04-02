@@ -24,6 +24,7 @@ from aqt.utils import showCritical, tooltip
 
 from .config import (
     ConfigError,
+    ProcessingPreset,
     SavedPrompt,
     SavedSystemPrompt,
     load_config,
@@ -40,6 +41,19 @@ class PromptChoice:
     prompt_id: str
     name: str
     prompt_text: str
+
+
+@dataclass(frozen=True)
+class ProcessingPresetChoice:
+    preset_id: str
+    name: str
+    prompt_id: str
+    model: str | None
+    system_prompt_id: str | None
+    target_field: str
+    mode: str
+    multiple_target_fields: bool
+    response_delimiter: str | None
 
 
 def open_transform_dialog(browser: Browser, note_ids: list[int]) -> None:
@@ -88,6 +102,7 @@ class TransformWithAIDialog(QDialog):
         self._raw_config = load_raw_config()
         self._prompts = _prompt_choices_from_saved_prompts(config.saved_prompts)
         self._system_prompts = _prompt_choices_from_saved_system_prompts(config.saved_system_prompts)
+        self._presets = _preset_choices_from_saved_processing_presets(config.processing_presets)
         self._field_choices, self._field_summary = _collect_common_fields(note_ids)
         self._model_options = fallback_model_options(
             current_model=config.model,
@@ -97,6 +112,7 @@ class TransformWithAIDialog(QDialog):
         self.note_count_label = QLabel()
         self.note_types_label = QLabel()
         self.model_combo = QComboBox()
+        self.preset_combo = QComboBox()
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
@@ -113,6 +129,7 @@ class TransformWithAIDialog(QDialog):
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
+        self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
 
         self._build_ui()
         self._populate()
@@ -123,8 +140,11 @@ class TransformWithAIDialog(QDialog):
         target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
         write_mode = self.mode_combo.currentData() or WRITE_MODE_OVERWRITE
         model = self.model_combo.currentData() or self.model_combo.currentText().strip()
-        if not prompt or not system_prompt or not isinstance(target_field, str) or not target_field.strip():
+        if not prompt or not system_prompt:
             return None
+        if not self.multiple_target_fields_check.isChecked():
+            if not isinstance(target_field, str) or not target_field.strip():
+                return None
         return ManualProcessingSpec(
             prompt_name=prompt.name,
             prompt_template=prompt.prompt_text,
@@ -156,6 +176,20 @@ class TransformWithAIDialog(QDialog):
 
         options_group = QGroupBox("Run Settings")
         options_form = QFormLayout(options_group)
+
+        preset_row = QWidget()
+        preset_layout = QHBoxLayout(preset_row)
+        preset_layout.setContentsMargins(0, 0, 0, 0)
+        preset_layout.addWidget(self.preset_combo, stretch=1)
+        save_preset_button = QPushButton("Save")
+        update_preset_button = QPushButton("Update")
+        delete_preset_button = QPushButton("Delete")
+        save_preset_button.clicked.connect(self._save_current_as_preset)
+        update_preset_button.clicked.connect(self._update_selected_preset)
+        delete_preset_button.clicked.connect(self._delete_selected_preset)
+        preset_layout.addWidget(save_preset_button)
+        preset_layout.addWidget(update_preset_button)
+        preset_layout.addWidget(delete_preset_button)
 
         prompt_row = QWidget()
         prompt_layout = QHBoxLayout(prompt_row)
@@ -192,6 +226,7 @@ class TransformWithAIDialog(QDialog):
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
 
+        options_form.addRow("Preset", preset_row)
         options_form.addRow("Model", self.model_combo)
         options_form.addRow("", self.multiple_target_fields_check)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
@@ -217,6 +252,7 @@ class TransformWithAIDialog(QDialog):
         self.note_types_label.setText(self._field_summary["note_types"])
 
         self._populate_model_combo()
+        self._populate_preset_combo()
         self.target_field_combo.clear()
         for field_name in self._field_choices:
             self.target_field_combo.addItem(field_name, field_name)
@@ -246,6 +282,17 @@ class TransformWithAIDialog(QDialog):
             else:
                 self.model_combo.insertItem(0, current_model + " (Current selection)", current_model)
                 self.model_combo.setCurrentIndex(0)
+
+    def _populate_preset_combo(self) -> None:
+        selected_preset_id = self.preset_combo.currentData()
+        self.preset_combo.clear()
+        self.preset_combo.addItem("Choose a preset", "")
+        for preset in self._presets:
+            self.preset_combo.addItem(preset.name, preset.preset_id)
+        if selected_preset_id:
+            index = self.preset_combo.findData(selected_preset_id)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
 
     def _populate_prompt_combo(self) -> None:
         selected_prompt_id = self.prompt_combo.currentData()
@@ -293,6 +340,155 @@ class TransformWithAIDialog(QDialog):
         is_multi = self.multiple_target_fields_check.isChecked()
         self.target_field_combo.setEnabled(not is_multi)
         self.delimiter_edit.setEnabled(is_multi)
+
+    def _selected_preset(self) -> ProcessingPresetChoice | None:
+        preset_id = self.preset_combo.currentData()
+        for preset in self._presets:
+            if preset.preset_id == preset_id:
+                return preset
+        return None
+
+    def _on_preset_changed(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            return
+        self._apply_preset(preset)
+
+    def _apply_preset(self, preset: ProcessingPresetChoice) -> None:
+        self._set_combo_to_data(self.model_combo, preset.model)
+        self._set_combo_to_data(self.prompt_combo, preset.prompt_id)
+        self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
+        self._set_combo_to_data(self.mode_combo, preset.mode)
+        self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
+        self.delimiter_edit.setText(preset.response_delimiter or "")
+        if preset.target_field:
+            self._set_target_field(preset.target_field)
+        self._refresh_prompt_preview()
+        self._refresh_system_prompt_preview()
+        self._refresh_target_mode_ui()
+
+    def _save_current_as_preset(self) -> None:
+        dialog = SavedPromptDialog(
+            parent=self,
+            window_title="Processing Preset",
+            prompt_label="Description",
+            placeholder_text="Optional notes about this preset",
+            help_text="Save the current Browser processing settings with a reusable name.",
+            id_prefix="processing-preset",
+            require_prompt_text=False,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.named_item()
+        if choice is None:
+            return
+
+        target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
+        preset = ProcessingPresetChoice(
+            preset_id=choice.prompt_id,
+            name=choice.name,
+            prompt_id=str(self.prompt_combo.currentData() or ""),
+            model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
+            target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
+            mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
+            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            response_delimiter=self.delimiter_edit.text().strip() or None,
+        )
+        self._presets.append(preset)
+        self._save_processing_presets()
+        self._populate_preset_combo()
+        index = self.preset_combo.findData(preset.preset_id)
+        if index >= 0:
+            self.preset_combo.setCurrentIndex(index)
+
+    def _update_selected_preset(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            tooltip("Choose a preset to update.", parent=self)
+            return
+
+        updated = self._current_preset_choice(
+            preset_id=preset.preset_id,
+            name=preset.name,
+        )
+        for index, current in enumerate(self._presets):
+            if current.preset_id == preset.preset_id:
+                self._presets[index] = updated
+                break
+        self._save_processing_presets()
+        self._populate_preset_combo()
+        index = self.preset_combo.findData(updated.preset_id)
+        if index >= 0:
+            self.preset_combo.setCurrentIndex(index)
+        tooltip(f"Updated preset '{updated.name}'.", parent=self)
+
+    def _delete_selected_preset(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            tooltip("Choose a preset to delete.", parent=self)
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Processing Preset",
+            f"Delete the processing preset '{preset.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._presets = [item for item in self._presets if item.preset_id != preset.preset_id]
+        self._save_processing_presets()
+        self._populate_preset_combo()
+
+    def _save_processing_presets(self) -> None:
+        self._raw_config["saved_processing_presets"] = [
+            {
+                "id": preset.preset_id,
+                "name": preset.name,
+                "prompt_id": preset.prompt_id,
+                "model": preset.model,
+                "system_prompt_id": preset.system_prompt_id,
+                "target_field": preset.target_field,
+                "mode": preset.mode,
+                "multiple_target_fields": preset.multiple_target_fields,
+                "response_delimiter": preset.response_delimiter,
+            }
+            for preset in self._presets
+        ]
+        save_raw_config(self._raw_config)
+
+    def _current_preset_choice(self, *, preset_id: str, name: str) -> ProcessingPresetChoice:
+        target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
+        return ProcessingPresetChoice(
+            preset_id=preset_id,
+            name=name,
+            prompt_id=str(self.prompt_combo.currentData() or ""),
+            model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
+            target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
+            mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
+            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            response_delimiter=self.delimiter_edit.text().strip() or None,
+        )
+
+    def _set_combo_to_data(self, combo: QComboBox, value: str | None) -> None:
+        lookup = value or ""
+        index = combo.findData(lookup)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def _set_target_field(self, field_name: str) -> None:
+        index = self.target_field_combo.findData(field_name)
+        if index >= 0:
+            self.target_field_combo.setCurrentIndex(index)
+            return
+        index = self.target_field_combo.findText(field_name)
+        if index >= 0:
+            self.target_field_combo.setCurrentIndex(index)
+            return
+        self.target_field_combo.setEditText(field_name)
 
     def _create_prompt(self) -> None:
         dialog = SavedPromptDialog(
@@ -521,6 +717,25 @@ def _prompt_choices_from_saved_system_prompts(prompts: list[SavedSystemPrompt]) 
     ]
 
 
+def _preset_choices_from_saved_processing_presets(
+    presets: list[ProcessingPreset],
+) -> list[ProcessingPresetChoice]:
+    return [
+        ProcessingPresetChoice(
+            preset_id=preset.preset_id,
+            name=preset.name,
+            prompt_id=preset.prompt_id,
+            model=preset.model,
+            system_prompt_id=preset.system_prompt_id,
+            target_field=preset.target_field,
+            mode=preset.mode,
+            multiple_target_fields=preset.multiple_target_fields,
+            response_delimiter=preset.response_delimiter,
+        )
+        for preset in presets
+    ]
+
+
 class SavedPromptDialog(QDialog):
     def __init__(
         self,
@@ -532,11 +747,13 @@ class SavedPromptDialog(QDialog):
         help_text: str,
         id_prefix: str,
         prompt: PromptChoice | None = None,
+        require_prompt_text: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(window_title)
         self.resize(640, 420)
         self._id_prefix = id_prefix
+        self._require_prompt_text = require_prompt_text
 
         self.name_edit = QLineEdit()
         self.prompt_edit = QPlainTextEdit()
@@ -565,7 +782,7 @@ class SavedPromptDialog(QDialog):
     def prompt_choice(self, existing_id: str | None = None) -> PromptChoice | None:
         name = self.name_edit.text().strip()
         prompt_text = self.prompt_edit.toPlainText().strip()
-        if not name or not prompt_text:
+        if not name or (self._require_prompt_text and not prompt_text):
             return None
         return PromptChoice(
             prompt_id=existing_id or new_object_id(self._id_prefix),
@@ -573,11 +790,14 @@ class SavedPromptDialog(QDialog):
             prompt_text=prompt_text,
         )
 
+    def named_item(self, existing_id: str | None = None) -> PromptChoice | None:
+        return self.prompt_choice(existing_id=existing_id)
+
     def _validate_and_accept(self) -> None:
         if not self.name_edit.text().strip():
             showCritical("Prompt name must not be empty.", parent=self)
             return
-        if not self.prompt_edit.toPlainText().strip():
+        if self._require_prompt_text and not self.prompt_edit.toPlainText().strip():
             showCritical("Prompt text must not be empty.", parent=self)
             return
         self.accept()

@@ -55,6 +55,41 @@
       "prompt": "You improve Anki flashcards. Follow the user's requested delimiter-based output format exactly. Return only the field sections, keep the original meaning intact, stay concise, and do not include commentary before or after the delimited sections."
     }
   ],
+  "saved_processing_presets": [
+    {
+      "id": "preset-update-japanese-notes",
+      "name": "Update Japanese Notes",
+      "prompt_id": "update-japanese-notes",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "target_field": "Japanese Notes",
+      "mode": "overwrite",
+      "multiple_target_fields": false,
+      "response_delimiter": null
+    },
+    {
+      "id": "preset-update-grammar-notes",
+      "name": "Update Notes (Grammar Explanation)",
+      "prompt_id": "update-grammar-notes",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "target_field": "Notes",
+      "mode": "overwrite",
+      "multiple_target_fields": false,
+      "response_delimiter": null
+    },
+    {
+      "id": "preset-full-card-optimization",
+      "name": "Full Card Optimization",
+      "prompt_id": "full-card-optimization",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "target_field": "",
+      "mode": "overwrite",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--"
+    }
+  ],
   "workflow_groups": [
     {
       "id": "japanese-maintenance",
