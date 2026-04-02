@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from aqt import mw
 from aqt.browser import Browser
-from aqt.qt import QDialog, QLabel, QPushButton, QVBoxLayout, QWidget
+from aqt.qt import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 from aqt.operations import QueryOp
 from aqt.utils import askUser, showCritical, showInfo, tooltip
 
@@ -108,18 +108,33 @@ class ProcessingInterruptDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("AI Processing")
         self.setModal(False)
-        self.resize(360, 140)
+        self.resize(380, 180)
+        self._note_count = note_count
 
         layout = QVBoxLayout(self)
-        label = QLabel(
+        self.status_label = QLabel(
             f"Processing {note_count} note(s) with AI.\n\n"
             "Click Interrupt to stop after the current in-flight request(s)."
         )
-        label.setWordWrap(True)
-        layout.addWidget(label)
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(note_count)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
 
         self.interrupt_button = QPushButton("Interrupt")
         layout.addWidget(self.interrupt_button)
+
+    def set_progress(self, completed_count: int) -> None:
+        self.progress_bar.setValue(completed_count)
+        self.status_label.setText(
+            f"Processing {self._note_count} note(s) with AI.\n\n"
+            f"Completed {completed_count}/{self._note_count} note(s). "
+            "Click Interrupt to stop after the current in-flight request(s)."
+        )
 
 
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
@@ -219,6 +234,12 @@ def start_prepared_manual_processing(
     interrupt_dialog = ProcessingInterruptDialog(browser, note_count=len(prepared.snapshots))
     interrupt_dialog.interrupt_button.clicked.connect(lambda: _request_processing_interrupt(interrupt_dialog, cancel_event))
     interrupt_dialog.show()
+    total_snapshots = len(prepared.snapshots)
+
+    def report_progress(completed_count: int) -> None:
+        if mw is None or not hasattr(mw, "taskman"):
+            return
+        mw.taskman.run_on_main(lambda: interrupt_dialog.set_progress(min(completed_count, total_snapshots)))
 
     op = QueryOp(
         parent=browser,
@@ -228,6 +249,7 @@ def start_prepared_manual_processing(
                 prepared.snapshots,
                 prepared.failures,
                 cancel_event=cancel_event,
+                progress_callback=report_progress,
             )
         ),
         success=lambda result: _finish_prepared_processing(
@@ -418,11 +440,13 @@ async def _process_snapshots_async(
     initial_failures: list[NoteFailure],
     *,
     cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> ProcessingResult:
     updates_by_note_id: dict[int, NoteUpdate] = {}
     failures = list(initial_failures)
     max_workers = max(1, min(config.max_parallel_requests, config.batch_size))
     was_cancelled = False
+    completed_count = 0
 
     semaphore = asyncio.Semaphore(max_workers)
 
@@ -437,6 +461,9 @@ async def _process_snapshots_async(
     tasks = [asyncio.create_task(run_snapshot(snapshot)) for snapshot in snapshots]
     for completed in asyncio.as_completed(tasks):
         update, failure = await completed
+        completed_count += 1
+        if progress_callback is not None:
+            progress_callback(completed_count)
         if update is not None:
             updates_by_note_id[update.note_id] = update
         if failure is not None:

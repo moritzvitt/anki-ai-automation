@@ -115,8 +115,8 @@ def load_config() -> AddonConfig:
     model = _read_string(raw, "model", default="gpt-5-mini")
     default_prompt_template = _read_string(raw, "prompt_template")
     system_prompt = _read_string(raw, "system_prompt")
-    batch_size = _read_int(raw, "batch_size", minimum=1, default=5)
-    max_parallel_requests = _read_int(raw, "max_parallel_requests", minimum=1, default=1)
+    batch_size = _read_int(raw, "batch_size", minimum=1, default=10)
+    max_parallel_requests = _read_int(raw, "max_parallel_requests", minimum=1, default=10)
     request_timeout_seconds = _read_float(
         raw,
         "request_timeout_seconds",
