@@ -1,12 +1,14 @@
 # AI Automation
 
-AI Automation is an Anki add-on that sends selected Browser notes to the OpenAI API and writes the model response back into configured fields.
+AI Automation is an Anki add-on that sends Browser-selected notes to the OpenAI API and writes the model response back into note fields.
 
-Users can select one or many rows in the Anki Browser, right-click, and choose `Process with AI`. The add-on renders a configurable prompt template with note fields such as `{{Front}}` and `{{Back}}`, calls the official OpenAI Python client, and updates configured output fields after a confirmation step when existing content would be overwritten.
+Users can select one or many rows in the Anki Browser, right-click, and choose `Transform with AI`. The add-on resolves selected cards to notes, lets the user choose a shared target field plus a saved prompt, calls the official OpenAI Python client, and updates note fields after a confirmation step when existing content would be overwritten.
 
 ## Features
 
-- Browser right-click action that only appears when notes are selected
+- Browser right-click action that works with selected notes or cards
+- Saved prompt library with prompt names plus editable prompt text
+- Browser transform dialog with target-field selection and append/overwrite modes
 - Config-driven field mapping by note type
 - Configurable prompt template and system prompt
 - Structured JSON response handling for predictable field updates
@@ -80,10 +82,10 @@ The prompt can reference any field that exists on the note, plus `{{NoteType}}`.
 ## How It Works
 
 1. Select cards or notes in the Anki Browser.
-2. Right-click and choose `Process with AI`.
-3. The add-on resolves the matching `field_mappings` entry for each selected note.
+2. Right-click and choose `Transform with AI`.
+3. The add-on resolves the selected rows to note IDs, then lets you choose a shared target field, a saved prompt, and append or overwrite mode.
 4. A prompt is rendered from the note fields and sent to OpenAI.
-5. Returned JSON field values are written back to the note and saved to the collection.
+5. Returned JSON field values are written back to the chosen note field and saved to the collection.
 
 Open `Tools -> AI Automation Usage` to review tracked totals and recent runs. These spend figures are local add-on estimates based on model pricing, not billing-invoice truth.
 

@@ -1,0 +1,588 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from aqt import mw
+from aqt.browser import Browser
+from aqt.qt import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+from aqt.utils import showCritical, tooltip
+
+from .config import (
+    ConfigError,
+    SavedPrompt,
+    SavedSystemPrompt,
+    load_config,
+    load_raw_config,
+    new_object_id,
+    save_raw_config,
+)
+from .model_catalog import fallback_model_options
+from .processing import ManualProcessingSpec, WRITE_MODE_APPEND, WRITE_MODE_OVERWRITE, run_manual_ai_processing
+
+
+@dataclass(frozen=True)
+class PromptChoice:
+    prompt_id: str
+    name: str
+    prompt_text: str
+
+
+def open_transform_dialog(browser: Browser, note_ids: list[int]) -> None:
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
+    if not config.enabled:
+        tooltip("AI Automation is disabled in the add-on config.", parent=browser)
+        return
+
+    if mw is None or mw.col is None:
+        showCritical("Anki collection is not available.", parent=browser)
+        return
+
+    try:
+        dialog = TransformWithAIDialog(parent=browser, note_ids=note_ids, config=config)
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return
+
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
+
+    spec = dialog.processing_spec()
+    if spec is None:
+        return
+    run_manual_ai_processing(browser, config, note_ids, spec)
+
+
+class TransformWithAIDialog(QDialog):
+    def __init__(self, parent: Browser, note_ids: list[int], config) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Transform with AI")
+        self.resize(760, 620)
+
+        self._browser = parent
+        self._note_ids = note_ids
+        self._config = config
+        self._raw_config = load_raw_config()
+        self._prompts = _prompt_choices_from_saved_prompts(config.saved_prompts)
+        self._system_prompts = _prompt_choices_from_saved_system_prompts(config.saved_system_prompts)
+        self._field_choices, self._field_summary = _collect_common_fields(note_ids)
+        self._model_options = fallback_model_options(
+            current_model=config.model,
+            pricing_overrides=config.model_pricing,
+        )
+
+        self.note_count_label = QLabel()
+        self.note_types_label = QLabel()
+        self.model_combo = QComboBox()
+        self.target_field_combo = QComboBox()
+        self.prompt_combo = QComboBox()
+        self.system_prompt_combo = QComboBox()
+        self.mode_combo = QComboBox()
+        self.prompt_preview = QPlainTextEdit()
+        self.prompt_preview.setReadOnly(True)
+        self.prompt_preview.setMinimumHeight(160)
+        self.system_prompt_preview = QPlainTextEdit()
+        self.system_prompt_preview.setReadOnly(True)
+        self.system_prompt_preview.setMinimumHeight(140)
+
+        self.run_button = QPushButton("Run")
+        self.run_button.clicked.connect(self._validate_and_accept)
+
+        self._build_ui()
+        self._populate()
+
+    def processing_spec(self) -> ManualProcessingSpec | None:
+        prompt = self._selected_prompt()
+        system_prompt = self._selected_system_prompt()
+        target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
+        write_mode = self.mode_combo.currentData() or WRITE_MODE_OVERWRITE
+        model = self.model_combo.currentData() or self.model_combo.currentText().strip()
+        if not prompt or not system_prompt or not isinstance(target_field, str) or not target_field.strip():
+            return None
+        return ManualProcessingSpec(
+            prompt_name=prompt.name,
+            prompt_template=prompt.prompt_text,
+            target_field=target_field,
+            system_prompt_name=system_prompt.name,
+            system_prompt=system_prompt.prompt_text,
+            write_mode=str(write_mode),
+            model=str(model),
+        )
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            "Run a saved AI prompt on the selected Browser notes."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        summary_group = QGroupBox("Selection")
+        summary_form = QFormLayout(summary_group)
+        self.note_count_label.setWordWrap(True)
+        self.note_types_label.setWordWrap(True)
+        summary_form.addRow("Notes", self.note_count_label)
+        summary_form.addRow("Note types", self.note_types_label)
+        layout.addWidget(summary_group)
+
+        options_group = QGroupBox("Run Settings")
+        options_form = QFormLayout(options_group)
+
+        prompt_row = QWidget()
+        prompt_layout = QHBoxLayout(prompt_row)
+        prompt_layout.setContentsMargins(0, 0, 0, 0)
+        prompt_layout.addWidget(self.prompt_combo, stretch=1)
+
+        new_button = QPushButton("New")
+        edit_button = QPushButton("Edit")
+        delete_button = QPushButton("Delete")
+        new_button.clicked.connect(self._create_prompt)
+        edit_button.clicked.connect(self._edit_prompt)
+        delete_button.clicked.connect(self._delete_prompt)
+        prompt_layout.addWidget(new_button)
+        prompt_layout.addWidget(edit_button)
+        prompt_layout.addWidget(delete_button)
+
+        system_prompt_row = QWidget()
+        system_prompt_layout = QHBoxLayout(system_prompt_row)
+        system_prompt_layout.setContentsMargins(0, 0, 0, 0)
+        system_prompt_layout.addWidget(self.system_prompt_combo, stretch=1)
+
+        new_system_button = QPushButton("New")
+        edit_system_button = QPushButton("Edit")
+        delete_system_button = QPushButton("Delete")
+        new_system_button.clicked.connect(self._create_system_prompt)
+        edit_system_button.clicked.connect(self._edit_system_prompt)
+        delete_system_button.clicked.connect(self._delete_system_prompt)
+        system_prompt_layout.addWidget(new_system_button)
+        system_prompt_layout.addWidget(edit_system_button)
+        system_prompt_layout.addWidget(delete_system_button)
+
+        self.prompt_combo.currentIndexChanged.connect(self._refresh_prompt_preview)
+        self.system_prompt_combo.currentIndexChanged.connect(self._refresh_system_prompt_preview)
+        self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
+        self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
+
+        options_form.addRow("Model", self.model_combo)
+        options_form.addRow("Target field", self.target_field_combo)
+        options_form.addRow("Saved prompt", prompt_row)
+        options_form.addRow("System prompt", system_prompt_row)
+        options_form.addRow("Write mode", self.mode_combo)
+        layout.addWidget(options_group)
+
+        layout.addWidget(QLabel("Prompt preview"))
+        layout.addWidget(self.prompt_preview)
+        layout.addWidget(QLabel("System prompt preview"))
+        layout.addWidget(self.system_prompt_preview)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons.rejected.connect(self.reject)
+        buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
+        layout.addWidget(buttons)
+
+    def _populate(self) -> None:
+        self.note_count_label.setText(str(len(self._note_ids)))
+        self.note_types_label.setText(self._field_summary["note_types"])
+
+        self._populate_model_combo()
+        self.target_field_combo.clear()
+        for field_name in self._field_choices:
+            self.target_field_combo.addItem(field_name, field_name)
+
+        self._populate_prompt_combo()
+        self._populate_system_prompt_combo()
+        self._refresh_prompt_preview()
+        self._refresh_system_prompt_preview()
+
+        has_field_choice = bool(self._field_choices)
+        has_prompt = bool(self._prompts)
+        has_system_prompt = bool(self._system_prompts)
+        has_model = self.model_combo.count() > 0
+        self.run_button.setEnabled(has_field_choice and has_prompt and has_system_prompt and has_model)
+
+    def _populate_model_combo(self) -> None:
+        current_model = str(self._raw_config.get("model", "")).strip()
+        if self._config.model:
+            current_model = self._config.model
+        self.model_combo.clear()
+        for option in self._model_options:
+            self.model_combo.addItem(option.label, option.model_id)
+        if current_model:
+            index = self.model_combo.findData(current_model)
+            if index >= 0:
+                self.model_combo.setCurrentIndex(index)
+            else:
+                self.model_combo.insertItem(0, current_model + " (Current selection)", current_model)
+                self.model_combo.setCurrentIndex(0)
+
+    def _populate_prompt_combo(self) -> None:
+        selected_prompt_id = self.prompt_combo.currentData()
+        self.prompt_combo.clear()
+        for prompt in self._prompts:
+            self.prompt_combo.addItem(prompt.name, prompt.prompt_id)
+        if selected_prompt_id:
+            index = self.prompt_combo.findData(selected_prompt_id)
+            if index >= 0:
+                self.prompt_combo.setCurrentIndex(index)
+
+    def _selected_prompt(self) -> PromptChoice | None:
+        prompt_id = self.prompt_combo.currentData()
+        for prompt in self._prompts:
+            if prompt.prompt_id == prompt_id:
+                return prompt
+        return self._prompts[0] if self._prompts else None
+
+    def _populate_system_prompt_combo(self) -> None:
+        selected_prompt_id = self.system_prompt_combo.currentData()
+        self.system_prompt_combo.clear()
+        for prompt in self._system_prompts:
+            self.system_prompt_combo.addItem(prompt.name, prompt.prompt_id)
+        if selected_prompt_id:
+            index = self.system_prompt_combo.findData(selected_prompt_id)
+            if index >= 0:
+                self.system_prompt_combo.setCurrentIndex(index)
+
+    def _selected_system_prompt(self) -> PromptChoice | None:
+        prompt_id = self.system_prompt_combo.currentData()
+        for prompt in self._system_prompts:
+            if prompt.prompt_id == prompt_id:
+                return prompt
+        return self._system_prompts[0] if self._system_prompts else None
+
+    def _refresh_prompt_preview(self) -> None:
+        prompt = self._selected_prompt()
+        self.prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+
+    def _refresh_system_prompt_preview(self) -> None:
+        prompt = self._selected_system_prompt()
+        self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+
+    def _create_prompt(self) -> None:
+        dialog = SavedPromptDialog(
+            parent=self,
+            window_title="Saved Prompt",
+            prompt_label="Prompt",
+            placeholder_text="Use placeholders like {{Front}}, {{Back}}, {{NoteType}}",
+            help_text="Prompt names appear in the picker. The full prompt text is still stored and used during processing.",
+            id_prefix="prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.prompt_choice()
+        if choice is None:
+            return
+        self._prompts.append(choice)
+        self._save_prompts()
+        self._populate_prompt_combo()
+        index = self.prompt_combo.findData(choice.prompt_id)
+        if index >= 0:
+            self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
+
+    def _edit_prompt(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            return
+
+        dialog = SavedPromptDialog(
+            parent=self,
+            prompt=prompt,
+            window_title="Saved Prompt",
+            prompt_label="Prompt",
+            placeholder_text="Use placeholders like {{Front}}, {{Back}}, {{NoteType}}",
+            help_text="Prompt names appear in the picker. The full prompt text is still stored and used during processing.",
+            id_prefix="prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
+        if replacement is None:
+            return
+
+        for index, current in enumerate(self._prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._prompts[index] = replacement
+                break
+
+        self._save_prompts()
+        self._populate_prompt_combo()
+        index = self.prompt_combo.findData(replacement.prompt_id)
+        if index >= 0:
+            self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
+
+    def _create_system_prompt(self) -> None:
+        dialog = SavedPromptDialog(
+            parent=self,
+            window_title="Saved System Prompt",
+            prompt_label="System prompt",
+            placeholder_text="You improve Anki flashcards...",
+            help_text="System prompt names appear in the picker. Use this to keep reusable instruction sets with clear names.",
+            id_prefix="system-prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.prompt_choice()
+        if choice is None:
+            return
+        self._system_prompts.append(choice)
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        index = self.system_prompt_combo.findData(choice.prompt_id)
+        if index >= 0:
+            self.system_prompt_combo.setCurrentIndex(index)
+        self._refresh_system_prompt_preview()
+
+    def _edit_system_prompt(self) -> None:
+        prompt = self._selected_system_prompt()
+        if prompt is None:
+            return
+
+        dialog = SavedPromptDialog(
+            parent=self,
+            prompt=prompt,
+            window_title="Saved System Prompt",
+            prompt_label="System prompt",
+            placeholder_text="You improve Anki flashcards...",
+            help_text="System prompt names appear in the picker. Use this to keep reusable instruction sets with clear names.",
+            id_prefix="system-prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
+        if replacement is None:
+            return
+
+        for index, current in enumerate(self._system_prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._system_prompts[index] = replacement
+                break
+
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        index = self.system_prompt_combo.findData(replacement.prompt_id)
+        if index >= 0:
+            self.system_prompt_combo.setCurrentIndex(index)
+        self._refresh_system_prompt_preview()
+
+    def _delete_prompt(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            return
+
+        if prompt.prompt_id == "default-prompt" and len(self._prompts) == 1:
+            showCritical("Create another saved prompt before deleting the only available prompt.", parent=self)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Saved Prompt",
+            f"Delete the saved prompt '{prompt.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._prompts = [item for item in self._prompts if item.prompt_id != prompt.prompt_id]
+        if not self._prompts:
+            self._prompts = [
+                PromptChoice(
+                    prompt_id="default-prompt",
+                    name="Default prompt",
+                    prompt_text=str(self._raw_config.get("prompt_template", "")).strip(),
+                )
+            ]
+        self._save_prompts()
+        self._populate_prompt_combo()
+        self._refresh_prompt_preview()
+
+    def _delete_system_prompt(self) -> None:
+        prompt = self._selected_system_prompt()
+        if prompt is None:
+            return
+
+        if prompt.prompt_id == "default-system-prompt" and len(self._system_prompts) == 1:
+            showCritical("Create another saved system prompt before deleting the only available system prompt.", parent=self)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Saved System Prompt",
+            f"Delete the saved system prompt '{prompt.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._system_prompts = [item for item in self._system_prompts if item.prompt_id != prompt.prompt_id]
+        if not self._system_prompts:
+            self._system_prompts = [
+                PromptChoice(
+                    prompt_id="default-system-prompt",
+                    name="Default system prompt",
+                    prompt_text=str(self._raw_config.get("system_prompt", "")).strip(),
+                )
+            ]
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        self._refresh_system_prompt_preview()
+
+    def _save_prompts(self) -> None:
+        self._raw_config["saved_prompts"] = [
+            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
+            for prompt in self._prompts
+        ]
+        save_raw_config(self._raw_config)
+
+    def _save_system_prompts(self) -> None:
+        self._raw_config["saved_system_prompts"] = [
+            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
+            for prompt in self._system_prompts
+        ]
+        save_raw_config(self._raw_config)
+
+    def _validate_and_accept(self) -> None:
+        if not self._field_choices:
+            showCritical("The selected notes do not share any common target field.", parent=self)
+            return
+        if not (self.model_combo.currentData() or self.model_combo.currentText().strip()):
+            showCritical("Choose a model before running.", parent=self)
+            return
+        if self._selected_system_prompt() is None:
+            showCritical("Choose or create a saved system prompt before running.", parent=self)
+            return
+        if self._selected_prompt() is None:
+            showCritical("Choose or create a saved prompt before running.", parent=self)
+            return
+        self.accept()
+
+
+def _prompt_choices_from_saved_prompts(prompts: list[SavedPrompt]) -> list[PromptChoice]:
+    return [
+        PromptChoice(prompt_id=prompt.prompt_id, name=prompt.name, prompt_text=prompt.prompt_text)
+        for prompt in prompts
+    ]
+
+
+def _prompt_choices_from_saved_system_prompts(prompts: list[SavedSystemPrompt]) -> list[PromptChoice]:
+    return [
+        PromptChoice(prompt_id=prompt.prompt_id, name=prompt.name, prompt_text=prompt.prompt_text)
+        for prompt in prompts
+    ]
+
+
+class SavedPromptDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        window_title: str,
+        prompt_label: str,
+        placeholder_text: str,
+        help_text: str,
+        id_prefix: str,
+        prompt: PromptChoice | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(window_title)
+        self.resize(640, 420)
+        self._id_prefix = id_prefix
+
+        self.name_edit = QLineEdit()
+        self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setMinimumHeight(220)
+        self.prompt_edit.setPlaceholderText(placeholder_text)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.addRow("Name", self.name_edit)
+        form.addRow(prompt_label, self.prompt_edit)
+        layout.addLayout(form)
+
+        help_label = QLabel(help_text)
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        if prompt is not None:
+            self.name_edit.setText(prompt.name)
+            self.prompt_edit.setPlainText(prompt.prompt_text)
+
+    def prompt_choice(self, existing_id: str | None = None) -> PromptChoice | None:
+        name = self.name_edit.text().strip()
+        prompt_text = self.prompt_edit.toPlainText().strip()
+        if not name or not prompt_text:
+            return None
+        return PromptChoice(
+            prompt_id=existing_id or new_object_id(self._id_prefix),
+            name=name,
+            prompt_text=prompt_text,
+        )
+
+    def _validate_and_accept(self) -> None:
+        if not self.name_edit.text().strip():
+            showCritical("Prompt name must not be empty.", parent=self)
+            return
+        if not self.prompt_edit.toPlainText().strip():
+            showCritical("Prompt text must not be empty.", parent=self)
+            return
+        self.accept()
+
+
+def _collect_common_fields(note_ids: list[int]) -> tuple[list[str], dict[str, str]]:
+    if mw is None or mw.col is None:
+        return [], {"note_types": "Unavailable", "status": "Anki collection is not available."}
+
+    field_sets: list[set[str]] = []
+    note_types: list[str] = []
+    for note_id in note_ids:
+        note = mw.col.get_note(note_id)
+        if note is None:
+            continue
+        note_types.append(str(note.note_type()["name"]))
+        field_sets.append(set(note.keys()))
+
+    unique_note_types = sorted(set(note_types))
+    note_type_text = ", ".join(unique_note_types) if unique_note_types else "Unknown"
+    if not field_sets:
+        return [], {"note_types": note_type_text, "status": "No notes are available for inspection."}
+
+    common_fields = sorted(set.intersection(*field_sets))
+    if common_fields:
+        status = f"{len(common_fields)} shared field(s) available across the selected notes."
+    else:
+        status = "No shared fields were found across the selected note types."
+    return common_fields, {"note_types": note_type_text, "status": status}

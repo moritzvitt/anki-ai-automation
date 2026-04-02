@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Any
 
@@ -21,12 +21,19 @@ from .prompting import extract_placeholders, render_prompt
 from .usage_stats import record_usage_run
 
 
+WRITE_MODE_APPEND = "append"
+WRITE_MODE_OVERWRITE = "overwrite"
+
+
 @dataclass(frozen=True)
 class NoteSnapshot:
     note_id: int
     note_type_name: str
     fields: dict[str, str]
-    mapping: FieldMapping
+    output_fields: list[str]
+    prompt_template: str
+    system_prompt: str
+    write_mode: str = WRITE_MODE_OVERWRITE
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,7 @@ class NoteUpdate:
     output_fields: dict[str, str]
     usage: TokenUsage
     estimated_cost_usd: float | None
+    write_mode: str = WRITE_MODE_OVERWRITE
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,17 @@ class ProcessingEstimate:
     pricing_available: bool
 
 
+@dataclass(frozen=True)
+class ManualProcessingSpec:
+    prompt_name: str
+    prompt_template: str
+    target_field: str
+    system_prompt_name: str = ""
+    system_prompt: str = ""
+    write_mode: str = WRITE_MODE_OVERWRITE
+    model: str = ""
+
+
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
     if mw is None or mw.col is None:
         showCritical("Anki collection is not available.", parent=browser)
@@ -79,6 +98,40 @@ def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]
         overwrite_count,
         overwrite_fields,
         None,
+    )
+
+
+def run_manual_ai_processing(
+    browser: Browser,
+    config: AddonConfig,
+    note_ids: list[int],
+    spec: ManualProcessingSpec,
+) -> None:
+    if mw is None or mw.col is None:
+        showCritical("Anki collection is not available.", parent=browser)
+        return
+
+    run_config = replace(
+        config,
+        model=spec.model or config.model,
+        system_prompt=spec.system_prompt or config.system_prompt,
+    )
+
+    snapshots, failures = _build_manual_snapshots(note_ids, run_config, spec)
+    if failures and not snapshots:
+        showCritical(_format_failure_report(failures), parent=browser)
+        return
+
+    overwrite_count, overwrite_fields = _count_overwrites(snapshots)
+    estimate = _estimate_processing(run_config, snapshots) if run_config.show_estimate_before_sending else None
+    _confirm_and_start_processing(
+        browser,
+        run_config,
+        snapshots,
+        failures,
+        overwrite_count,
+        overwrite_fields,
+        estimate,
     )
 
 
@@ -132,7 +185,73 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
                 note_id=note_id,
                 note_type_name=note_type_name,
                 fields=available_fields,
-                mapping=mapping,
+                output_fields=list(mapping.output_fields),
+                prompt_template=prompt_template,
+                system_prompt=system_prompt,
+                write_mode=WRITE_MODE_OVERWRITE,
+            )
+        )
+
+    return snapshots, failures
+
+
+def _build_manual_snapshots(
+    note_ids: list[int],
+    config: AddonConfig,
+    spec: ManualProcessingSpec,
+) -> tuple[list[NoteSnapshot], list[NoteFailure]]:
+    assert mw is not None and mw.col is not None
+
+    snapshots: list[NoteSnapshot] = []
+    failures: list[NoteFailure] = []
+
+    for note_id in note_ids:
+        note = mw.col.get_note(note_id)
+        if note is None:
+            failures.append(NoteFailure(note_id=note_id, note_type_name="Unknown", reason="Note not found."))
+            continue
+
+        note_type = note.note_type()
+        note_type_name = str(note_type["name"])
+        available_fields = {field_name: note[field_name] for field_name in note.keys()}
+
+        if spec.target_field not in available_fields:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason=f"Target field '{spec.target_field}' does not exist on this note.",
+                )
+            )
+            continue
+
+        missing_prompt_fields = _missing_prompt_fields(
+            prompt_template=spec.prompt_template,
+            system_prompt=config.system_prompt,
+            available_fields=available_fields,
+        )
+        if missing_prompt_fields:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason=(
+                        "Referenced fields do not exist on the note: "
+                        + ", ".join(missing_prompt_fields)
+                    ),
+                )
+            )
+            continue
+
+        snapshots.append(
+            NoteSnapshot(
+                note_id=note_id,
+                note_type_name=note_type_name,
+                fields=available_fields,
+                output_fields=[spec.target_field],
+                prompt_template=spec.prompt_template,
+                system_prompt=config.system_prompt,
+                write_mode=spec.write_mode,
             )
         )
 
@@ -152,7 +271,7 @@ def _count_overwrites(snapshots: list[NoteSnapshot]) -> tuple[int, set[str]]:
 
     for snapshot in snapshots:
         note_has_existing_output = False
-        for field_name in snapshot.mapping.output_fields:
+        for field_name in snapshot.output_fields:
             if snapshot.fields.get(field_name, "").strip():
                 note_has_existing_output = True
                 overwrite_fields.add(field_name)
@@ -180,7 +299,7 @@ def _process_snapshots(
                     model=config.model,
                     system_prompt=system_prompt,
                     user_prompt=prompt,
-                    output_fields=snapshot.mapping.output_fields,
+                    output_fields=snapshot.output_fields,
                     timeout_seconds=config.request_timeout_seconds,
                     max_retries=config.max_retries,
                     retry_backoff_seconds=config.retry_backoff_seconds,
@@ -198,6 +317,7 @@ def _process_snapshots(
                             output_tokens=result.usage.output_tokens,
                             pricing=pricing,
                         ),
+                        write_mode=snapshot.write_mode,
                     )
                 )
             except OpenAIClientError as error:
@@ -230,8 +350,13 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
             continue
         changed = False
         for field_name, field_value in update.output_fields.items():
-            if note[field_name] != field_value:
-                note[field_name] = field_value
+            next_value = _merge_field_value(
+                current_value=note[field_name],
+                generated_value=field_value,
+                write_mode=update.write_mode,
+            )
+            if note[field_name] != next_value:
+                note[field_name] = next_value
                 changed = True
         if changed:
             mw.col.update_note(note)
@@ -286,12 +411,10 @@ def _chunked(items: list[Any], size: int) -> list[list[Any]]:
 
 
 def _render_snapshot_prompts(snapshot: NoteSnapshot, config: AddonConfig) -> tuple[str, str]:
-    prompt_template = snapshot.mapping.prompt_template or config.default_prompt_template
-    system_prompt = snapshot.mapping.system_prompt or config.system_prompt
     prompt_values = dict(snapshot.fields)
     prompt_values["NoteType"] = snapshot.note_type_name
-    prompt = render_prompt(prompt_template, prompt_values)
-    return system_prompt, prompt
+    prompt = render_prompt(snapshot.prompt_template, prompt_values)
+    return snapshot.system_prompt, prompt
 
 
 def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> ProcessingEstimate:
@@ -305,7 +428,7 @@ def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> 
                 model=config.model,
                 system_prompt=system_prompt,
                 user_prompt=prompt,
-                output_fields=snapshot.mapping.output_fields,
+                output_fields=snapshot.output_fields,
                 timeout_seconds=config.request_timeout_seconds,
                 reasoning_effort=config.reasoning_effort,
             )
@@ -439,3 +562,13 @@ def _missing_prompt_fields(
             missing.append(placeholder)
             seen.add(placeholder)
     return missing
+
+
+def _merge_field_value(*, current_value: str, generated_value: str, write_mode: str) -> str:
+    if write_mode != WRITE_MODE_APPEND:
+        return generated_value
+    if not current_value.strip():
+        return generated_value
+    if not generated_value.strip():
+        return current_value
+    return current_value.rstrip() + "\n\n" + generated_value.lstrip()

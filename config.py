@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import uuid
 from typing import Any
 
 from aqt import mw
@@ -24,6 +25,38 @@ class FieldMapping:
 
 
 @dataclass(frozen=True)
+class SavedPrompt:
+    prompt_id: str
+    name: str
+    prompt_text: str
+
+
+@dataclass(frozen=True)
+class SavedSystemPrompt:
+    prompt_id: str
+    name: str
+    prompt_text: str
+
+
+@dataclass(frozen=True)
+class WorkflowGroup:
+    group_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class Workflow:
+    workflow_id: str
+    name: str
+    query: str
+    prompt_id: str
+    target_field: str
+    mode: str
+    group_id: str | None = None
+    position: int = 0
+
+
+@dataclass(frozen=True)
 class AddonConfig:
     enabled: bool
     api_key: str
@@ -42,6 +75,10 @@ class AddonConfig:
     model_pricing: dict[str, ModelPricing]
     prompt_history: list[str]
     field_mappings: list[FieldMapping]
+    saved_prompts: list[SavedPrompt]
+    saved_system_prompts: list[SavedSystemPrompt]
+    workflow_groups: list[WorkflowGroup]
+    workflows: list[Workflow]
 
 
 def load_config() -> AddonConfig:
@@ -99,6 +136,17 @@ def load_config() -> AddonConfig:
 
     field_mappings = [_parse_field_mapping(item, index=index) for index, item in enumerate(field_mappings_raw)]
 
+    saved_prompts = _read_saved_prompts(
+        raw.get("saved_prompts", []),
+        fallback_prompt_template=default_prompt_template,
+    )
+    saved_system_prompts = _read_saved_system_prompts(
+        raw.get("saved_system_prompts", []),
+        fallback_system_prompt=system_prompt,
+    )
+    workflow_groups = _read_workflow_groups(raw.get("workflow_groups", []))
+    workflows = _read_workflows(raw.get("workflows", []), saved_prompts=saved_prompts)
+
     return AddonConfig(
         enabled=enabled,
         api_key=api_key,
@@ -117,6 +165,10 @@ def load_config() -> AddonConfig:
         model_pricing=model_pricing,
         prompt_history=prompt_history,
         field_mappings=field_mappings,
+        saved_prompts=saved_prompts,
+        saved_system_prompts=saved_system_prompts,
+        workflow_groups=workflow_groups,
+        workflows=workflows,
     )
 
 
@@ -231,6 +283,145 @@ def _read_optional_choice(source: dict[str, Any], key: str, *, allowed: set[str]
     return value
 
 
+def _read_saved_prompts(value: Any, *, fallback_prompt_template: str) -> list[SavedPrompt]:
+    if value in (None, []):
+        return [
+            SavedPrompt(
+                prompt_id="default-prompt",
+                name="Default prompt",
+                prompt_text=fallback_prompt_template,
+            )
+        ]
+
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'saved_prompts' must be a list.")
+
+    prompts: list[SavedPrompt] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"saved_prompts[{index}] must be an object.")
+
+        prompt_id = _read_string(item, "id", default=f"prompt-{index + 1}")
+        if prompt_id in seen_ids:
+            raise ConfigError(f"saved_prompts[{index}] uses duplicate id '{prompt_id}'.")
+        seen_ids.add(prompt_id)
+        prompts.append(
+            SavedPrompt(
+                prompt_id=prompt_id,
+                name=_read_string(item, "name"),
+                prompt_text=_read_string(item, "prompt"),
+            )
+        )
+
+    return prompts
+
+
+def _read_workflow_groups(value: Any) -> list[WorkflowGroup]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'workflow_groups' must be a list.")
+
+    groups: list[WorkflowGroup] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"workflow_groups[{index}] must be an object.")
+
+        group_id = _read_string(item, "id", default=f"group-{index + 1}")
+        if group_id in seen_ids:
+            raise ConfigError(f"workflow_groups[{index}] uses duplicate id '{group_id}'.")
+        seen_ids.add(group_id)
+        groups.append(
+            WorkflowGroup(
+                group_id=group_id,
+                name=_read_string(item, "name"),
+            )
+        )
+    return groups
+
+
+def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> list[SavedSystemPrompt]:
+    if value in (None, []):
+        return [
+            SavedSystemPrompt(
+                prompt_id="default-system-prompt",
+                name="Default system prompt",
+                prompt_text=fallback_system_prompt,
+            )
+        ]
+
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'saved_system_prompts' must be a list.")
+
+    prompts: list[SavedSystemPrompt] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"saved_system_prompts[{index}] must be an object.")
+
+        prompt_id = _read_string(item, "id", default=f"system-prompt-{index + 1}")
+        if prompt_id in seen_ids:
+            raise ConfigError(f"saved_system_prompts[{index}] uses duplicate id '{prompt_id}'.")
+        seen_ids.add(prompt_id)
+        prompts.append(
+            SavedSystemPrompt(
+                prompt_id=prompt_id,
+                name=_read_string(item, "name"),
+                prompt_text=_read_string(item, "prompt"),
+            )
+        )
+
+    return prompts
+
+
+def _read_workflows(value: Any, *, saved_prompts: list[SavedPrompt]) -> list[Workflow]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'workflows' must be a list.")
+
+    allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
+    allowed_modes = {"append", "overwrite"}
+    workflows: list[Workflow] = []
+    seen_ids: set[str] = set()
+
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"workflows[{index}] must be an object.")
+
+        workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
+        if workflow_id in seen_ids:
+            raise ConfigError(f"workflows[{index}] uses duplicate id '{workflow_id}'.")
+        seen_ids.add(workflow_id)
+
+        prompt_id = _read_string(item, "prompt_id")
+        if prompt_id not in allowed_prompt_ids:
+            raise ConfigError(
+                f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
+            )
+
+        mode = _read_string(item, "mode")
+        if mode not in allowed_modes:
+            raise ConfigError("Workflow mode must be 'append' or 'overwrite'.")
+
+        workflows.append(
+            Workflow(
+                workflow_id=workflow_id,
+                name=_read_string(item, "name"),
+                query=_read_string(item, "query"),
+                prompt_id=prompt_id,
+                target_field=_read_string(item, "target_field"),
+                mode=mode,
+                group_id=_read_optional_string(item, "group_id"),
+                position=_read_int(item, "position", minimum=0, default=index),
+            )
+        )
+
+    return workflows
+
+
 def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
     if value in (None, {}):
         return {}
@@ -259,6 +450,28 @@ def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
         )
 
     return parsed
+
+
+def load_raw_config() -> dict[str, Any]:
+    if mw is None:
+        raise ConfigError("Anki main window is not available.")
+
+    raw = mw.addonManager.getConfig(ADDON_NAME)
+    if not isinstance(raw, dict):
+        raise ConfigError("The add-on config could not be loaded.")
+
+    return dict(raw)
+
+
+def save_raw_config(raw_config: dict[str, Any]) -> None:
+    if mw is None:
+        raise ConfigError("Anki main window is not available.")
+
+    mw.addonManager.writeConfig(ADDON_NAME, raw_config)
+
+
+def new_object_id(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
 def _read_optional_string_list(value: Any, key: str) -> list[str]:

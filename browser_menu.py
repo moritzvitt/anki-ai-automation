@@ -5,10 +5,9 @@ from typing import Any
 from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.qt import QAction, QMenu
-from aqt.utils import showCritical, tooltip
+from aqt.utils import tooltip
 
-from .config import ConfigError, load_config
-from .processing import run_ai_processing
+from .automation_ui import open_transform_dialog
 
 
 def register_browser_menu() -> None:
@@ -23,44 +22,49 @@ def _on_browser_context_menu(browser: Browser, menu: QMenu) -> None:
     if not note_ids:
         return
 
-    action = QAction("Process with AI", browser)
+    action = QAction("Transform with AI", browser)
     action.triggered.connect(lambda: _trigger_processing(browser))
     menu.addSeparator()
     menu.addAction(action)
 
 
 def _trigger_processing(browser: Browser) -> None:
-    try:
-        config = load_config()
-    except ConfigError as error:
-        showCritical(str(error), parent=browser)
-        return
-
-    if not config.enabled:
-        tooltip("AI Automation is disabled in the add-on config.", parent=browser)
-        return
-
     note_ids = _selected_note_ids(browser)
     if not note_ids:
-        tooltip("Select at least one note in the Browser.", parent=browser)
+        tooltip("Select at least one card or note in the Browser.", parent=browser)
         return
 
-    run_ai_processing(browser, config, note_ids)
+    open_transform_dialog(browser, note_ids)
 
 
 def _selected_note_ids(browser: Browser) -> list[int]:
-    candidates: list[Any] = []
+    note_candidates: list[Any] = []
 
     if hasattr(browser, "selected_notes"):
-        candidates = list(browser.selected_notes())
+        note_candidates = list(browser.selected_notes())
     elif hasattr(browser, "selectedNotes"):
-        candidates = list(browser.selectedNotes())
+        note_candidates = list(browser.selectedNotes())
 
     note_ids: list[int] = []
-    for note_id in candidates:
+    for note_id in note_candidates:
         try:
             note_ids.append(int(note_id))
         except (TypeError, ValueError):
             continue
 
-    return note_ids
+    card_candidates: list[Any] = []
+    if hasattr(browser, "selected_cards"):
+        card_candidates = list(browser.selected_cards())
+    elif hasattr(browser, "selectedCards"):
+        card_candidates = list(browser.selectedCards())
+
+    if mw is not None and mw.col is not None:
+        for card_id in card_candidates:
+            try:
+                card = mw.col.get_card(int(card_id))
+            except (TypeError, ValueError):
+                continue
+            if card is not None:
+                note_ids.append(int(card.nid))
+
+    return sorted(set(note_ids))

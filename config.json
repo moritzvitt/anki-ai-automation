@@ -15,6 +15,22 @@
   "usage_history_limit": 20,
   "model_pricing": {},
   "prompt_history": [],
+  "saved_prompts": [
+    {
+      "id": "default-prompt",
+      "name": "Default prompt",
+      "prompt": "Improve the following flashcard content for note type {{NoteType}}.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}"
+    }
+  ],
+  "saved_system_prompts": [
+    {
+      "id": "default-system-prompt",
+      "name": "Default system prompt",
+      "prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON."
+    }
+  ],
+  "workflow_groups": [],
+  "workflows": [],
   "field_mappings": [
     {
       "note_type": "Basic",

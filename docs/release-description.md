@@ -2,7 +2,7 @@
 
 AI Automation brings OpenAI-powered note rewriting directly into the Anki Browser.
 
-Select one or many Browser rows, right-click, and choose `Process with AI`. The add-on renders a configurable prompt from your note fields, sends it to the OpenAI API, and writes structured results back into the fields you choose.
+Select one or many Browser rows, right-click, and choose `Transform with AI`. The add-on resolves cards to notes, lets you choose a shared target field plus a saved prompt, sends the rendered prompt to the OpenAI API, and writes structured results back into the selected note field.
 
 ## Main Features
 
