@@ -10,6 +10,7 @@ from aqt.qt import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -61,6 +62,7 @@ class WorkflowDraft:
     target_field: str
     mode: str
     model: str | None
+    temperature: float | None
     system_prompt_id: str | None
     multiple_target_fields: bool
     convert_markdown_to_html: bool
@@ -218,6 +220,7 @@ class WorkflowManagerDialog(QDialog):
             f"Prompt: {prompt_name} | Target: "
             f"{workflow.target_field if not workflow.multiple_target_fields else 'Delimited multi-field mode'} | "
             f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
+            f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'} | "
             f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
             f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
             f"Delimiter: {workflow.response_delimiter or '-'} | Group: {group_name}"
@@ -260,6 +263,7 @@ class WorkflowManagerDialog(QDialog):
                 "target_field": workflow.target_field,
                 "mode": workflow.mode,
                 "model": workflow.model,
+                "temperature": workflow.temperature,
                 "system_prompt_id": workflow.system_prompt_id,
                 "multiple_target_fields": workflow.multiple_target_fields,
                 "convert_markdown_to_html": workflow.convert_markdown_to_html,
@@ -305,6 +309,7 @@ class WorkflowManagerDialog(QDialog):
             target_field=draft.target_field,
             mode=draft.mode,
             model=draft.model,
+            temperature=draft.temperature,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
@@ -345,6 +350,7 @@ class WorkflowManagerDialog(QDialog):
             target_field=draft.target_field,
             mode=draft.mode,
             model=draft.model,
+            temperature=draft.temperature,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
@@ -541,6 +547,7 @@ class WorkflowManagerDialog(QDialog):
             system_prompt=self._system_prompt_text(workflow.system_prompt_id),
             write_mode=workflow.mode,
             model=workflow.model or config.model,
+            temperature=workflow.temperature,
             multiple_target_fields=workflow.multiple_target_fields,
             convert_markdown_to_html=workflow.convert_markdown_to_html,
             response_delimiter=workflow.response_delimiter or "",
@@ -705,6 +712,8 @@ class WorkflowDialog(QDialog):
         self.query_edit = QPlainTextEdit()
         self.query_count_label = QLabel("Click Refresh Count to check the query.")
         self.model_combo = QComboBox()
+        self.use_global_temperature_check = QCheckBox("Use global temperature")
+        self.temperature_spin = QDoubleSpinBox()
         self.preset_combo = QComboBox()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
@@ -762,8 +771,14 @@ class WorkflowDialog(QDialog):
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
+        self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
+        self.temperature_spin.setDecimals(2)
+        self.temperature_spin.setRange(0.0, 2.0)
+        self.temperature_spin.setSingleStep(0.1)
+        self.temperature_spin.setValue(0.2)
+        self.use_global_temperature_check.setChecked(True)
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
@@ -782,6 +797,12 @@ class WorkflowDialog(QDialog):
         preset_layout.addWidget(delete_preset_button)
         form.addRow("Preset", preset_row)
         form.addRow("Model", self.model_combo)
+        temperature_row = QWidget()
+        temperature_layout = QHBoxLayout(temperature_row)
+        temperature_layout.setContentsMargins(0, 0, 0, 0)
+        temperature_layout.addWidget(self.use_global_temperature_check)
+        temperature_layout.addWidget(self.temperature_spin)
+        form.addRow("Temperature", temperature_row)
         form.addRow("Prompt", prompt_row)
         form.addRow("System prompt", system_prompt_row)
         form.addRow("", self.multiple_target_fields_check)
@@ -809,6 +830,7 @@ class WorkflowDialog(QDialog):
         self._populate_system_prompt_combo()
         self._populate_group_combo()
         self._refresh_target_mode_ui()
+        self._refresh_temperature_ui()
 
         if workflow is None:
             return
@@ -818,6 +840,7 @@ class WorkflowDialog(QDialog):
         self.target_field_combo.setEditText(workflow.target_field)
         self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
+        self._set_temperature(workflow.temperature)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
         model_value = workflow.model or self._current_model
         model_index = self.model_combo.findData(model_value)
@@ -851,6 +874,7 @@ class WorkflowDialog(QDialog):
             name=name,
             query=query,
             model=str(model) or None,
+            temperature=self._selected_temperature(),
             prompt_id=prompt_id,
             system_prompt_id=str(system_prompt_id) or None,
             target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
@@ -920,6 +944,9 @@ class WorkflowDialog(QDialog):
         self.target_field_combo.setEnabled(not is_multi)
         self.delimiter_edit.setEnabled(is_multi)
 
+    def _refresh_temperature_ui(self) -> None:
+        self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
+
     def _selected_preset(self) -> ProcessingPresetChoice | None:
         preset_id = self.preset_combo.currentData()
         for preset in self._presets:
@@ -938,6 +965,7 @@ class WorkflowDialog(QDialog):
         self._set_combo_to_data(self.prompt_combo, preset.prompt_id)
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
         self._set_combo_to_data(self.mode_combo, preset.mode)
+        self._set_temperature(preset.temperature)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
         self.delimiter_edit.setText(preset.response_delimiter or "")
@@ -967,6 +995,7 @@ class WorkflowDialog(QDialog):
             name=choice.name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
             target_field="" if self.multiple_target_fields_check.isChecked() else self.target_field_combo.currentText().strip(),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
@@ -1027,6 +1056,7 @@ class WorkflowDialog(QDialog):
                 "name": preset.name,
                 "prompt_id": preset.prompt_id,
                 "model": preset.model,
+                "temperature": preset.temperature,
                 "system_prompt_id": preset.system_prompt_id,
                 "target_field": preset.target_field,
                 "mode": preset.mode,
@@ -1044,6 +1074,7 @@ class WorkflowDialog(QDialog):
             name=name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
             target_field="" if self.multiple_target_fields_check.isChecked() else self.target_field_combo.currentText().strip(),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
@@ -1057,6 +1088,17 @@ class WorkflowDialog(QDialog):
         index = combo.findData(lookup)
         if index >= 0:
             combo.setCurrentIndex(index)
+
+    def _selected_temperature(self) -> float | None:
+        if self.use_global_temperature_check.isChecked():
+            return None
+        return float(self.temperature_spin.value())
+
+    def _set_temperature(self, value: float | None) -> None:
+        self.use_global_temperature_check.setChecked(value is None)
+        if value is not None:
+            self.temperature_spin.setValue(float(value))
+        self._refresh_temperature_ui()
 
     def _set_target_field(self, field_name: str) -> None:
         index = self.target_field_combo.findData(field_name)

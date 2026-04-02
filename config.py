@@ -44,6 +44,7 @@ class ProcessingPreset:
     name: str
     prompt_id: str
     model: str | None = None
+    temperature: float | None = None
     system_prompt_id: str | None = None
     target_field: str = ""
     mode: str = "overwrite"
@@ -67,6 +68,7 @@ class Workflow:
     target_field: str
     mode: str
     model: str | None = None
+    temperature: float | None = None
     system_prompt_id: str | None = None
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
@@ -467,6 +469,12 @@ def _read_processing_presets(
                 name=_read_string(item, "name"),
                 prompt_id=prompt_id,
                 model=_read_optional_string(item, "model"),
+                temperature=_read_optional_float(
+                    item,
+                    "temperature",
+                    minimum=0.0,
+                    maximum=2.0,
+                ),
                 system_prompt_id=system_prompt_id,
                 target_field=_read_string(
                     item,
@@ -528,6 +536,12 @@ def _read_workflows(
         if group_id is not None and group_id not in allowed_group_ids:
             raise ConfigError(f"workflows[{index}] references unknown group_id '{group_id}'.")
         model = _read_optional_string(item, "model")
+        temperature = _read_optional_float(
+            item,
+            "temperature",
+            minimum=0.0,
+            maximum=2.0,
+        )
         system_prompt_id = _read_optional_string(item, "system_prompt_id")
         if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
             raise ConfigError(
@@ -556,6 +570,7 @@ def _read_workflows(
                 target_field=target_field,
                 mode=mode,
                 model=model,
+                temperature=temperature,
                 system_prompt_id=system_prompt_id,
                 multiple_target_fields=multiple_target_fields,
                 convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),

@@ -89,6 +89,7 @@ class ManualProcessingSpec:
     system_prompt: str = ""
     write_mode: str = WRITE_MODE_OVERWRITE
     model: str = ""
+    temperature: float | None = None
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
     response_delimiter: str = ""
@@ -173,6 +174,7 @@ def run_manual_ai_processing(
         config,
         model=spec.model or config.model,
         system_prompt=spec.system_prompt or config.system_prompt,
+        temperature=spec.temperature if spec.temperature is not None else config.temperature,
     )
 
     snapshots, failures = _build_manual_snapshots(note_ids, run_config, spec)
@@ -207,6 +209,7 @@ def prepare_manual_ai_processing(
         config,
         model=spec.model or config.model,
         system_prompt=spec.system_prompt or config.system_prompt,
+        temperature=spec.temperature if spec.temperature is not None else config.temperature,
     )
     snapshots, failures = _build_manual_snapshots(note_ids, run_config, spec)
     overwrite_count, overwrite_fields = _count_overwrites(snapshots)

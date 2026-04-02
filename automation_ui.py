@@ -9,6 +9,7 @@ from aqt.qt import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -49,6 +50,7 @@ class ProcessingPresetChoice:
     name: str
     prompt_id: str
     model: str | None
+    temperature: float | None
     system_prompt_id: str | None
     target_field: str
     mode: str
@@ -113,6 +115,8 @@ class TransformWithAIDialog(QDialog):
         self.note_count_label = QLabel()
         self.note_types_label = QLabel()
         self.model_combo = QComboBox()
+        self.use_global_temperature_check = QCheckBox("Use global temperature")
+        self.temperature_spin = QDoubleSpinBox()
         self.preset_combo = QComboBox()
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
@@ -132,6 +136,7 @@ class TransformWithAIDialog(QDialog):
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.prompt_preview.textChanged.connect(self._sync_prompt_from_editor)
         self.system_prompt_preview.textChanged.connect(self._sync_system_prompt_from_editor)
+        self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
 
         self._build_ui()
         self._populate()
@@ -155,6 +160,7 @@ class TransformWithAIDialog(QDialog):
             system_prompt=self.system_prompt_preview.toPlainText().strip(),
             write_mode=str(write_mode),
             model=str(model),
+            temperature=self._selected_temperature(),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip(),
@@ -228,9 +234,20 @@ class TransformWithAIDialog(QDialog):
         self.system_prompt_combo.currentIndexChanged.connect(self._refresh_system_prompt_preview)
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
+        self.temperature_spin.setDecimals(2)
+        self.temperature_spin.setRange(0.0, 2.0)
+        self.temperature_spin.setSingleStep(0.1)
+        self.temperature_spin.setValue(self._config.temperature if self._config.temperature is not None else 0.2)
+        self.use_global_temperature_check.setChecked(True)
 
         options_form.addRow("Preset", preset_row)
         options_form.addRow("Model", self.model_combo)
+        temperature_row = QWidget()
+        temperature_layout = QHBoxLayout(temperature_row)
+        temperature_layout.setContentsMargins(0, 0, 0, 0)
+        temperature_layout.addWidget(self.use_global_temperature_check)
+        temperature_layout.addWidget(self.temperature_spin)
+        options_form.addRow("Temperature", temperature_row)
         options_form.addRow("", self.multiple_target_fields_check)
         options_form.addRow("", self.convert_markdown_to_html_check)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
@@ -266,6 +283,7 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
+        self._refresh_temperature_ui()
 
         has_prompt = bool(self._prompts)
         has_system_prompt = bool(self._system_prompts)
@@ -379,6 +397,9 @@ class TransformWithAIDialog(QDialog):
         self.target_field_combo.setEnabled(not is_multi)
         self.delimiter_edit.setEnabled(is_multi)
 
+    def _refresh_temperature_ui(self) -> None:
+        self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
+
     def _selected_preset(self) -> ProcessingPresetChoice | None:
         preset_id = self.preset_combo.currentData()
         for preset in self._presets:
@@ -397,6 +418,7 @@ class TransformWithAIDialog(QDialog):
         self._set_combo_to_data(self.prompt_combo, preset.prompt_id)
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
         self._set_combo_to_data(self.mode_combo, preset.mode)
+        self._set_temperature(preset.temperature)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
         self.delimiter_edit.setText(preset.response_delimiter or "")
@@ -429,6 +451,7 @@ class TransformWithAIDialog(QDialog):
             name=choice.name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
             target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
@@ -489,6 +512,7 @@ class TransformWithAIDialog(QDialog):
                 "name": preset.name,
                 "prompt_id": preset.prompt_id,
                 "model": preset.model,
+                "temperature": preset.temperature,
                 "system_prompt_id": preset.system_prompt_id,
                 "target_field": preset.target_field,
                 "mode": preset.mode,
@@ -507,6 +531,7 @@ class TransformWithAIDialog(QDialog):
             name=name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
+            temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
             target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
@@ -520,6 +545,17 @@ class TransformWithAIDialog(QDialog):
         index = combo.findData(lookup)
         if index >= 0:
             combo.setCurrentIndex(index)
+
+    def _selected_temperature(self) -> float | None:
+        if self.use_global_temperature_check.isChecked():
+            return None
+        return float(self.temperature_spin.value())
+
+    def _set_temperature(self, value: float | None) -> None:
+        self.use_global_temperature_check.setChecked(value is None)
+        if value is not None:
+            self.temperature_spin.setValue(float(value))
+        self._refresh_temperature_ui()
 
     def _set_target_field(self, field_name: str) -> None:
         index = self.target_field_combo.findData(field_name)
@@ -768,6 +804,7 @@ def _preset_choices_from_saved_processing_presets(
             name=preset.name,
             prompt_id=preset.prompt_id,
             model=preset.model,
+            temperature=preset.temperature,
             system_prompt_id=preset.system_prompt_id,
             target_field=preset.target_field,
             mode=preset.mode,
