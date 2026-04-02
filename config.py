@@ -48,6 +48,7 @@ class ProcessingPreset:
     target_field: str = ""
     mode: str = "overwrite"
     multiple_target_fields: bool = False
+    convert_markdown_to_html: bool = False
     response_delimiter: str | None = None
 
 
@@ -68,6 +69,7 @@ class Workflow:
     model: str | None = None
     system_prompt_id: str | None = None
     multiple_target_fields: bool = False
+    convert_markdown_to_html: bool = False
     response_delimiter: str | None = None
     group_id: str | None = None
     position: int = 0
@@ -474,6 +476,7 @@ def _read_processing_presets(
                 ),
                 mode=mode,
                 multiple_target_fields=multiple_target_fields,
+                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
                 response_delimiter=response_delimiter,
             )
         )
@@ -555,6 +558,7 @@ def _read_workflows(
                 model=model,
                 system_prompt_id=system_prompt_id,
                 multiple_target_fields=multiple_target_fields,
+                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
                 response_delimiter=response_delimiter,
                 group_id=group_id,
                 position=_read_int(item, "position", minimum=0, default=index),

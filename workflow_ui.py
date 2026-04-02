@@ -6,6 +6,7 @@ from aqt import mw
 from aqt.qt import (
     QAction,
     QCheckBox,
+    QColor,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -15,6 +16,7 @@ from aqt.qt import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -61,6 +63,7 @@ class WorkflowDraft:
     model: str | None
     system_prompt_id: str | None
     multiple_target_fields: bool
+    convert_markdown_to_html: bool
     response_delimiter: str | None
     group_name: str | None
 
@@ -104,6 +107,7 @@ class WorkflowManagerDialog(QDialog):
 
         self.workflow_list = QListWidget()
         self.group_run_combo = QComboBox()
+        self._visible_workflows: list[Workflow] = []
 
         self._build_ui()
         self._populate()
@@ -122,6 +126,7 @@ class WorkflowManagerDialog(QDialog):
         group_layout = QHBoxLayout(group_box)
         group_layout.addWidget(QLabel("Workflow group"))
         group_layout.addWidget(self.group_run_combo, stretch=1)
+        self.group_run_combo.currentIndexChanged.connect(self._populate)
         run_group_button = QPushButton("Run Group")
         run_group_button.clicked.connect(self._run_selected_group)
         group_layout.addWidget(run_group_button)
@@ -176,14 +181,33 @@ class WorkflowManagerDialog(QDialog):
         self._workflows = sorted(self._config.workflows, key=lambda workflow: workflow.position)
 
     def _populate(self) -> None:
-        self.workflow_list.clear()
-        for workflow in self._workflows:
-            self.workflow_list.addItem(self._workflow_preview(workflow))
-
+        selected_group_id = self.group_run_combo.currentData()
+        self.group_run_combo.blockSignals(True)
         self.group_run_combo.clear()
-        self.group_run_combo.addItem("Choose a group", "")
+        self.group_run_combo.addItem("All workflows", "")
         for group in self._groups:
             self.group_run_combo.addItem(group.name, group.group_id)
+        if isinstance(selected_group_id, str):
+            index = self.group_run_combo.findData(selected_group_id)
+            if index >= 0:
+                self.group_run_combo.setCurrentIndex(index)
+        self.group_run_combo.blockSignals(False)
+
+        current_group_id = self.group_run_combo.currentData()
+        if isinstance(current_group_id, str) and current_group_id:
+            self._visible_workflows = [
+                workflow for workflow in self._workflows if workflow.group_id == current_group_id
+            ]
+        else:
+            self._visible_workflows = list(self._workflows)
+
+        self.workflow_list.clear()
+        color_a = QColor("#f6f1e8")
+        color_b = QColor("#e8f0ea")
+        for index, workflow in enumerate(self._visible_workflows):
+            item = QListWidgetItem(self._workflow_preview(workflow))
+            item.setBackground(color_a if index % 2 == 0 else color_b)
+            self.workflow_list.addItem(item)
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
@@ -195,6 +219,7 @@ class WorkflowManagerDialog(QDialog):
             f"{workflow.target_field if not workflow.multiple_target_fields else 'Delimited multi-field mode'} | "
             f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
             f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
+            f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
             f"Delimiter: {workflow.response_delimiter or '-'} | Group: {group_name}"
         )
 
@@ -237,6 +262,7 @@ class WorkflowManagerDialog(QDialog):
                 "model": workflow.model,
                 "system_prompt_id": workflow.system_prompt_id,
                 "multiple_target_fields": workflow.multiple_target_fields,
+                "convert_markdown_to_html": workflow.convert_markdown_to_html,
                 "response_delimiter": workflow.response_delimiter,
                 "group_id": workflow.group_id,
                 "position": index,
@@ -249,6 +275,12 @@ class WorkflowManagerDialog(QDialog):
 
     def _selected_workflow_index(self) -> int:
         return self.workflow_list.currentRow()
+
+    def _selected_workflow(self) -> Workflow | None:
+        row = self._selected_workflow_index()
+        if row < 0 or row >= len(self._visible_workflows):
+            return None
+        return self._visible_workflows[row]
 
     def _add_workflow(self) -> None:
         dialog = WorkflowDialog(
@@ -275,19 +307,20 @@ class WorkflowManagerDialog(QDialog):
             model=draft.model,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
+            convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
             group_id=self._group_id_for_name(draft.group_name),
             position=len(self._workflows),
         )
         self._workflows.append(workflow)
         self._save_state()
-        self.workflow_list.setCurrentRow(len(self._workflows) - 1)
+        self._select_workflow_by_id(workflow.workflow_id)
 
     def _edit_workflow(self) -> None:
-        row = self._selected_workflow_index()
-        if row < 0 or row >= len(self._workflows):
+        workflow = self._selected_workflow()
+        if workflow is None:
             return
-        workflow = self._workflows[row]
+        row = self._workflows.index(workflow)
         dialog = WorkflowDialog(
             parent=self,
             prompts=self._prompts,
@@ -314,18 +347,18 @@ class WorkflowManagerDialog(QDialog):
             model=draft.model,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
+            convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
             group_id=self._group_id_for_name(draft.group_name),
         )
         self._save_state()
-        self.workflow_list.setCurrentRow(row)
+        self._select_workflow_by_id(workflow.workflow_id)
 
     def _delete_workflow(self) -> None:
-        row = self._selected_workflow_index()
-        if row < 0 or row >= len(self._workflows):
+        workflow = self._selected_workflow()
+        if workflow is None:
             return
-
-        workflow = self._workflows[row]
+        row = self._workflows.index(workflow)
         reply = QMessageBox.question(
             self,
             "Delete Workflow",
@@ -339,16 +372,14 @@ class WorkflowManagerDialog(QDialog):
         del self._workflows[row]
         self._remove_unused_groups()
         self._save_state()
-        if self._workflows:
-            self.workflow_list.setCurrentRow(min(row, len(self._workflows) - 1))
 
     def _duplicate_workflow(self) -> None:
-        row = self._selected_workflow_index()
-        if row < 0 or row >= len(self._workflows):
+        workflow = self._selected_workflow()
+        if workflow is None:
             tooltip("Select a workflow to duplicate.", parent=self)
             return
 
-        workflow = self._workflows[row]
+        row = self._workflows.index(workflow)
         duplicate = replace(
             workflow,
             workflow_id=new_object_id("workflow"),
@@ -357,30 +388,36 @@ class WorkflowManagerDialog(QDialog):
         )
         self._workflows.insert(row + 1, duplicate)
         self._save_state()
-        self.workflow_list.setCurrentRow(row + 1)
+        self._select_workflow_by_id(duplicate.workflow_id)
 
     def _move_selected_up(self) -> None:
-        row = self._selected_workflow_index()
+        workflow = self._selected_workflow()
+        if workflow is None:
+            return
+        row = self._workflows.index(workflow)
         if row <= 0 or row >= len(self._workflows):
             return
         self._workflows[row - 1], self._workflows[row] = self._workflows[row], self._workflows[row - 1]
         self._save_state()
-        self.workflow_list.setCurrentRow(row - 1)
+        self._select_workflow_by_id(workflow.workflow_id)
 
     def _move_selected_down(self) -> None:
-        row = self._selected_workflow_index()
+        workflow = self._selected_workflow()
+        if workflow is None:
+            return
+        row = self._workflows.index(workflow)
         if row < 0 or row >= len(self._workflows) - 1:
             return
         self._workflows[row + 1], self._workflows[row] = self._workflows[row], self._workflows[row + 1]
         self._save_state()
-        self.workflow_list.setCurrentRow(row + 1)
+        self._select_workflow_by_id(workflow.workflow_id)
 
     def _run_selected_workflow(self) -> None:
-        row = self._selected_workflow_index()
-        if row < 0 or row >= len(self._workflows):
+        workflow = self._selected_workflow()
+        if workflow is None:
             tooltip("Select a workflow to run.", parent=self)
             return
-        self._run_workflow_sequence([self._workflows[row]], run_label=self._workflows[row].name)
+        self._run_workflow_sequence([workflow], run_label=workflow.name)
 
     def _run_selected_group(self) -> None:
         group_id = self.group_run_combo.currentData()
@@ -452,6 +489,8 @@ class WorkflowManagerDialog(QDialog):
         prompt_lookup: dict[str, SavedPrompt],
         summary: WorkflowSequenceSummary,
     ) -> None:
+        # Workflows intentionally run one after another so later workflows can
+        # safely build on fields updated by earlier ones on the same notes.
         if index >= len(workflows):
             self.setEnabled(True)
             self._show_workflow_sequence_summary(summary)
@@ -503,6 +542,7 @@ class WorkflowManagerDialog(QDialog):
             write_mode=workflow.mode,
             model=workflow.model or config.model,
             multiple_target_fields=workflow.multiple_target_fields,
+            convert_markdown_to_html=workflow.convert_markdown_to_html,
             response_delimiter=workflow.response_delimiter or "",
         )
         prepared = prepare_manual_ai_processing(
@@ -616,6 +656,12 @@ class WorkflowManagerDialog(QDialog):
         used_group_ids = {workflow.group_id for workflow in self._workflows if workflow.group_id}
         self._groups = [group for group in self._groups if group.group_id in used_group_ids]
 
+    def _select_workflow_by_id(self, workflow_id: str) -> None:
+        for index, workflow in enumerate(self._visible_workflows):
+            if workflow.workflow_id == workflow_id:
+                self.workflow_list.setCurrentRow(index)
+                return
+
     def _system_prompt_text(self, prompt_id: str | None) -> str:
         if prompt_id is None:
             return self._config.system_prompt
@@ -663,6 +709,7 @@ class WorkflowDialog(QDialog):
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
+        self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
@@ -738,6 +785,7 @@ class WorkflowDialog(QDialog):
         form.addRow("Prompt", prompt_row)
         form.addRow("System prompt", system_prompt_row)
         form.addRow("", self.multiple_target_fields_check)
+        form.addRow("", self.convert_markdown_to_html_check)
         form.addRow("Response delimiter", self.delimiter_edit)
         form.addRow("Target field", self.target_field_combo)
         form.addRow("Mode", self.mode_combo)
@@ -769,6 +817,7 @@ class WorkflowDialog(QDialog):
         self.query_edit.setPlainText(workflow.query)
         self.target_field_combo.setEditText(workflow.target_field)
         self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
+        self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
         model_value = workflow.model or self._current_model
         model_index = self.model_combo.findData(model_value)
@@ -807,6 +856,7 @@ class WorkflowDialog(QDialog):
             target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
             mode=str(mode),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
             group_name=group_name or None,
         )
@@ -889,6 +939,7 @@ class WorkflowDialog(QDialog):
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
         self._set_combo_to_data(self.mode_combo, preset.mode)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
+        self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
         self.delimiter_edit.setText(preset.response_delimiter or "")
         if preset.target_field:
             self._set_target_field(preset.target_field)
@@ -920,6 +971,7 @@ class WorkflowDialog(QDialog):
             target_field="" if self.multiple_target_fields_check.isChecked() else self.target_field_combo.currentText().strip(),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
         self._presets.append(preset)
@@ -979,6 +1031,7 @@ class WorkflowDialog(QDialog):
                 "target_field": preset.target_field,
                 "mode": preset.mode,
                 "multiple_target_fields": preset.multiple_target_fields,
+                "convert_markdown_to_html": preset.convert_markdown_to_html,
                 "response_delimiter": preset.response_delimiter,
             }
             for preset in self._presets
@@ -995,6 +1048,7 @@ class WorkflowDialog(QDialog):
             target_field="" if self.multiple_target_fields_check.isChecked() else self.target_field_combo.currentText().strip(),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
 

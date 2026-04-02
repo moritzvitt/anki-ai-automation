@@ -53,6 +53,7 @@ class ProcessingPresetChoice:
     target_field: str
     mode: str
     multiple_target_fields: bool
+    convert_markdown_to_html: bool
     response_delimiter: str | None
 
 
@@ -114,22 +115,23 @@ class TransformWithAIDialog(QDialog):
         self.model_combo = QComboBox()
         self.preset_combo = QComboBox()
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
+        self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
         self.mode_combo = QComboBox()
         self.prompt_preview = QPlainTextEdit()
-        self.prompt_preview.setReadOnly(True)
         self.prompt_preview.setMinimumHeight(160)
         self.system_prompt_preview = QPlainTextEdit()
-        self.system_prompt_preview.setReadOnly(True)
         self.system_prompt_preview.setMinimumHeight(140)
 
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+        self.prompt_preview.textChanged.connect(self._sync_prompt_from_editor)
+        self.system_prompt_preview.textChanged.connect(self._sync_system_prompt_from_editor)
 
         self._build_ui()
         self._populate()
@@ -147,13 +149,14 @@ class TransformWithAIDialog(QDialog):
                 return None
         return ManualProcessingSpec(
             prompt_name=prompt.name,
-            prompt_template=prompt.prompt_text,
+            prompt_template=self.prompt_preview.toPlainText().strip(),
             target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
             system_prompt_name=system_prompt.name,
-            system_prompt=system_prompt.prompt_text,
+            system_prompt=self.system_prompt_preview.toPlainText().strip(),
             write_mode=str(write_mode),
             model=str(model),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip(),
         )
 
@@ -229,6 +232,7 @@ class TransformWithAIDialog(QDialog):
         options_form.addRow("Preset", preset_row)
         options_form.addRow("Model", self.model_combo)
         options_form.addRow("", self.multiple_target_fields_check)
+        options_form.addRow("", self.convert_markdown_to_html_check)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
         options_form.addRow("Response delimiter", self.delimiter_edit)
         options_form.addRow("Target field", self.target_field_combo)
@@ -237,9 +241,9 @@ class TransformWithAIDialog(QDialog):
         options_form.addRow("Write mode", self.mode_combo)
         layout.addWidget(options_group)
 
-        layout.addWidget(QLabel("Prompt preview"))
+        layout.addWidget(QLabel("Prompt"))
         layout.addWidget(self.prompt_preview)
-        layout.addWidget(QLabel("System prompt preview"))
+        layout.addWidget(QLabel("System prompt"))
         layout.addWidget(self.system_prompt_preview)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -330,11 +334,45 @@ class TransformWithAIDialog(QDialog):
 
     def _refresh_prompt_preview(self) -> None:
         prompt = self._selected_prompt()
+        self.prompt_preview.blockSignals(True)
         self.prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+        self.prompt_preview.blockSignals(False)
 
     def _refresh_system_prompt_preview(self) -> None:
         prompt = self._selected_system_prompt()
+        self.system_prompt_preview.blockSignals(True)
         self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+        self.system_prompt_preview.blockSignals(False)
+
+    def _sync_prompt_from_editor(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            return
+        updated_text = self.prompt_preview.toPlainText().strip()
+        for index, current in enumerate(self._prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._prompts[index] = PromptChoice(
+                    prompt_id=current.prompt_id,
+                    name=current.name,
+                    prompt_text=updated_text,
+                )
+                self._save_prompts()
+                return
+
+    def _sync_system_prompt_from_editor(self) -> None:
+        prompt = self._selected_system_prompt()
+        if prompt is None:
+            return
+        updated_text = self.system_prompt_preview.toPlainText().strip()
+        for index, current in enumerate(self._system_prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._system_prompts[index] = PromptChoice(
+                    prompt_id=current.prompt_id,
+                    name=current.name,
+                    prompt_text=updated_text,
+                )
+                self._save_system_prompts()
+                return
 
     def _refresh_target_mode_ui(self) -> None:
         is_multi = self.multiple_target_fields_check.isChecked()
@@ -360,6 +398,7 @@ class TransformWithAIDialog(QDialog):
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
         self._set_combo_to_data(self.mode_combo, preset.mode)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
+        self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
         self.delimiter_edit.setText(preset.response_delimiter or "")
         if preset.target_field:
             self._set_target_field(preset.target_field)
@@ -394,6 +433,7 @@ class TransformWithAIDialog(QDialog):
             target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
         self._presets.append(preset)
@@ -453,6 +493,7 @@ class TransformWithAIDialog(QDialog):
                 "target_field": preset.target_field,
                 "mode": preset.mode,
                 "multiple_target_fields": preset.multiple_target_fields,
+                "convert_markdown_to_html": preset.convert_markdown_to_html,
                 "response_delimiter": preset.response_delimiter,
             }
             for preset in self._presets
@@ -470,6 +511,7 @@ class TransformWithAIDialog(QDialog):
             target_field="" if self.multiple_target_fields_check.isChecked() else str(target_field or ""),
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
 
@@ -730,6 +772,7 @@ def _preset_choices_from_saved_processing_presets(
             target_field=preset.target_field,
             mode=preset.mode,
             multiple_target_fields=preset.multiple_target_fields,
+            convert_markdown_to_html=preset.convert_markdown_to_html,
             response_delimiter=preset.response_delimiter,
         )
         for preset in presets

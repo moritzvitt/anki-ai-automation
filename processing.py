@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 from dataclasses import dataclass, replace
+import html
 import math
 import re
 from threading import Event
@@ -41,6 +42,7 @@ class NoteSnapshot:
     system_prompt: str
     write_mode: str = WRITE_MODE_OVERWRITE
     multiple_target_fields: bool = False
+    convert_markdown_to_html: bool = False
     response_delimiter: str = ""
 
 
@@ -51,6 +53,7 @@ class NoteUpdate:
     usage: TokenUsage
     estimated_cost_usd: float | None
     write_mode: str = WRITE_MODE_OVERWRITE
+    convert_markdown_to_html: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,7 @@ class ManualProcessingSpec:
     write_mode: str = WRITE_MODE_OVERWRITE
     model: str = ""
     multiple_target_fields: bool = False
+    convert_markdown_to_html: bool = False
     response_delimiter: str = ""
 
 
@@ -218,11 +222,13 @@ def start_prepared_manual_processing(
 
     op = QueryOp(
         parent=browser,
-        op=lambda _col: _process_snapshots(
-            config,
-            prepared.snapshots,
-            prepared.failures,
-            cancel_event=cancel_event,
+        op=lambda _col: asyncio.run(
+            _process_snapshots_async(
+                config,
+                prepared.snapshots,
+                prepared.failures,
+                cancel_event=cancel_event,
+            )
         ),
         success=lambda result: _finish_prepared_processing(
             browser,
@@ -356,6 +362,7 @@ def _build_manual_snapshots(
                 system_prompt=config.system_prompt,
                 write_mode=spec.write_mode,
                 multiple_target_fields=spec.multiple_target_fields,
+                convert_markdown_to_html=spec.convert_markdown_to_html,
                 response_delimiter=spec.response_delimiter,
             )
         )
@@ -395,42 +402,47 @@ def _process_snapshots(
     *,
     cancel_event: Event | None = None,
 ) -> ProcessingResult:
+    return asyncio.run(
+        _process_snapshots_async(
+            config,
+            snapshots,
+            initial_failures,
+            cancel_event=cancel_event,
+        )
+    )
+
+
+async def _process_snapshots_async(
+    config: AddonConfig,
+    snapshots: list[NoteSnapshot],
+    initial_failures: list[NoteFailure],
+    *,
+    cancel_event: Event | None = None,
+) -> ProcessingResult:
     updates_by_note_id: dict[int, NoteUpdate] = {}
     failures = list(initial_failures)
     max_workers = max(1, min(config.max_parallel_requests, config.batch_size))
     was_cancelled = False
 
-    for batch in _chunked(snapshots, config.batch_size):
+    semaphore = asyncio.Semaphore(max_workers)
+
+    async def run_snapshot(snapshot: NoteSnapshot) -> tuple[NoteUpdate | None, NoteFailure | None]:
+        if cancel_event is not None and cancel_event.is_set():
+            return None, None
+        async with semaphore:
+            if cancel_event is not None and cancel_event.is_set():
+                return None, None
+            return await asyncio.to_thread(_process_single_snapshot, config, snapshot)
+
+    tasks = [asyncio.create_task(run_snapshot(snapshot)) for snapshot in snapshots]
+    for completed in asyncio.as_completed(tasks):
+        update, failure = await completed
+        if update is not None:
+            updates_by_note_id[update.note_id] = update
+        if failure is not None:
+            failures.append(failure)
         if cancel_event is not None and cancel_event.is_set():
             was_cancelled = True
-            break
-        if max_workers <= 1 or len(batch) <= 1:
-            for snapshot in batch:
-                if cancel_event is not None and cancel_event.is_set():
-                    was_cancelled = True
-                    break
-                update, failure = _process_single_snapshot(config, snapshot)
-                if update is not None:
-                    updates_by_note_id[update.note_id] = update
-                if failure is not None:
-                    failures.append(failure)
-            if was_cancelled:
-                break
-            continue
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(_process_single_snapshot, config, snapshot): snapshot.note_id
-                for snapshot in batch
-            }
-            for future in as_completed(futures):
-                update, failure = future.result()
-                if update is not None:
-                    updates_by_note_id[update.note_id] = update
-                if failure is not None:
-                    failures.append(failure)
-                if cancel_event is not None and cancel_event.is_set():
-                    was_cancelled = True
 
     updates = [
         updates_by_note_id[snapshot.note_id]
@@ -444,6 +456,7 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
     assert mw is not None and mw.col is not None
 
     applied = 0
+    changed_notes = []
     for update in result.updates:
         note = mw.col.get_note(update.note_id)
         if note is None:
@@ -454,13 +467,21 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
                 current_value=note[field_name],
                 generated_value=field_value,
                 write_mode=update.write_mode,
+                convert_markdown_to_html=update.convert_markdown_to_html,
             )
             if note[field_name] != next_value:
                 note[field_name] = next_value
                 changed = True
         if changed:
-            mw.col.update_note(note)
+            changed_notes.append(note)
             applied += 1
+
+    if changed_notes:
+        if hasattr(mw.col, "update_notes"):
+            mw.col.update_notes(changed_notes)
+        else:
+            for note in changed_notes:
+                mw.col.update_note(note)
 
     usage_totals = _aggregate_usage(result.updates)
     if usage_totals["request_count"]:
@@ -516,10 +537,6 @@ def _format_failure_report(failures: list[NoteFailure]) -> str:
     if len(failures) > 20:
         lines.append(f"- ...and {len(failures) - 20} more")
     return "\n".join(lines)
-
-
-def _chunked(items: list[Any], size: int) -> list[list[Any]]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
 
 
 def _render_snapshot_prompts(snapshot: NoteSnapshot, config: AddonConfig) -> tuple[str, str]:
@@ -647,6 +664,7 @@ def _process_single_snapshot(
                     pricing=pricing,
                 ),
                 write_mode=snapshot.write_mode,
+                convert_markdown_to_html=snapshot.convert_markdown_to_html,
             ),
             failure,
         )
@@ -793,14 +811,23 @@ def _missing_prompt_fields(
     return missing
 
 
-def _merge_field_value(*, current_value: str, generated_value: str, write_mode: str) -> str:
+def _merge_field_value(
+    *,
+    current_value: str,
+    generated_value: str,
+    write_mode: str,
+    convert_markdown_to_html: bool,
+) -> str:
+    next_generated_value = (
+        _markdown_to_html(generated_value) if convert_markdown_to_html else generated_value
+    )
     if write_mode != WRITE_MODE_APPEND:
-        return generated_value
+        return next_generated_value
     if not current_value.strip():
-        return generated_value
-    if not generated_value.strip():
+        return next_generated_value
+    if not next_generated_value.strip():
         return current_value
-    return current_value.rstrip() + "\n\n" + generated_value.lstrip()
+    return current_value.rstrip() + "\n\n" + next_generated_value.lstrip()
 
 
 def _finish_prepared_processing(
@@ -823,6 +850,55 @@ def _request_processing_interrupt(dialog: ProcessingInterruptDialog, cancel_even
     cancel_event.set()
     dialog.interrupt_button.setEnabled(False)
     dialog.interrupt_button.setText("Interrupt Requested")
+
+
+def _markdown_to_html(value: str) -> str:
+    lines = value.strip().splitlines()
+    if not lines:
+        return ""
+
+    blocks: list[str] = []
+    paragraph_lines: list[str] = []
+    list_items: list[str] = []
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_lines
+        if paragraph_lines:
+            blocks.append("<p>" + "<br>".join(_format_inline_markdown(line) for line in paragraph_lines) + "</p>")
+            paragraph_lines = []
+
+    def flush_list() -> None:
+        nonlocal list_items
+        if list_items:
+            blocks.append("<ul>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ul>")
+            list_items = []
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            flush_paragraph()
+            flush_list()
+            continue
+        if stripped.startswith(("- ", "* ")):
+            flush_paragraph()
+            list_items.append(_format_inline_markdown(stripped[2:].strip()))
+            continue
+        flush_list()
+        paragraph_lines.append(stripped)
+
+    flush_paragraph()
+    flush_list()
+    return "\n".join(blocks)
+
+
+def _format_inline_markdown(value: str) -> str:
+    escaped = html.escape(value)
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', escaped)
+    return escaped
 
 
 def _parse_delimited_field_updates(
