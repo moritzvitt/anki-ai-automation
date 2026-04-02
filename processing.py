@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import math
 from typing import Any, Callable
@@ -347,57 +348,37 @@ def _process_snapshots(
     snapshots: list[NoteSnapshot],
     initial_failures: list[NoteFailure],
 ) -> ProcessingResult:
-    updates: list[NoteUpdate] = []
+    updates_by_note_id: dict[int, NoteUpdate] = {}
     failures = list(initial_failures)
-    pricing = resolve_model_pricing(config.model, config.model_pricing)
+    max_workers = max(1, min(config.max_parallel_requests, config.batch_size))
 
     for batch in _chunked(snapshots, config.batch_size):
-        for snapshot in batch:
-            try:
-                system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
-                result = request_field_updates(
-                    api_key=config.api_key,
-                    model=config.model,
-                    system_prompt=system_prompt,
-                    user_prompt=prompt,
-                    output_fields=snapshot.output_fields,
-                    timeout_seconds=config.request_timeout_seconds,
-                    max_retries=config.max_retries,
-                    retry_backoff_seconds=config.retry_backoff_seconds,
-                    temperature=config.temperature,
-                    reasoning_effort=config.reasoning_effort,
-                )
-                updates.append(
-                    NoteUpdate(
-                        note_id=snapshot.note_id,
-                        output_fields=result.field_updates,
-                        usage=result.usage,
-                        estimated_cost_usd=estimate_cost_usd(
-                            input_tokens=result.usage.input_tokens,
-                            cached_input_tokens=result.usage.cached_input_tokens,
-                            output_tokens=result.usage.output_tokens,
-                            pricing=pricing,
-                        ),
-                        write_mode=snapshot.write_mode,
-                    )
-                )
-            except OpenAIClientError as error:
-                failures.append(
-                    NoteFailure(
-                        note_id=snapshot.note_id,
-                        note_type_name=snapshot.note_type_name,
-                        reason=str(error),
-                    )
-                )
-            except Exception as error:  # pragma: no cover - defensive for Anki runtime
-                failures.append(
-                    NoteFailure(
-                        note_id=snapshot.note_id,
-                        note_type_name=snapshot.note_type_name,
-                        reason=f"Unexpected error: {error}",
-                    )
-                )
+        if max_workers <= 1 or len(batch) <= 1:
+            for snapshot in batch:
+                update, failure = _process_single_snapshot(config, snapshot)
+                if update is not None:
+                    updates_by_note_id[update.note_id] = update
+                if failure is not None:
+                    failures.append(failure)
+            continue
 
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_process_single_snapshot, config, snapshot): snapshot.note_id
+                for snapshot in batch
+            }
+            for future in as_completed(futures):
+                update, failure = future.result()
+                if update is not None:
+                    updates_by_note_id[update.note_id] = update
+                if failure is not None:
+                    failures.append(failure)
+
+    updates = [
+        updates_by_note_id[snapshot.note_id]
+        for snapshot in snapshots
+        if snapshot.note_id in updates_by_note_id
+    ]
     return ProcessingResult(updates=updates, failures=failures)
 
 
@@ -515,6 +496,60 @@ def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> 
         heuristic_notes=heuristic_notes,
         pricing_available=pricing is not None,
     )
+
+
+def _process_single_snapshot(
+    config: AddonConfig,
+    snapshot: NoteSnapshot,
+) -> tuple[NoteUpdate | None, NoteFailure | None]:
+    pricing = resolve_model_pricing(config.model, config.model_pricing)
+    try:
+        system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
+        result = request_field_updates(
+            api_key=config.api_key,
+            model=config.model,
+            system_prompt=system_prompt,
+            user_prompt=prompt,
+            output_fields=snapshot.output_fields,
+            timeout_seconds=config.request_timeout_seconds,
+            max_retries=config.max_retries,
+            retry_backoff_seconds=config.retry_backoff_seconds,
+            temperature=config.temperature,
+            reasoning_effort=config.reasoning_effort,
+        )
+        return (
+            NoteUpdate(
+                note_id=snapshot.note_id,
+                output_fields=result.field_updates,
+                usage=result.usage,
+                estimated_cost_usd=estimate_cost_usd(
+                    input_tokens=result.usage.input_tokens,
+                    cached_input_tokens=result.usage.cached_input_tokens,
+                    output_tokens=result.usage.output_tokens,
+                    pricing=pricing,
+                ),
+                write_mode=snapshot.write_mode,
+            ),
+            None,
+        )
+    except OpenAIClientError as error:
+        return (
+            None,
+            NoteFailure(
+                note_id=snapshot.note_id,
+                note_type_name=snapshot.note_type_name,
+                reason=str(error),
+            ),
+        )
+    except Exception as error:  # pragma: no cover - defensive for Anki runtime
+        return (
+            None,
+            NoteFailure(
+                note_id=snapshot.note_id,
+                note_type_name=snapshot.note_type_name,
+                reason=f"Unexpected error: {error}",
+            ),
+        )
 
 
 def _confirm_and_start_processing(

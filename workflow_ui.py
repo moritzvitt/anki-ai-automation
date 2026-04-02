@@ -33,6 +33,7 @@ from .config import (
     new_object_id,
     save_raw_config,
 )
+from .model_catalog import fallback_model_options
 from .processing import (
     ManualProcessingSpec,
     ProcessingResult,
@@ -50,6 +51,8 @@ class WorkflowDraft:
     prompt_id: str
     target_field: str
     mode: str
+    model: str | None
+    system_prompt_id: str | None
     group_name: str | None
 
 
@@ -123,18 +126,21 @@ class WorkflowManagerDialog(QDialog):
         add_button = QPushButton("Add")
         edit_button = QPushButton("Edit")
         delete_button = QPushButton("Delete")
+        duplicate_button = QPushButton("Duplicate")
         move_up_button = QPushButton("Move Up")
         move_down_button = QPushButton("Move Down")
         run_button = QPushButton("Run Workflow")
         add_button.clicked.connect(self._add_workflow)
         edit_button.clicked.connect(self._edit_workflow)
         delete_button.clicked.connect(self._delete_workflow)
+        duplicate_button.clicked.connect(self._duplicate_workflow)
         move_up_button.clicked.connect(self._move_selected_up)
         move_down_button.clicked.connect(self._move_selected_down)
         run_button.clicked.connect(self._run_selected_workflow)
         button_row.addWidget(add_button)
         button_row.addWidget(edit_button)
         button_row.addWidget(delete_button)
+        button_row.addWidget(duplicate_button)
         button_row.addWidget(move_up_button)
         button_row.addWidget(move_down_button)
         button_row.addStretch(1)
@@ -151,6 +157,10 @@ class WorkflowManagerDialog(QDialog):
         self._prompts = [
             PromptChoice(prompt_id=prompt.prompt_id, name=prompt.name, prompt_text=prompt.prompt_text)
             for prompt in self._config.saved_prompts
+        ]
+        self._system_prompts = [
+            PromptChoice(prompt_id=prompt.prompt_id, name=prompt.name, prompt_text=prompt.prompt_text)
+            for prompt in self._config.saved_system_prompts
         ]
         self._groups = sorted(self._config.workflow_groups, key=lambda group: group.name.lower())
         self._workflows = sorted(self._config.workflows, key=lambda workflow: workflow.position)
@@ -172,7 +182,8 @@ class WorkflowManagerDialog(QDialog):
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
             f"Prompt: {prompt_name} | Target: {workflow.target_field} | "
-            f"Mode: {workflow.mode} | Group: {group_name}"
+            f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
+            f"System: {self._system_prompt_name(workflow.system_prompt_id)} | Group: {group_name}"
         )
 
     def _prompt_name(self, prompt_id: str) -> str:
@@ -189,6 +200,14 @@ class WorkflowManagerDialog(QDialog):
                 return group.name
         return None
 
+    def _system_prompt_name(self, prompt_id: str | None) -> str:
+        if prompt_id is None:
+            return "Default system prompt"
+        for prompt in self._system_prompts:
+            if prompt.prompt_id == prompt_id:
+                return prompt.name
+        return "Missing system prompt"
+
     def _save_state(self) -> None:
         self._raw_config = load_raw_config()
         self._raw_config["workflow_groups"] = [
@@ -203,6 +222,8 @@ class WorkflowManagerDialog(QDialog):
                 "prompt_id": workflow.prompt_id,
                 "target_field": workflow.target_field,
                 "mode": workflow.mode,
+                "model": workflow.model,
+                "system_prompt_id": workflow.system_prompt_id,
                 "group_id": workflow.group_id,
                 "position": index,
             }
@@ -216,7 +237,14 @@ class WorkflowManagerDialog(QDialog):
         return self.workflow_list.currentRow()
 
     def _add_workflow(self) -> None:
-        dialog = WorkflowDialog(parent=self, prompts=self._prompts, groups=self._groups)
+        dialog = WorkflowDialog(
+            parent=self,
+            prompts=self._prompts,
+            system_prompts=self._system_prompts,
+            groups=self._groups,
+            current_model=self._config.model,
+            model_pricing=self._config.model_pricing,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -230,6 +258,8 @@ class WorkflowManagerDialog(QDialog):
             prompt_id=draft.prompt_id,
             target_field=draft.target_field,
             mode=draft.mode,
+            model=draft.model,
+            system_prompt_id=draft.system_prompt_id,
             group_id=self._group_id_for_name(draft.group_name),
             position=len(self._workflows),
         )
@@ -245,7 +275,10 @@ class WorkflowManagerDialog(QDialog):
         dialog = WorkflowDialog(
             parent=self,
             prompts=self._prompts,
+            system_prompts=self._system_prompts,
             groups=self._groups,
+            current_model=self._config.model,
+            model_pricing=self._config.model_pricing,
             workflow=workflow,
             current_group_name=self._group_name(workflow.group_id),
         )
@@ -262,6 +295,8 @@ class WorkflowManagerDialog(QDialog):
             prompt_id=draft.prompt_id,
             target_field=draft.target_field,
             mode=draft.mode,
+            model=draft.model,
+            system_prompt_id=draft.system_prompt_id,
             group_id=self._group_id_for_name(draft.group_name),
         )
         self._save_state()
@@ -288,6 +323,23 @@ class WorkflowManagerDialog(QDialog):
         self._save_state()
         if self._workflows:
             self.workflow_list.setCurrentRow(min(row, len(self._workflows) - 1))
+
+    def _duplicate_workflow(self) -> None:
+        row = self._selected_workflow_index()
+        if row < 0 or row >= len(self._workflows):
+            tooltip("Select a workflow to duplicate.", parent=self)
+            return
+
+        workflow = self._workflows[row]
+        duplicate = replace(
+            workflow,
+            workflow_id=new_object_id("workflow"),
+            name=f"{workflow.name} Copy",
+            position=len(self._workflows),
+        )
+        self._workflows.insert(row + 1, duplicate)
+        self._save_state()
+        self.workflow_list.setCurrentRow(row + 1)
 
     def _move_selected_up(self) -> None:
         row = self._selected_workflow_index()
@@ -428,8 +480,10 @@ class WorkflowManagerDialog(QDialog):
             prompt_name=prompt.name,
             prompt_template=prompt.prompt_text,
             target_field=workflow.target_field,
+            system_prompt_name=self._system_prompt_name(workflow.system_prompt_id),
+            system_prompt=self._system_prompt_text(workflow.system_prompt_id),
             write_mode=workflow.mode,
-            model=config.model,
+            model=workflow.model or config.model,
         )
         prepared = prepare_manual_ai_processing(
             config,
@@ -535,6 +589,14 @@ class WorkflowManagerDialog(QDialog):
         used_group_ids = {workflow.group_id for workflow in self._workflows if workflow.group_id}
         self._groups = [group for group in self._groups if group.group_id in used_group_ids]
 
+    def _system_prompt_text(self, prompt_id: str | None) -> str:
+        if prompt_id is None:
+            return self._config.system_prompt
+        for prompt in self._system_prompts:
+            if prompt.prompt_id == prompt_id:
+                return prompt.prompt_text
+        return self._config.system_prompt
+
 
 class WorkflowDialog(QDialog):
     def __init__(
@@ -542,7 +604,10 @@ class WorkflowDialog(QDialog):
         parent: QWidget,
         *,
         prompts: list[PromptChoice],
+        system_prompts: list[PromptChoice],
         groups: list[WorkflowGroup],
+        current_model: str,
+        model_pricing: dict,
         workflow: Workflow | None = None,
         current_group_name: str | None = None,
     ) -> None:
@@ -552,13 +617,21 @@ class WorkflowDialog(QDialog):
 
         self._raw_config = load_raw_config()
         self._prompts = list(prompts)
+        self._system_prompts = list(system_prompts)
         self._groups = list(groups)
         self._current_group_name = current_group_name or ""
+        self._current_model = current_model
+        self._model_options = fallback_model_options(
+            current_model=current_model,
+            pricing_overrides=model_pricing,
+        )
 
         self.name_edit = QLineEdit()
         self.query_edit = QPlainTextEdit()
         self.query_count_label = QLabel("Click Refresh Count to check the query.")
+        self.model_combo = QComboBox()
         self.prompt_combo = QComboBox()
+        self.system_prompt_combo = QComboBox()
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
@@ -588,6 +661,11 @@ class WorkflowDialog(QDialog):
         prompt_layout.addWidget(edit_button)
         prompt_layout.addWidget(delete_button)
 
+        system_prompt_row = QWidget()
+        system_prompt_layout = QHBoxLayout(system_prompt_row)
+        system_prompt_layout.setContentsMargins(0, 0, 0, 0)
+        system_prompt_layout.addWidget(self.system_prompt_combo, stretch=1)
+
         query_row = QWidget()
         query_layout = QVBoxLayout(query_row)
         query_layout.setContentsMargins(0, 0, 0, 0)
@@ -600,12 +678,15 @@ class WorkflowDialog(QDialog):
         refresh_row.addWidget(self.query_count_label, stretch=1)
         query_layout.addLayout(refresh_row)
 
+        self._populate_model_combo()
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
+        form.addRow("Model", self.model_combo)
         form.addRow("Prompt", prompt_row)
+        form.addRow("System prompt", system_prompt_row)
         form.addRow("Target field", self.target_field_combo)
         form.addRow("Mode", self.mode_combo)
         form.addRow("Group", self.group_combo)
@@ -625,6 +706,7 @@ class WorkflowDialog(QDialog):
 
     def _populate(self, workflow: Workflow | None) -> None:
         self._populate_prompt_combo()
+        self._populate_system_prompt_combo()
         self._populate_group_combo()
 
         if workflow is None:
@@ -633,9 +715,16 @@ class WorkflowDialog(QDialog):
         self.name_edit.setText(workflow.name)
         self.query_edit.setPlainText(workflow.query)
         self.target_field_combo.setEditText(workflow.target_field)
+        model_value = workflow.model or self._current_model
+        model_index = self.model_combo.findData(model_value)
+        if model_index >= 0:
+            self.model_combo.setCurrentIndex(model_index)
         prompt_index = self.prompt_combo.findData(workflow.prompt_id)
         if prompt_index >= 0:
             self.prompt_combo.setCurrentIndex(prompt_index)
+        system_prompt_index = self.system_prompt_combo.findData(workflow.system_prompt_id or "")
+        if system_prompt_index >= 0:
+            self.system_prompt_combo.setCurrentIndex(system_prompt_index)
         mode_index = self.mode_combo.findData(workflow.mode)
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
@@ -645,7 +734,9 @@ class WorkflowDialog(QDialog):
     def workflow_draft(self) -> WorkflowDraft | None:
         name = self.name_edit.text().strip()
         query = self.query_edit.toPlainText().strip()
+        model = self.model_combo.currentData() or self.model_combo.currentText().strip()
         prompt_id = self.prompt_combo.currentData() or self.prompt_combo.currentText().strip()
+        system_prompt_id = self.system_prompt_combo.currentData() or ""
         target_field = self.target_field_combo.currentText().strip()
         mode = self.mode_combo.currentData() or WRITE_MODE_OVERWRITE
         group_name = self.group_combo.currentText().strip()
@@ -654,11 +745,25 @@ class WorkflowDialog(QDialog):
         return WorkflowDraft(
             name=name,
             query=query,
+            model=str(model) or None,
             prompt_id=prompt_id,
+            system_prompt_id=str(system_prompt_id) or None,
             target_field=target_field,
             mode=str(mode),
             group_name=group_name or None,
         )
+
+    def _populate_model_combo(self) -> None:
+        self.model_combo.clear()
+        for option in self._model_options:
+            self.model_combo.addItem(option.label, option.model_id)
+        if self._current_model:
+            index = self.model_combo.findData(self._current_model)
+            if index >= 0:
+                self.model_combo.setCurrentIndex(index)
+            else:
+                self.model_combo.insertItem(0, self._current_model + " (Current selection)", self._current_model)
+                self.model_combo.setCurrentIndex(0)
 
     def _populate_prompt_combo(self) -> None:
         selected_prompt_id = self.prompt_combo.currentData()
@@ -684,6 +789,12 @@ class WorkflowDialog(QDialog):
             if prompt.prompt_id == prompt_id:
                 return prompt
         return self._prompts[0] if self._prompts else None
+
+    def _populate_system_prompt_combo(self) -> None:
+        self.system_prompt_combo.clear()
+        self.system_prompt_combo.addItem("Default system prompt", "")
+        for prompt in self._system_prompts:
+            self.system_prompt_combo.addItem(prompt.name, prompt.prompt_id)
 
     def _refresh_query_count(self) -> None:
         query = self.query_edit.toPlainText().strip()

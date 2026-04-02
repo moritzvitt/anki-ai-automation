@@ -52,6 +52,8 @@ class Workflow:
     prompt_id: str
     target_field: str
     mode: str
+    model: str | None = None
+    system_prompt_id: str | None = None
     group_id: str | None = None
     position: int = 0
 
@@ -64,6 +66,7 @@ class AddonConfig:
     default_prompt_template: str
     system_prompt: str
     batch_size: int
+    max_parallel_requests: int
     request_timeout_seconds: float
     max_retries: int
     retry_backoff_seconds: float
@@ -95,6 +98,7 @@ def load_config() -> AddonConfig:
     default_prompt_template = _read_string(raw, "prompt_template")
     system_prompt = _read_string(raw, "system_prompt")
     batch_size = _read_int(raw, "batch_size", minimum=1, default=5)
+    max_parallel_requests = _read_int(raw, "max_parallel_requests", minimum=1, default=1)
     request_timeout_seconds = _read_float(
         raw,
         "request_timeout_seconds",
@@ -149,6 +153,7 @@ def load_config() -> AddonConfig:
         raw.get("workflows", []),
         saved_prompts=saved_prompts,
         workflow_groups=workflow_groups,
+        saved_system_prompts=saved_system_prompts,
     )
 
     return AddonConfig(
@@ -158,6 +163,7 @@ def load_config() -> AddonConfig:
         default_prompt_template=default_prompt_template,
         system_prompt=system_prompt,
         batch_size=batch_size,
+        max_parallel_requests=max_parallel_requests,
         request_timeout_seconds=request_timeout_seconds,
         max_retries=max_retries,
         retry_backoff_seconds=retry_backoff_seconds,
@@ -385,6 +391,7 @@ def _read_workflows(
     *,
     saved_prompts: list[SavedPrompt],
     workflow_groups: list[WorkflowGroup],
+    saved_system_prompts: list[SavedSystemPrompt] | None = None,
 ) -> list[Workflow]:
     if value in (None, []):
         return []
@@ -392,6 +399,9 @@ def _read_workflows(
         raise ConfigError("Config key 'workflows' must be a list.")
 
     allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
+    allowed_system_prompt_ids = {
+        prompt.prompt_id for prompt in (saved_system_prompts or [])
+    }
     allowed_group_ids = {group.group_id for group in workflow_groups}
     allowed_modes = {"append", "overwrite"}
     workflows: list[Workflow] = []
@@ -419,6 +429,12 @@ def _read_workflows(
         group_id = _read_optional_string(item, "group_id")
         if group_id is not None and group_id not in allowed_group_ids:
             raise ConfigError(f"workflows[{index}] references unknown group_id '{group_id}'.")
+        model = _read_optional_string(item, "model")
+        system_prompt_id = _read_optional_string(item, "system_prompt_id")
+        if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
+            raise ConfigError(
+                f"workflows[{index}] references unknown system_prompt_id '{system_prompt_id}'."
+            )
 
         workflows.append(
             Workflow(
@@ -428,6 +444,8 @@ def _read_workflows(
                 prompt_id=prompt_id,
                 target_field=_read_string(item, "target_field"),
                 mode=mode,
+                model=model,
+                system_prompt_id=system_prompt_id,
                 group_id=group_id,
                 position=_read_int(item, "position", minimum=0, default=index),
             )

@@ -13,7 +13,7 @@ Users can select one or many rows in the Anki Browser, right-click, and choose `
 - Config-driven field mapping by note type
 - Configurable prompt template and system prompt
 - Structured JSON response handling for predictable field updates
-- Sequential batch processing with retries and timeout controls
+- Bounded parallel note processing with retries and timeout controls
 - Safe overwrite confirmation before existing fields are replaced
 - Pre-flight token and cost estimate before requests are sent
 - Tools menu usage monitor for tracked token totals and estimated spend
@@ -66,6 +66,7 @@ Important keys:
 - `prompt_template`: the default user prompt with placeholders like `{{Front}}`
 - `field_mappings`: per-note-type input and output field rules
 - `max_retries` and `request_timeout_seconds`: safety controls for batch processing
+- `max_parallel_requests`: limits how many note requests can run at the same time
 - `show_estimate_before_sending`: enables the confirmation popup with estimated tokens and cost
 - `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent
 - `model_pricing`: optional overrides for cost estimation when you use a model not covered by built-in pricing

@@ -5,6 +5,7 @@
   "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON.",
   "prompt_template": "Improve the following flashcard content for note type {{NoteType}}.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}",
   "batch_size": 5,
+  "max_parallel_requests": 3,
   "request_timeout_seconds": 90,
   "max_retries": 2,
   "retry_backoff_seconds": 2,
