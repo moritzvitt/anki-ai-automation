@@ -54,6 +54,8 @@ class Workflow:
     mode: str
     model: str | None = None
     system_prompt_id: str | None = None
+    multiple_target_fields: bool = False
+    response_delimiter: str | None = None
     group_id: str | None = None
     position: int = 0
 
@@ -435,6 +437,19 @@ def _read_workflows(
             raise ConfigError(
                 f"workflows[{index}] references unknown system_prompt_id '{system_prompt_id}'."
             )
+        multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
+        response_delimiter = _read_optional_string(item, "response_delimiter")
+        if multiple_target_fields and not response_delimiter:
+            raise ConfigError(
+                f"workflows[{index}] enables multiple_target_fields but has no response_delimiter."
+            )
+
+        target_field = _read_string(
+            item,
+            "target_field",
+            default="",
+            allow_empty=multiple_target_fields,
+        )
 
         workflows.append(
             Workflow(
@@ -442,10 +457,12 @@ def _read_workflows(
                 name=_read_string(item, "name"),
                 query=_read_string(item, "query"),
                 prompt_id=prompt_id,
-                target_field=_read_string(item, "target_field"),
+                target_field=target_field,
                 mode=mode,
                 model=model,
                 system_prompt_id=system_prompt_id,
+                multiple_target_fields=multiple_target_fields,
+                response_delimiter=response_delimiter,
                 group_id=group_id,
                 position=_read_int(item, "position", minimum=0, default=index),
             )

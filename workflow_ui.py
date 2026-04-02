@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from aqt import mw
 from aqt.qt import (
     QAction,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -53,6 +54,8 @@ class WorkflowDraft:
     mode: str
     model: str | None
     system_prompt_id: str | None
+    multiple_target_fields: bool
+    response_delimiter: str | None
     group_name: str | None
 
 
@@ -181,9 +184,11 @@ class WorkflowManagerDialog(QDialog):
         return (
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
-            f"Prompt: {prompt_name} | Target: {workflow.target_field} | "
+            f"Prompt: {prompt_name} | Target: "
+            f"{workflow.target_field if not workflow.multiple_target_fields else 'Delimited multi-field mode'} | "
             f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
-            f"System: {self._system_prompt_name(workflow.system_prompt_id)} | Group: {group_name}"
+            f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
+            f"Delimiter: {workflow.response_delimiter or '-'} | Group: {group_name}"
         )
 
     def _prompt_name(self, prompt_id: str) -> str:
@@ -224,6 +229,8 @@ class WorkflowManagerDialog(QDialog):
                 "mode": workflow.mode,
                 "model": workflow.model,
                 "system_prompt_id": workflow.system_prompt_id,
+                "multiple_target_fields": workflow.multiple_target_fields,
+                "response_delimiter": workflow.response_delimiter,
                 "group_id": workflow.group_id,
                 "position": index,
             }
@@ -260,6 +267,8 @@ class WorkflowManagerDialog(QDialog):
             mode=draft.mode,
             model=draft.model,
             system_prompt_id=draft.system_prompt_id,
+            multiple_target_fields=draft.multiple_target_fields,
+            response_delimiter=draft.response_delimiter,
             group_id=self._group_id_for_name(draft.group_name),
             position=len(self._workflows),
         )
@@ -297,6 +306,8 @@ class WorkflowManagerDialog(QDialog):
             mode=draft.mode,
             model=draft.model,
             system_prompt_id=draft.system_prompt_id,
+            multiple_target_fields=draft.multiple_target_fields,
+            response_delimiter=draft.response_delimiter,
             group_id=self._group_id_for_name(draft.group_name),
         )
         self._save_state()
@@ -484,6 +495,8 @@ class WorkflowManagerDialog(QDialog):
             system_prompt=self._system_prompt_text(workflow.system_prompt_id),
             write_mode=workflow.mode,
             model=workflow.model or config.model,
+            multiple_target_fields=workflow.multiple_target_fields,
+            response_delimiter=workflow.response_delimiter or "",
         )
         prepared = prepare_manual_ai_processing(
             config,
@@ -632,6 +645,8 @@ class WorkflowDialog(QDialog):
         self.model_combo = QComboBox()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
+        self.multiple_target_fields_check = QCheckBox("Multiple target fields")
+        self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
@@ -681,12 +696,16 @@ class WorkflowDialog(QDialog):
         self._populate_model_combo()
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
+        self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
+        self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
         form.addRow("Model", self.model_combo)
         form.addRow("Prompt", prompt_row)
         form.addRow("System prompt", system_prompt_row)
+        form.addRow("", self.multiple_target_fields_check)
+        form.addRow("Response delimiter", self.delimiter_edit)
         form.addRow("Target field", self.target_field_combo)
         form.addRow("Mode", self.mode_combo)
         form.addRow("Group", self.group_combo)
@@ -708,6 +727,7 @@ class WorkflowDialog(QDialog):
         self._populate_prompt_combo()
         self._populate_system_prompt_combo()
         self._populate_group_combo()
+        self._refresh_target_mode_ui()
 
         if workflow is None:
             return
@@ -715,6 +735,8 @@ class WorkflowDialog(QDialog):
         self.name_edit.setText(workflow.name)
         self.query_edit.setPlainText(workflow.query)
         self.target_field_combo.setEditText(workflow.target_field)
+        self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
+        self.delimiter_edit.setText(workflow.response_delimiter or "")
         model_value = workflow.model or self._current_model
         model_index = self.model_combo.findData(model_value)
         if model_index >= 0:
@@ -729,6 +751,7 @@ class WorkflowDialog(QDialog):
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
         self.group_combo.setEditText(self._current_group_name)
+        self._refresh_target_mode_ui()
         self._refresh_query_count()
 
     def workflow_draft(self) -> WorkflowDraft | None:
@@ -748,8 +771,10 @@ class WorkflowDialog(QDialog):
             model=str(model) or None,
             prompt_id=prompt_id,
             system_prompt_id=str(system_prompt_id) or None,
-            target_field=target_field,
+            target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
             mode=str(mode),
+            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            response_delimiter=self.delimiter_edit.text().strip() or None,
             group_name=group_name or None,
         )
 
@@ -795,6 +820,11 @@ class WorkflowDialog(QDialog):
         self.system_prompt_combo.addItem("Default system prompt", "")
         for prompt in self._system_prompts:
             self.system_prompt_combo.addItem(prompt.name, prompt.prompt_id)
+
+    def _refresh_target_mode_ui(self) -> None:
+        is_multi = self.multiple_target_fields_check.isChecked()
+        self.target_field_combo.setEnabled(not is_multi)
+        self.delimiter_edit.setEnabled(is_multi)
 
     def _refresh_query_count(self) -> None:
         query = self.query_edit.toPlainText().strip()
@@ -909,7 +939,10 @@ class WorkflowDialog(QDialog):
         if not draft.prompt_id:
             showCritical("Choose a saved prompt for this workflow.", parent=self)
             return
-        if not draft.target_field:
+        if draft.multiple_target_fields and not draft.response_delimiter:
+            showCritical("Enter the response delimiter for multiple target field mode.", parent=self)
+            return
+        if not draft.multiple_target_fields and not draft.target_field:
             showCritical("Target field must not be empty.", parent=self)
             return
         self.accept()

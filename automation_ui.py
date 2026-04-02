@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from aqt import mw
 from aqt.browser import Browser
 from aqt.qt import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -96,6 +97,8 @@ class TransformWithAIDialog(QDialog):
         self.note_count_label = QLabel()
         self.note_types_label = QLabel()
         self.model_combo = QComboBox()
+        self.multiple_target_fields_check = QCheckBox("Multiple target fields")
+        self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
@@ -109,6 +112,7 @@ class TransformWithAIDialog(QDialog):
 
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
+        self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
 
         self._build_ui()
         self._populate()
@@ -124,11 +128,13 @@ class TransformWithAIDialog(QDialog):
         return ManualProcessingSpec(
             prompt_name=prompt.name,
             prompt_template=prompt.prompt_text,
-            target_field=target_field,
+            target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
             system_prompt_name=system_prompt.name,
             system_prompt=system_prompt.prompt_text,
             write_mode=str(write_mode),
             model=str(model),
+            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            response_delimiter=self.delimiter_edit.text().strip(),
         )
 
     def _build_ui(self) -> None:
@@ -187,6 +193,9 @@ class TransformWithAIDialog(QDialog):
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
 
         options_form.addRow("Model", self.model_combo)
+        options_form.addRow("", self.multiple_target_fields_check)
+        self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
+        options_form.addRow("Response delimiter", self.delimiter_edit)
         options_form.addRow("Target field", self.target_field_combo)
         options_form.addRow("Saved prompt", prompt_row)
         options_form.addRow("System prompt", system_prompt_row)
@@ -216,12 +225,12 @@ class TransformWithAIDialog(QDialog):
         self._populate_system_prompt_combo()
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
+        self._refresh_target_mode_ui()
 
-        has_field_choice = bool(self._field_choices)
         has_prompt = bool(self._prompts)
         has_system_prompt = bool(self._system_prompts)
         has_model = self.model_combo.count() > 0
-        self.run_button.setEnabled(has_field_choice and has_prompt and has_system_prompt and has_model)
+        self.run_button.setEnabled(has_prompt and has_system_prompt and has_model)
 
     def _populate_model_combo(self) -> None:
         current_model = str(self._raw_config.get("model", "")).strip()
@@ -279,6 +288,11 @@ class TransformWithAIDialog(QDialog):
     def _refresh_system_prompt_preview(self) -> None:
         prompt = self._selected_system_prompt()
         self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+
+    def _refresh_target_mode_ui(self) -> None:
+        is_multi = self.multiple_target_fields_check.isChecked()
+        self.target_field_combo.setEnabled(not is_multi)
+        self.delimiter_edit.setEnabled(is_multi)
 
     def _create_prompt(self) -> None:
         dialog = SavedPromptDialog(
@@ -471,8 +485,12 @@ class TransformWithAIDialog(QDialog):
         save_raw_config(self._raw_config)
 
     def _validate_and_accept(self) -> None:
-        if not self._field_choices:
+        is_multi = self.multiple_target_fields_check.isChecked()
+        if not is_multi and not self._field_choices:
             showCritical("The selected notes do not share any common target field.", parent=self)
+            return
+        if is_multi and not self.delimiter_edit.text().strip():
+            showCritical("Enter the response delimiter for multiple target field mode.", parent=self)
             return
         if not (self.model_combo.currentData() or self.model_combo.currentText().strip()):
             showCritical("Choose a model before running.", parent=self)
@@ -482,6 +500,9 @@ class TransformWithAIDialog(QDialog):
             return
         if self._selected_prompt() is None:
             showCritical("Choose or create a saved prompt before running.", parent=self)
+            return
+        if not is_multi and not (self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()):
+            showCritical("Choose a target field before running.", parent=self)
             return
         self.accept()
 

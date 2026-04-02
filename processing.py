@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import math
+import re
 from typing import Any, Callable
 
 from aqt import mw
@@ -15,7 +16,9 @@ from .openai_client import (
     OpenAIClientError,
     TokenUsage,
     count_request_input_tokens,
+    count_request_input_tokens_for_text,
     request_field_updates,
+    request_text_response,
 )
 from .pricing import estimate_cost_usd, resolve_model_pricing
 from .prompting import extract_placeholders, render_prompt
@@ -35,6 +38,8 @@ class NoteSnapshot:
     prompt_template: str
     system_prompt: str
     write_mode: str = WRITE_MODE_OVERWRITE
+    multiple_target_fields: bool = False
+    response_delimiter: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,6 +83,8 @@ class ManualProcessingSpec:
     system_prompt: str = ""
     write_mode: str = WRITE_MODE_OVERWRITE
     model: str = ""
+    multiple_target_fields: bool = False
+    response_delimiter: str = ""
 
 
 @dataclass(frozen=True)
@@ -278,14 +285,15 @@ def _build_manual_snapshots(
         available_fields = {field_name: note[field_name] for field_name in note.keys()}
 
         if spec.target_field not in available_fields:
-            failures.append(
-                NoteFailure(
-                    note_id=note_id,
-                    note_type_name=note_type_name,
-                    reason=f"Target field '{spec.target_field}' does not exist on this note.",
+            if not spec.multiple_target_fields:
+                failures.append(
+                    NoteFailure(
+                        note_id=note_id,
+                        note_type_name=note_type_name,
+                        reason=f"Target field '{spec.target_field}' does not exist on this note.",
+                    )
                 )
-            )
-            continue
+                continue
 
         missing_prompt_fields = _missing_prompt_fields(
             prompt_template=spec.prompt_template,
@@ -310,10 +318,12 @@ def _build_manual_snapshots(
                 note_id=note_id,
                 note_type_name=note_type_name,
                 fields=available_fields,
-                output_fields=[spec.target_field],
+                output_fields=[] if spec.multiple_target_fields else [spec.target_field],
                 prompt_template=spec.prompt_template,
                 system_prompt=config.system_prompt,
                 write_mode=spec.write_mode,
+                multiple_target_fields=spec.multiple_target_fields,
+                response_delimiter=spec.response_delimiter,
             )
         )
 
@@ -332,6 +342,8 @@ def _count_overwrites(snapshots: list[NoteSnapshot]) -> tuple[int, set[str]]:
     overwrite_fields: set[str] = set()
 
     for snapshot in snapshots:
+        if snapshot.multiple_target_fields:
+            continue
         note_has_existing_output = False
         for field_name in snapshot.output_fields:
             if snapshot.fields.get(field_name, "").strip():
@@ -467,15 +479,25 @@ def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> 
     for snapshot in snapshots:
         system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
         try:
-            input_tokens += count_request_input_tokens(
-                api_key=config.api_key,
-                model=config.model,
-                system_prompt=system_prompt,
-                user_prompt=prompt,
-                output_fields=snapshot.output_fields,
-                timeout_seconds=config.request_timeout_seconds,
-                reasoning_effort=config.reasoning_effort,
-            )
+            if snapshot.multiple_target_fields:
+                input_tokens += count_request_input_tokens_for_text(
+                    api_key=config.api_key,
+                    model=config.model,
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    timeout_seconds=config.request_timeout_seconds,
+                    reasoning_effort=config.reasoning_effort,
+                )
+            else:
+                input_tokens += count_request_input_tokens(
+                    api_key=config.api_key,
+                    model=config.model,
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    output_fields=snapshot.output_fields,
+                    timeout_seconds=config.request_timeout_seconds,
+                    reasoning_effort=config.reasoning_effort,
+                )
         except OpenAIClientError:
             heuristic_notes += 1
             input_tokens += _heuristic_token_count(system_prompt) + _heuristic_token_count(prompt)
@@ -505,32 +527,72 @@ def _process_single_snapshot(
     pricing = resolve_model_pricing(config.model, config.model_pricing)
     try:
         system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
-        result = request_field_updates(
-            api_key=config.api_key,
-            model=config.model,
-            system_prompt=system_prompt,
-            user_prompt=prompt,
-            output_fields=snapshot.output_fields,
-            timeout_seconds=config.request_timeout_seconds,
-            max_retries=config.max_retries,
-            retry_backoff_seconds=config.retry_backoff_seconds,
-            temperature=config.temperature,
-            reasoning_effort=config.reasoning_effort,
-        )
+        warning_lines: list[str] = []
+        if snapshot.multiple_target_fields:
+            text_result = request_text_response(
+                api_key=config.api_key,
+                model=config.model,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                timeout_seconds=config.request_timeout_seconds,
+                max_retries=config.max_retries,
+                retry_backoff_seconds=config.retry_backoff_seconds,
+                temperature=config.temperature,
+                reasoning_effort=config.reasoning_effort,
+            )
+            field_updates, parser_warnings = _parse_delimited_field_updates(
+                response_text=text_result.output_text,
+                response_delimiter=snapshot.response_delimiter,
+                available_fields=list(snapshot.fields.keys()),
+            )
+            warning_lines.extend(parser_warnings)
+            usage = text_result.usage
+        else:
+            structured_result = request_field_updates(
+                api_key=config.api_key,
+                model=config.model,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                output_fields=snapshot.output_fields,
+                timeout_seconds=config.request_timeout_seconds,
+                max_retries=config.max_retries,
+                retry_backoff_seconds=config.retry_backoff_seconds,
+                temperature=config.temperature,
+                reasoning_effort=config.reasoning_effort,
+            )
+            field_updates = structured_result.field_updates
+            usage = structured_result.usage
+        if not field_updates:
+            warning_lines.append("The response did not contain any matching field sections.")
+            return (
+                None,
+                NoteFailure(
+                    note_id=snapshot.note_id,
+                    note_type_name=snapshot.note_type_name,
+                    reason=" ".join(warning_lines),
+                ),
+            )
+        failure = None
+        if warning_lines:
+            failure = NoteFailure(
+                note_id=snapshot.note_id,
+                note_type_name=snapshot.note_type_name,
+                reason=" ".join(warning_lines),
+            )
         return (
             NoteUpdate(
                 note_id=snapshot.note_id,
-                output_fields=result.field_updates,
-                usage=result.usage,
+                output_fields=field_updates,
+                usage=usage,
                 estimated_cost_usd=estimate_cost_usd(
-                    input_tokens=result.usage.input_tokens,
-                    cached_input_tokens=result.usage.cached_input_tokens,
-                    output_tokens=result.usage.output_tokens,
+                    input_tokens=usage.input_tokens,
+                    cached_input_tokens=usage.cached_input_tokens,
+                    output_tokens=usage.output_tokens,
                     pricing=pricing,
                 ),
                 write_mode=snapshot.write_mode,
             ),
-            None,
+            failure,
         )
     except OpenAIClientError as error:
         return (
@@ -562,6 +624,7 @@ def _confirm_and_start_processing(
     estimate: ProcessingEstimate | None,
 ) -> None:
     confirmation_lines = [f"Ready to process {len(snapshots)} note(s) with model {config.model}."]
+    has_multi_target_mode = any(snapshot.multiple_target_fields for snapshot in snapshots)
 
     if estimate is not None:
         confirmation_lines.extend(
@@ -595,6 +658,14 @@ def _confirm_and_start_processing(
                 "",
                 f"{overwrite_count} note(s) already contain data in output field(s): {field_names}.",
                 "Continuing may overwrite existing content.",
+            ]
+        )
+    elif has_multi_target_mode and any(snapshot.write_mode != WRITE_MODE_APPEND for snapshot in snapshots):
+        confirmation_lines.extend(
+            [
+                "",
+                "Delimited multi-field mode is enabled.",
+                "Any parsed field section that matches a note field may overwrite existing content.",
             ]
         )
 
@@ -687,3 +758,70 @@ def _finish_prepared_processing(
     _apply_result(browser, config, result, show_feedback=show_feedback)
     if on_done is not None:
         on_done(result)
+
+
+def _parse_delimited_field_updates(
+    *,
+    response_text: str,
+    response_delimiter: str,
+    available_fields: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    prefix, suffix = _split_field_delimiter(response_delimiter)
+    field_lookup = {field_name.casefold(): field_name for field_name in available_fields}
+    marker_pattern = re.compile(
+        rf"(?m)^{re.escape(prefix)}\s*(?P<field>.+?)\s*{re.escape(suffix)}\s*$"
+    )
+    matches = list(marker_pattern.finditer(response_text))
+    if not matches:
+        raise OpenAIClientError(
+            "The response did not contain any field markers that matched the configured delimiter."
+        )
+
+    parsed_updates: dict[str, str] = {}
+    warnings: list[str] = []
+    unknown_fields: list[str] = []
+
+    for index, match in enumerate(matches):
+        raw_field_name = match.group("field").strip()
+        section_start = match.end()
+        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(response_text)
+        section_value = response_text[section_start:section_end].strip()
+        canonical_name = field_lookup.get(raw_field_name.casefold())
+        if canonical_name is None:
+            unknown_fields.append(raw_field_name)
+            continue
+        if canonical_name in parsed_updates and section_value:
+            parsed_updates[canonical_name] = parsed_updates[canonical_name].rstrip() + "\n\n" + section_value
+            warnings.append(f"Field '{canonical_name}' appeared multiple times and its sections were merged.")
+            continue
+        parsed_updates[canonical_name] = section_value
+
+    if unknown_fields:
+        warnings.append(
+            "Ignored unknown field section(s): " + ", ".join(sorted(set(unknown_fields))) + "."
+        )
+    return parsed_updates, warnings
+
+
+def _split_field_delimiter(delimiter: str) -> tuple[str, str]:
+    normalized = delimiter.strip()
+    if not normalized:
+        raise OpenAIClientError("Multiple target field mode requires a response delimiter.")
+    if "{field}" in normalized:
+        prefix, suffix = normalized.split("{field}", 1)
+        if not prefix and not suffix:
+            raise OpenAIClientError("The response delimiter must include text around '{field}'.")
+        return prefix, suffix
+
+    match = re.match(r"^(?P<prefix>[^A-Za-z0-9]*).+?(?P<suffix>[^A-Za-z0-9]*)$", normalized)
+    if match is None:
+        raise OpenAIClientError(
+            "The response delimiter must look like '--Notes--' or include a '{field}' placeholder."
+        )
+    prefix = match.group("prefix")
+    suffix = match.group("suffix")
+    if not prefix and not suffix:
+        raise OpenAIClientError(
+            "The response delimiter must look like '--Notes--' or include a '{field}' placeholder."
+        )
+    return prefix, suffix

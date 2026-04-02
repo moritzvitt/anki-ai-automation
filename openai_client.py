@@ -34,6 +34,12 @@ class AIFieldUpdateResult:
     usage: TokenUsage
 
 
+@dataclass(frozen=True)
+class AITextResponseResult:
+    output_text: str
+    usage: TokenUsage
+
+
 def request_field_updates(
     *,
     api_key: str,
@@ -96,6 +102,63 @@ def request_field_updates(
     raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
 
 
+def request_text_response(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_backoff_seconds: float,
+    temperature: float | None,
+    reasoning_effort: str | None,
+) -> AITextResponseResult:
+    if OpenAI is None:
+        raise OpenAIClientError(
+            "The official OpenAI Python client is not installed. "
+            "Install the 'openai' package into Anki's Python environment first."
+        )
+    if not api_key.strip():
+        raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
+
+    client = _build_client(api_key=api_key, timeout_seconds=timeout_seconds)
+
+    last_error: Exception | None = None
+    use_temperature = temperature is not None
+    for attempt in range(max_retries + 1):
+        try:
+            payload: dict[str, Any] = {
+                "model": model,
+                "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
+            }
+            if use_temperature and temperature is not None:
+                payload["temperature"] = temperature
+            if reasoning_effort:
+                payload["reasoning"] = {"effort": reasoning_effort}
+
+            response = client.responses.create(**payload)
+            output_text = str(getattr(response, "output_text", "") or "").strip()
+            if not output_text:
+                raise OpenAIClientError("The model returned an empty response.")
+
+            return AITextResponseResult(
+                output_text=output_text,
+                usage=_parse_usage(getattr(response, "usage", None)),
+            )
+        except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+            if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
+                use_temperature = False
+                last_error = error
+                continue
+            last_error = error
+            if attempt >= max_retries:
+                break
+            time.sleep(retry_backoff_seconds * (attempt + 1))
+
+    raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
+
+
 def count_request_input_tokens(
     *,
     api_key: str,
@@ -120,6 +183,38 @@ def count_request_input_tokens(
             "model": model,
             "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
             "text": {"format": _response_format(output_fields)},
+        }
+        if reasoning_effort:
+            payload["reasoning"] = {"effort": reasoning_effort}
+
+        result = client.responses.input_tokens.count(**payload)
+        return int(result.input_tokens)
+    except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+        raise OpenAIClientError(f"Failed to count input tokens: {error}") from error
+
+
+def count_request_input_tokens_for_text(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_seconds: float,
+    reasoning_effort: str | None,
+) -> int:
+    if OpenAI is None:
+        raise OpenAIClientError(
+            "The official OpenAI Python client is not installed. "
+            "Install the 'openai' package into Anki's Python environment first."
+        )
+    if not api_key.strip():
+        raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
+
+    client = _build_client(api_key=api_key, timeout_seconds=timeout_seconds)
+    try:
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
         }
         if reasoning_effort:
             payload["reasoning"] = {"effort": reasoning_effort}
