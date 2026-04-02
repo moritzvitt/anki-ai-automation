@@ -21,6 +21,26 @@
       "id": "default-prompt",
       "name": "Default prompt",
       "prompt": "Improve the following flashcard content for note type {{NoteType}}.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}"
+    },
+    {
+      "id": "card-quality-check",
+      "name": "Card Quality Check",
+      "prompt": "You are evaluating an Anki card for efficient learning.\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\n\nTasks:\n1. Decide:\n   - GOOD -> ready to learn\n   - FIX -> small improvements needed\n   - BAD -> should not be learned (low value, unclear, redundant, etc.)\n\n2. If FIX or BAD, explain briefly why.\n\n3. Suggest concrete improvements:\n   - wording\n   - missing context\n   - ambiguity\n   - overload (too much info)\n   - unnatural Japanese (if applicable)\n\n4. If possible, provide an improved version of the card (Front/Back only).\n\nKeep output concise and structured."
+    },
+    {
+      "id": "update-japanese-notes",
+      "name": "Update Japanese Notes",
+      "prompt": "You are refining the \"Japanese Notes\" field of an Anki card for an intermediate learner (B1-B2).\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nCurrent Japanese Notes: {{Japanese Notes}}\n\nTasks:\n1. Improve or rewrite the Japanese Notes to be:\n   - concise\n   - linguistically useful\n   - focused on nuance (register, collocations, restrictions, etc.)\n\n2. Include only relevant info such as:\n   - nuance vs similar expressions\n   - typical usage patterns\n   - common pitfalls\n   - kanji/reading notes only if non-trivial\n\n3. Avoid basic explanations.\n\n4. Output ONLY the updated \"Japanese Notes\" field."
+    },
+    {
+      "id": "update-grammar-notes",
+      "name": "Update Notes (Grammar Explanation)",
+      "prompt": "You are improving the \"Notes\" field (grammar explanation) of an Anki card for an intermediate learner.\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nCurrent Notes: {{Notes}}\n\nTasks:\n1. Rewrite the Notes to:\n   - clearly explain the grammar point\n   - focus on function and nuance\n   - include 1 short example if helpful\n\n2. Prefer:\n   - contrasts with similar grammar\n   - usage constraints\n   - sentence-level function\n\n3. Avoid:\n   - overly basic explanations\n   - long paragraphs\n\n4. Output ONLY the updated \"Notes\" field."
+    },
+    {
+      "id": "full-card-optimization",
+      "name": "Full Card Optimization",
+      "prompt": "You are optimizing an Anki card for efficient long-term retention (intermediate Japanese learner).\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\n\nTasks:\n1. Evaluate card quality: GOOD / FIX / BAD\n\n2. If FIX or BAD:\n   - briefly explain why\n\n3. Improve:\n   - Front (clear, minimal, unambiguous)\n   - Back (precise, not overloaded)\n   - Japanese Notes (concise, nuance-focused)\n   - Notes (clear grammar explanation)\n\n4. Keep everything compact and high-signal.\n\nOutput format:\n--Front--\n...\n--Back--\n...\n--Japanese Notes--\n...\n--Notes--\n..."
     }
   ],
   "saved_system_prompts": [
@@ -28,10 +48,77 @@
       "id": "default-system-prompt",
       "name": "Default system prompt",
       "prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON."
+    },
+    {
+      "id": "delimited-field-sections",
+      "name": "Delimited Field Sections",
+      "prompt": "You improve Anki flashcards. Follow the user's requested delimiter-based output format exactly. Return only the field sections, keep the original meaning intact, stay concise, and do not include commentary before or after the delimited sections."
     }
   ],
-  "workflow_groups": [],
-  "workflows": [],
+  "workflow_groups": [
+    {
+      "id": "japanese-maintenance",
+      "name": "Japanese Maintenance"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "workflow-card-quality-check",
+      "name": "Card Quality Check",
+      "query": "tag:ai-card-quality",
+      "prompt_id": "card-quality-check",
+      "target_field": "Notes",
+      "mode": "append",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 0
+    },
+    {
+      "id": "workflow-update-japanese-notes",
+      "name": "Update Japanese Notes",
+      "query": "tag:ai-japanese-notes",
+      "prompt_id": "update-japanese-notes",
+      "target_field": "Japanese Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 1
+    },
+    {
+      "id": "workflow-update-grammar-notes",
+      "name": "Update Notes (Grammar Explanation)",
+      "query": "tag:ai-grammar-notes",
+      "prompt_id": "update-grammar-notes",
+      "target_field": "Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 2
+    },
+    {
+      "id": "workflow-full-card-optimization",
+      "name": "Full Card Optimization",
+      "query": "tag:ai-card-optimize",
+      "prompt_id": "full-card-optimization",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "japanese-maintenance",
+      "position": 3
+    }
+  ],
   "field_mappings": [
     {
       "note_type": "Basic",
