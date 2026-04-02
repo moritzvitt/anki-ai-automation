@@ -563,6 +563,13 @@ class WorkflowManagerDialog(QDialog):
                 for failure in result.failures
             ]
         )
+        if result.was_cancelled:
+            summary.skipped.append(
+                f"- Interrupted while running '{workflow.name}'. Remaining workflows were not started."
+            )
+            self.setEnabled(True)
+            self._show_workflow_sequence_summary(summary)
+            return
         self._run_workflow_at_index(
             workflows=workflows,
             index=index + 1,

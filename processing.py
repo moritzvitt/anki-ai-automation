@@ -4,10 +4,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import math
 import re
+from threading import Event
 from typing import Any, Callable
 
 from aqt import mw
 from aqt.browser import Browser
+from aqt.qt import QDialog, QLabel, QPushButton, QVBoxLayout, QWidget
 from aqt.operations import QueryOp
 from aqt.utils import askUser, showCritical, showInfo, tooltip
 
@@ -62,6 +64,7 @@ class NoteFailure:
 class ProcessingResult:
     updates: list[NoteUpdate]
     failures: list[NoteFailure]
+    was_cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,25 @@ class PreparedManualProcessing:
     overwrite_count: int
     overwrite_fields: set[str]
     estimate: ProcessingEstimate | None
+
+
+class ProcessingInterruptDialog(QDialog):
+    def __init__(self, parent: QWidget, *, note_count: int) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("AI Processing")
+        self.setModal(False)
+        self.resize(360, 140)
+
+        layout = QVBoxLayout(self)
+        label = QLabel(
+            f"Processing {note_count} note(s) with AI.\n\n"
+            "Click Interrupt to stop after the current in-flight request(s)."
+        )
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        self.interrupt_button = QPushButton("Interrupt")
+        layout.addWidget(self.interrupt_button)
 
 
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
@@ -189,13 +211,24 @@ def start_prepared_manual_processing(
     show_feedback: bool = True,
     on_done: Callable[[ProcessingResult], None] | None = None,
 ) -> None:
+    cancel_event = Event()
+    interrupt_dialog = ProcessingInterruptDialog(browser, note_count=len(prepared.snapshots))
+    interrupt_dialog.interrupt_button.clicked.connect(lambda: _request_processing_interrupt(interrupt_dialog, cancel_event))
+    interrupt_dialog.show()
+
     op = QueryOp(
         parent=browser,
-        op=lambda _col: _process_snapshots(config, prepared.snapshots, prepared.failures),
+        op=lambda _col: _process_snapshots(
+            config,
+            prepared.snapshots,
+            prepared.failures,
+            cancel_event=cancel_event,
+        ),
         success=lambda result: _finish_prepared_processing(
             browser,
             config,
             result,
+            interrupt_dialog=interrupt_dialog,
             show_feedback=show_feedback,
             on_done=on_done,
         ),
@@ -359,19 +392,30 @@ def _process_snapshots(
     config: AddonConfig,
     snapshots: list[NoteSnapshot],
     initial_failures: list[NoteFailure],
+    *,
+    cancel_event: Event | None = None,
 ) -> ProcessingResult:
     updates_by_note_id: dict[int, NoteUpdate] = {}
     failures = list(initial_failures)
     max_workers = max(1, min(config.max_parallel_requests, config.batch_size))
+    was_cancelled = False
 
     for batch in _chunked(snapshots, config.batch_size):
+        if cancel_event is not None and cancel_event.is_set():
+            was_cancelled = True
+            break
         if max_workers <= 1 or len(batch) <= 1:
             for snapshot in batch:
+                if cancel_event is not None and cancel_event.is_set():
+                    was_cancelled = True
+                    break
                 update, failure = _process_single_snapshot(config, snapshot)
                 if update is not None:
                     updates_by_note_id[update.note_id] = update
                 if failure is not None:
                     failures.append(failure)
+            if was_cancelled:
+                break
             continue
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -385,13 +429,15 @@ def _process_snapshots(
                     updates_by_note_id[update.note_id] = update
                 if failure is not None:
                     failures.append(failure)
+                if cancel_event is not None and cancel_event.is_set():
+                    was_cancelled = True
 
     updates = [
         updates_by_note_id[snapshot.note_id]
         for snapshot in snapshots
         if snapshot.note_id in updates_by_note_id
     ]
-    return ProcessingResult(updates=updates, failures=failures)
+    return ProcessingResult(updates=updates, failures=failures, was_cancelled=was_cancelled)
 
 
 def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResult, *, show_feedback: bool = True) -> None:
@@ -436,7 +482,17 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
     mw.reset()
 
     if show_feedback:
-        if usage_totals["request_count"]:
+        if result.was_cancelled:
+            summary = (
+                f"AI Automation interrupted after {usage_totals['request_count']} processed request(s), "
+                f"updated {applied}"
+            )
+            if usage_totals["total_tokens"]:
+                summary += f", used {usage_totals['total_tokens']:,} tokens"
+            if usage_totals["estimated_cost_usd"] is not None:
+                summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
+            tooltip(summary + ".", parent=browser)
+        elif usage_totals["request_count"]:
             summary = (
                 f"AI Automation processed {usage_totals['request_count']} note(s), "
                 f"updated {applied}, used {usage_totals['total_tokens']:,} tokens"
@@ -752,12 +808,21 @@ def _finish_prepared_processing(
     config: AddonConfig,
     result: ProcessingResult,
     *,
+    interrupt_dialog: ProcessingInterruptDialog | None,
     show_feedback: bool,
     on_done: Callable[[ProcessingResult], None] | None,
 ) -> None:
+    if interrupt_dialog is not None:
+        interrupt_dialog.close()
     _apply_result(browser, config, result, show_feedback=show_feedback)
     if on_done is not None:
         on_done(result)
+
+
+def _request_processing_interrupt(dialog: ProcessingInterruptDialog, cancel_event: Event) -> None:
+    cancel_event.set()
+    dialog.interrupt_button.setEnabled(False)
+    dialog.interrupt_button.setText("Interrupt Requested")
 
 
 def _parse_delimited_field_updates(
