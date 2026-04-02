@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-from typing import Any
+from typing import Any, Callable
 
 from aqt import mw
 from aqt.browser import Browser
@@ -79,6 +79,15 @@ class ManualProcessingSpec:
     model: str = ""
 
 
+@dataclass(frozen=True)
+class PreparedManualProcessing:
+    snapshots: list[NoteSnapshot]
+    failures: list[NoteFailure]
+    overwrite_count: int
+    overwrite_fields: set[str]
+    estimate: ProcessingEstimate | None
+
+
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
     if mw is None or mw.col is None:
         showCritical("Anki collection is not available.", parent=browser)
@@ -133,6 +142,58 @@ def run_manual_ai_processing(
         overwrite_fields,
         estimate,
     )
+
+
+def prepare_manual_ai_processing(
+    config: AddonConfig,
+    note_ids: list[int],
+    spec: ManualProcessingSpec,
+    *,
+    include_estimate: bool | None = None,
+) -> PreparedManualProcessing:
+    if mw is None or mw.col is None:
+        raise OpenAIClientError("Anki collection is not available.")
+
+    run_config = replace(
+        config,
+        model=spec.model or config.model,
+        system_prompt=spec.system_prompt or config.system_prompt,
+    )
+    snapshots, failures = _build_manual_snapshots(note_ids, run_config, spec)
+    overwrite_count, overwrite_fields = _count_overwrites(snapshots)
+    use_estimate = run_config.show_estimate_before_sending if include_estimate is None else include_estimate
+    estimate = _estimate_processing(run_config, snapshots) if use_estimate else None
+    return PreparedManualProcessing(
+        snapshots=snapshots,
+        failures=failures,
+        overwrite_count=overwrite_count,
+        overwrite_fields=overwrite_fields,
+        estimate=estimate,
+    )
+
+
+def start_prepared_manual_processing(
+    browser: Browser,
+    config: AddonConfig,
+    prepared: PreparedManualProcessing,
+    *,
+    progress_label: str | None = None,
+    show_feedback: bool = True,
+    on_done: Callable[[ProcessingResult], None] | None = None,
+) -> None:
+    op = QueryOp(
+        parent=browser,
+        op=lambda _col: _process_snapshots(config, prepared.snapshots, prepared.failures),
+        success=lambda result: _finish_prepared_processing(
+            browser,
+            config,
+            result,
+            show_feedback=show_feedback,
+            on_done=on_done,
+        ),
+    )
+    op.with_progress(label=progress_label or f"Processing {len(prepared.snapshots)} note(s) with AI...")
+    op.run_in_background()
 
 
 def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[NoteSnapshot], list[NoteFailure]]:
@@ -340,7 +401,7 @@ def _process_snapshots(
     return ProcessingResult(updates=updates, failures=failures)
 
 
-def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResult) -> None:
+def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResult, *, show_feedback: bool = True) -> None:
     assert mw is not None and mw.col is not None
 
     applied = 0
@@ -377,22 +438,24 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
             history_limit=config.usage_history_limit,
         )
 
-    browser.search()
+    if hasattr(browser, "search"):
+        browser.search()
     mw.reset()
 
-    if usage_totals["request_count"]:
-        summary = (
-            f"AI Automation processed {usage_totals['request_count']} note(s), "
-            f"updated {applied}, used {usage_totals['total_tokens']:,} tokens"
-        )
-        if usage_totals["estimated_cost_usd"] is not None:
-            summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
-        tooltip(summary + ".", parent=browser)
-    elif applied:
-        tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
+    if show_feedback:
+        if usage_totals["request_count"]:
+            summary = (
+                f"AI Automation processed {usage_totals['request_count']} note(s), "
+                f"updated {applied}, used {usage_totals['total_tokens']:,} tokens"
+            )
+            if usage_totals["estimated_cost_usd"] is not None:
+                summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
+            tooltip(summary + ".", parent=browser)
+        elif applied:
+            tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
 
-    if result.failures:
-        showInfo(_format_failure_report(result.failures), parent=browser)
+        if result.failures:
+            showInfo(_format_failure_report(result.failures), parent=browser)
 
 
 def _format_failure_report(failures: list[NoteFailure]) -> str:
@@ -505,13 +568,17 @@ def _confirm_and_start_processing(
     if not confirmed:
         return
 
-    op = QueryOp(
-        parent=browser,
-        op=lambda _col: _process_snapshots(config, snapshots, failures),
-        success=lambda result: _apply_result(browser, config, result),
+    start_prepared_manual_processing(
+        browser,
+        config,
+        PreparedManualProcessing(
+            snapshots=snapshots,
+            failures=failures,
+            overwrite_count=overwrite_count,
+            overwrite_fields=overwrite_fields,
+            estimate=estimate,
+        ),
     )
-    op.with_progress(label=f"Processing {len(snapshots)} note(s) with AI...")
-    op.run_in_background()
 
 
 def _heuristic_token_count(text: str) -> int:
@@ -572,3 +639,16 @@ def _merge_field_value(*, current_value: str, generated_value: str, write_mode: 
     if not generated_value.strip():
         return current_value
     return current_value.rstrip() + "\n\n" + generated_value.lstrip()
+
+
+def _finish_prepared_processing(
+    browser: Browser,
+    config: AddonConfig,
+    result: ProcessingResult,
+    *,
+    show_feedback: bool,
+    on_done: Callable[[ProcessingResult], None] | None,
+) -> None:
+    _apply_result(browser, config, result, show_feedback=show_feedback)
+    if on_done is not None:
+        on_done(result)

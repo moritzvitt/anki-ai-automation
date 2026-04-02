@@ -8,6 +8,7 @@ Users can select one or many rows in the Anki Browser, right-click, and choose `
 
 - Browser right-click action that works with selected notes or cards
 - Saved prompt library with prompt names plus editable prompt text
+- Tools menu workflow manager for query-based AI processing
 - Browser transform dialog with target-field selection and append/overwrite modes
 - Config-driven field mapping by note type
 - Configurable prompt template and system prompt
@@ -40,6 +41,8 @@ ai-automation/
 1. Install the add-on folder into Anki's add-ons directory.
 2. Install the official OpenAI client into Anki's Python environment.
 3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, choose a model from the live dropdown, edit prompts, and manage note type rules.
+
+To run reusable query-based rules, open `Tools -> Process specific cards with AI`.
 
 If you need to install the dependency manually, use Anki's bundled Python. The exact path varies by platform, but the command is equivalent to:
 
@@ -86,6 +89,13 @@ The prompt can reference any field that exists on the note, plus `{{NoteType}}`.
 3. The add-on resolves the selected rows to note IDs, then lets you choose a shared target field, a saved prompt, and append or overwrite mode.
 4. A prompt is rendered from the note fields and sent to OpenAI.
 5. Returned JSON field values are written back to the chosen note field and saved to the collection.
+
+For rule-based runs:
+
+1. Open `Tools -> Process specific cards with AI`.
+2. Create workflows with a name, Anki query, saved prompt, target field, mode, and optional group.
+3. Use `Refresh Count` while editing to preview how many notes the query currently matches.
+4. Run one workflow or an entire group in the stored execution order.
 
 Open `Tools -> AI Automation Usage` to review tracked totals and recent runs. These spend figures are local add-on estimates based on model pricing, not billing-invoice truth.
 

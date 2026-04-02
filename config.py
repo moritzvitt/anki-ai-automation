@@ -145,7 +145,11 @@ def load_config() -> AddonConfig:
         fallback_system_prompt=system_prompt,
     )
     workflow_groups = _read_workflow_groups(raw.get("workflow_groups", []))
-    workflows = _read_workflows(raw.get("workflows", []), saved_prompts=saved_prompts)
+    workflows = _read_workflows(
+        raw.get("workflows", []),
+        saved_prompts=saved_prompts,
+        workflow_groups=workflow_groups,
+    )
 
     return AddonConfig(
         enabled=enabled,
@@ -376,13 +380,19 @@ def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> li
     return prompts
 
 
-def _read_workflows(value: Any, *, saved_prompts: list[SavedPrompt]) -> list[Workflow]:
+def _read_workflows(
+    value: Any,
+    *,
+    saved_prompts: list[SavedPrompt],
+    workflow_groups: list[WorkflowGroup],
+) -> list[Workflow]:
     if value in (None, []):
         return []
     if not isinstance(value, list):
         raise ConfigError("Config key 'workflows' must be a list.")
 
     allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
+    allowed_group_ids = {group.group_id for group in workflow_groups}
     allowed_modes = {"append", "overwrite"}
     workflows: list[Workflow] = []
     seen_ids: set[str] = set()
@@ -406,6 +416,10 @@ def _read_workflows(value: Any, *, saved_prompts: list[SavedPrompt]) -> list[Wor
         if mode not in allowed_modes:
             raise ConfigError("Workflow mode must be 'append' or 'overwrite'.")
 
+        group_id = _read_optional_string(item, "group_id")
+        if group_id is not None and group_id not in allowed_group_ids:
+            raise ConfigError(f"workflows[{index}] references unknown group_id '{group_id}'.")
+
         workflows.append(
             Workflow(
                 workflow_id=workflow_id,
@@ -414,7 +428,7 @@ def _read_workflows(value: Any, *, saved_prompts: list[SavedPrompt]) -> list[Wor
                 prompt_id=prompt_id,
                 target_field=_read_string(item, "target_field"),
                 mode=mode,
-                group_id=_read_optional_string(item, "group_id"),
+                group_id=group_id,
                 position=_read_int(item, "position", minimum=0, default=index),
             )
         )
