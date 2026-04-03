@@ -15,7 +15,7 @@ from aqt.operations import QueryOp
 from aqt.utils import askUser, showCritical, showInfo
 
 from .config import AddonConfig, FieldMapping
-from .openai_client import (
+from ..services.openai_client import (
     OpenAIClientError,
     TokenUsage,
     count_request_input_tokens,
@@ -23,10 +23,10 @@ from .openai_client import (
     request_field_updates,
     request_text_response,
 )
-from .pricing import estimate_cost_usd, resolve_model_pricing
+from ..services.pricing import estimate_cost_usd, resolve_model_pricing
 from .prompting import extract_placeholders, render_prompt
 from .usage_stats import record_usage_run
-from .ui_tooltips import show_tooltip
+from ..ui.tooltips import show_tooltip
 
 
 WRITE_MODE_APPEND = "append"

@@ -23,7 +23,7 @@ from aqt.qt import (
 )
 from aqt.utils import showCritical
 
-from .config import (
+from ..core.config import (
     ConfigError,
     ProcessingPreset,
     SavedPrompt,
@@ -33,15 +33,15 @@ from .config import (
     new_object_id,
     save_raw_config,
 )
-from .model_catalog import fallback_model_options
-from .processing import (
+from ..services.model_catalog import fallback_model_options
+from ..core.processing import (
     ManualProcessingSpec,
     WRITE_MODE_APPEND,
     WRITE_MODE_OVERWRITE,
     WRITE_MODE_SKIP_NONEMPTY,
     run_manual_ai_processing,
 )
-from .ui_tooltips import set_hover_help, show_tooltip
+from .tooltips import set_hover_help, show_tooltip
 
 
 @dataclass(frozen=True)

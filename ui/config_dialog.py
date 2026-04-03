@@ -25,9 +25,9 @@ from aqt.qt import (
 )
 from aqt.utils import showCritical, showInfo
 
-from .config import ADDON_NAME
-from .model_catalog import ModelOption, fallback_model_options, fetch_model_options
-from .ui_tooltips import set_hover_help
+from ..core.config import ADDON_NAME
+from ..services.model_catalog import ModelOption, fallback_model_options, fetch_model_options
+from .tooltips import set_hover_help
 
 
 def register_config_action() -> None:

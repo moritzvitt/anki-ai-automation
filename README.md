@@ -24,11 +24,23 @@ Users can select one or many rows in the Anki Browser, right-click, and choose `
 ai-automation/
 ├── __init__.py
 ├── addon.py
-├── browser_menu.py
-├── config.py
-├── openai_client.py
-├── processing.py
-├── prompting.py
+├── core/
+│   ├── config.py
+│   ├── processing.py
+│   ├── prompting.py
+│   └── usage_stats.py
+├── services/
+│   ├── billing.py
+│   ├── model_catalog.py
+│   ├── openai_client.py
+│   └── pricing.py
+├── ui/
+│   ├── automation.py
+│   ├── browser_menu.py
+│   ├── config_dialog.py
+│   ├── tooltips.py
+│   ├── usage_menu.py
+│   └── workflow.py
 ├── manifest.json
 ├── config.json
 ├── config.md

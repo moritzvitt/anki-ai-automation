@@ -6,7 +6,7 @@ from typing import Any
 
 from aqt import mw
 
-from .pricing import ModelPricing
+from ..services.pricing import ModelPricing
 
 
 ADDON_NAME = __name__.split(".")[0]

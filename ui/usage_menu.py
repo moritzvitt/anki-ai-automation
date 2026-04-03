@@ -5,9 +5,9 @@ from aqt.operations import QueryOp
 from aqt.qt import QAction
 from aqt.utils import showCritical, showInfo
 
-from .billing import BillingError, fetch_billing_summary
-from .config import ConfigError, load_config
-from .usage_stats import build_usage_report, load_usage_stats
+from ..services.billing import BillingError, fetch_billing_summary
+from ..core.config import ConfigError, load_config
+from ..core.usage_stats import build_usage_report, load_usage_stats
 
 
 def register_usage_menu() -> None:

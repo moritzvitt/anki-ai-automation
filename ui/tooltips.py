@@ -4,7 +4,7 @@ from aqt import mw
 from aqt.qt import QWidget
 from aqt.utils import tooltip as anki_tooltip
 
-from .config import ADDON_NAME
+from ..core.config import ADDON_NAME
 
 
 def hover_help_enabled() -> bool:

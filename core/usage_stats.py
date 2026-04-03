@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 
-_USER_DATA_DIR = os.path.join(os.path.dirname(__file__), "user_data")
+_USER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "user_data")
 _USAGE_FILE = os.path.join(_USER_DATA_DIR, "usage_stats.json")
 
 

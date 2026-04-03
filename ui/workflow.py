@@ -27,13 +27,13 @@ from aqt.qt import (
 )
 from aqt.utils import askUser, showCritical, showInfo
 
-from .automation_ui import (
+from .automation import (
     ProcessingPresetChoice,
     PromptChoice,
     SavedPromptDialog,
     _preset_choices_from_saved_processing_presets,
 )
-from .config import (
+from ..core.config import (
     ConfigError,
     ProcessingPreset,
     SavedPrompt,
@@ -44,8 +44,8 @@ from .config import (
     new_object_id,
     save_raw_config,
 )
-from .model_catalog import fallback_model_options
-from .processing import (
+from ..services.model_catalog import fallback_model_options
+from ..core.processing import (
     ManualProcessingSpec,
     ProcessingResult,
     WRITE_MODE_APPEND,
@@ -54,7 +54,7 @@ from .processing import (
     prepare_manual_ai_processing,
     start_prepared_manual_processing,
 )
-from .ui_tooltips import set_hover_help, show_tooltip
+from .tooltips import set_hover_help, show_tooltip
 
 
 @dataclass(frozen=True)

@@ -6,8 +6,8 @@ from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.qt import QAction, QMenu
 
-from .automation_ui import open_transform_dialog
-from .ui_tooltips import show_tooltip
+from .automation import open_transform_dialog
+from .tooltips import show_tooltip
 
 
 def register_browser_menu() -> None:
