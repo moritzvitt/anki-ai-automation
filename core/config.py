@@ -73,6 +73,9 @@ class Workflow:
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
     response_delimiter: str | None = None
+    trigger_on_startup: bool = False
+    trigger_on_periodic: bool = False
+    trigger_min_matches: int = 1
     group_ids: list[str] | None = None
     position: int = 0
 
@@ -558,6 +561,9 @@ def _read_workflows(
             raise ConfigError(
                 f"workflows[{index}] enables multiple_target_fields but has no response_delimiter."
             )
+        trigger_on_startup = _read_bool(item, "trigger_on_startup", default=False)
+        trigger_on_periodic = _read_bool(item, "trigger_on_periodic", default=False)
+        trigger_min_matches = _read_int(item, "trigger_min_matches", minimum=1, default=1)
 
         target_field = _read_string(
             item,
@@ -580,6 +586,9 @@ def _read_workflows(
                 multiple_target_fields=multiple_target_fields,
                 convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
                 response_delimiter=response_delimiter,
+                trigger_on_startup=trigger_on_startup,
+                trigger_on_periodic=trigger_on_periodic,
+                trigger_min_matches=trigger_min_matches,
                 group_ids=group_ids,
                 position=_read_int(item, "position", minimum=0, default=index),
             )

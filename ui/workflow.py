@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Callable
 
 from aqt import mw
 from aqt.qt import (
@@ -11,6 +12,7 @@ from aqt.qt import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -70,6 +72,9 @@ class WorkflowDraft:
     multiple_target_fields: bool
     convert_markdown_to_html: bool
     response_delimiter: str | None
+    trigger_on_startup: bool
+    trigger_on_periodic: bool
+    trigger_min_matches: int
     group_names: list[str]
 
 
@@ -79,6 +84,9 @@ class WorkflowSequenceSummary:
     failures: list[str]
     skipped: list[str]
     updated_requests: int = 0
+
+
+_WORKFLOW_RUNNER_DIALOGS: list["WorkflowManagerDialog"] = []
 
 
 def register_workflow_menu() -> None:
@@ -237,6 +245,7 @@ class WorkflowManagerDialog(QDialog):
         prompt_name = self._prompt_name(workflow.prompt_id)
         group_names = self._group_names(workflow.group_ids)
         group_summary = ", ".join(group_names) if group_names else "No groups"
+        trigger_summary = _trigger_summary(workflow)
         return (
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
@@ -246,7 +255,7 @@ class WorkflowManagerDialog(QDialog):
             f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'} | "
             f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
             f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
-            f"Delimiter: {workflow.response_delimiter or '-'} | Groups: {group_summary}"
+            f"Delimiter: {workflow.response_delimiter or '-'} | Trigger: {trigger_summary} | Groups: {group_summary}"
         )
 
     def _prompt_name(self, prompt_id: str) -> str:
@@ -289,6 +298,9 @@ class WorkflowManagerDialog(QDialog):
                 "multiple_target_fields": workflow.multiple_target_fields,
                 "convert_markdown_to_html": workflow.convert_markdown_to_html,
                 "response_delimiter": workflow.response_delimiter,
+                "trigger_on_startup": workflow.trigger_on_startup,
+                "trigger_on_periodic": workflow.trigger_on_periodic,
+                "trigger_min_matches": workflow.trigger_min_matches,
                 "group_ids": workflow.group_ids or [],
                 "group_id": (workflow.group_ids or [None])[0],
                 "position": index,
@@ -336,6 +348,9 @@ class WorkflowManagerDialog(QDialog):
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
+            trigger_on_startup=draft.trigger_on_startup,
+            trigger_on_periodic=draft.trigger_on_periodic,
+            trigger_min_matches=draft.trigger_min_matches,
             group_ids=self._group_ids_for_names(draft.group_names),
             position=len(self._workflows),
         )
@@ -377,6 +392,9 @@ class WorkflowManagerDialog(QDialog):
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
+            trigger_on_startup=draft.trigger_on_startup,
+            trigger_on_periodic=draft.trigger_on_periodic,
+            trigger_min_matches=draft.trigger_min_matches,
             group_ids=self._group_ids_for_names(draft.group_names),
         )
         self._save_state()
@@ -459,7 +477,15 @@ class WorkflowManagerDialog(QDialog):
         group_name = self._group_names([group_id])[0] if self._group_names([group_id]) else "Selected group"
         self._run_workflow_sequence(workflows, run_label=group_name)
 
-    def _run_workflow_sequence(self, workflows: list[Workflow], *, run_label: str) -> None:
+    def _run_workflow_sequence(
+        self,
+        workflows: list[Workflow],
+        *,
+        run_label: str,
+        show_summary_dialog: bool = True,
+        require_confirmation: bool = True,
+        on_done: Callable[[WorkflowSequenceSummary], None] | None = None,
+    ) -> None:
         try:
             config = load_config()
         except ConfigError as error:
@@ -485,18 +511,19 @@ class WorkflowManagerDialog(QDialog):
                 showCritical(f"Workflow '{workflow.name}' query error:\n\n{error}", parent=self)
                 return
 
-        confirmation_lines = [
-            f"Ready to run {len(workflows)} workflow(s) for '{run_label}'.",
-            "",
-            "Current query matches:",
-        ]
-        for workflow, count in query_counts[:20]:
-            confirmation_lines.append(f"- {workflow.name}: {count} note(s)")
-        if len(query_counts) > 20:
-            confirmation_lines.append(f"- ...and {len(query_counts) - 20} more workflows")
-        confirmation_lines.extend(["", "Continue?"])
-        if not askUser("\n".join(confirmation_lines), parent=self):
-            return
+        if require_confirmation:
+            confirmation_lines = [
+                f"Ready to run {len(workflows)} workflow(s) for '{run_label}'.",
+                "",
+                "Current query matches:",
+            ]
+            for workflow, count in query_counts[:20]:
+                confirmation_lines.append(f"- {workflow.name}: {count} note(s)")
+            if len(query_counts) > 20:
+                confirmation_lines.append(f"- ...and {len(query_counts) - 20} more workflows")
+            confirmation_lines.extend(["", "Continue?"])
+            if not askUser("\n".join(confirmation_lines), parent=self):
+                return
 
         self.setEnabled(False)
         summary = WorkflowSequenceSummary(workflow_reports=[], failures=[], skipped=[])
@@ -506,6 +533,8 @@ class WorkflowManagerDialog(QDialog):
             config=config,
             prompt_lookup=prompt_lookup,
             summary=summary,
+            show_summary_dialog=show_summary_dialog,
+            on_done=on_done,
         )
 
     def _run_workflow_at_index(
@@ -516,12 +545,16 @@ class WorkflowManagerDialog(QDialog):
         config,
         prompt_lookup: dict[str, SavedPrompt],
         summary: WorkflowSequenceSummary,
+        show_summary_dialog: bool,
+        on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
         # Workflows intentionally run one after another so later workflows can
         # safely build on fields updated by earlier ones on the same notes.
         if index >= len(workflows):
             self.setEnabled(True)
-            self._show_workflow_sequence_summary(summary)
+            self._show_workflow_sequence_summary(summary, show_dialog=show_summary_dialog)
+            if on_done is not None:
+                on_done(summary)
             return
 
         workflow = workflows[index]
@@ -534,6 +567,8 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                show_summary_dialog=show_summary_dialog,
+                on_done=on_done,
             )
             return
 
@@ -547,6 +582,8 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                show_summary_dialog=show_summary_dialog,
+                on_done=on_done,
             )
             return
 
@@ -558,6 +595,8 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                show_summary_dialog=show_summary_dialog,
+                on_done=on_done,
             )
             return
 
@@ -591,6 +630,8 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                show_summary_dialog=show_summary_dialog,
+                on_done=on_done,
             )
             return
 
@@ -608,6 +649,8 @@ class WorkflowManagerDialog(QDialog):
                 summary=summary,
                 workflow=workflow,
                 result=result,
+                show_summary_dialog=show_summary_dialog,
+                on_done=on_done,
             ),
         )
 
@@ -621,6 +664,8 @@ class WorkflowManagerDialog(QDialog):
         summary: WorkflowSequenceSummary,
         workflow: Workflow,
         result: ProcessingResult,
+        show_summary_dialog: bool,
+        on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
         summary.updated_requests += len(result.updates)
         summary.workflow_reports.append(
@@ -637,7 +682,9 @@ class WorkflowManagerDialog(QDialog):
                 f"- Interrupted while running '{workflow.name}'. Remaining workflows were not started."
             )
             self.setEnabled(True)
-            self._show_workflow_sequence_summary(summary)
+            self._show_workflow_sequence_summary(summary, show_dialog=show_summary_dialog)
+            if on_done is not None:
+                on_done(summary)
             return
         self._run_workflow_at_index(
             workflows=workflows,
@@ -645,9 +692,11 @@ class WorkflowManagerDialog(QDialog):
             config=config,
             prompt_lookup=prompt_lookup,
             summary=summary,
+            show_summary_dialog=show_summary_dialog,
+            on_done=on_done,
         )
 
-    def _show_workflow_sequence_summary(self, summary: WorkflowSequenceSummary) -> None:
+    def _show_workflow_sequence_summary(self, summary: WorkflowSequenceSummary, *, show_dialog: bool = True) -> None:
         if summary.updated_requests:
             show_tooltip(
                 f"AI Automation ran workflows and sent {summary.updated_requests} request(s).",
@@ -656,6 +705,8 @@ class WorkflowManagerDialog(QDialog):
         elif not summary.failures and not summary.skipped:
             show_tooltip("No workflows ran.", parent=self)
 
+        if not show_dialog:
+            return
         report_lines = ["Workflow run summary:", ""]
         report_lines.extend(f"- {line}" for line in summary.workflow_reports)
         if summary.skipped:
@@ -751,6 +802,9 @@ class WorkflowDialog(QDialog):
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
+        self.trigger_on_startup_check = QCheckBox("Run automatically on startup")
+        self.trigger_on_periodic_check = QCheckBox("Run automatically when the condition becomes true")
+        self.trigger_min_matches_spin = QSpinBox()
         self.group_edit = QLineEdit()
 
         self._build_ui()
@@ -816,6 +870,8 @@ class WorkflowDialog(QDialog):
         self.temperature_spin.setSingleStep(0.1)
         self.temperature_spin.setValue(0.2)
         self.use_global_temperature_check.setChecked(True)
+        self.trigger_min_matches_spin.setRange(1, 1_000_000)
+        self.trigger_min_matches_spin.setValue(1)
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
@@ -844,6 +900,9 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
+        set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
+        set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
+        set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
         set_hover_help(self.group_edit, "Optional comma-separated workflow groups used to organize and batch-run related workflows.", enabled=self._show_tooltips)
         form.addRow("Preset", preset_row)
         form.addRow("Model", self.model_combo)
@@ -860,6 +919,9 @@ class WorkflowDialog(QDialog):
         form.addRow("Response delimiter", self.delimiter_edit)
         form.addRow("Target field", self.target_field_combo)
         form.addRow("Mode", self.mode_combo)
+        form.addRow("", self.trigger_on_startup_check)
+        form.addRow("", self.trigger_on_periodic_check)
+        form.addRow("Trigger min matches", self.trigger_min_matches_spin)
         form.addRow("Groups", self.group_edit)
         layout.addLayout(form)
 
@@ -892,6 +954,9 @@ class WorkflowDialog(QDialog):
         self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
         self._set_temperature(workflow.temperature)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
+        self.trigger_on_startup_check.setChecked(workflow.trigger_on_startup)
+        self.trigger_on_periodic_check.setChecked(workflow.trigger_on_periodic)
+        self.trigger_min_matches_spin.setValue(workflow.trigger_min_matches)
         model_value = workflow.model or self._current_model
         model_index = self.model_combo.findData(model_value)
         if model_index >= 0:
@@ -931,6 +996,9 @@ class WorkflowDialog(QDialog):
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
+            trigger_on_startup=self.trigger_on_startup_check.isChecked(),
+            trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
+            trigger_min_matches=int(self.trigger_min_matches_spin.value()),
             group_names=_parse_group_names(self.group_edit.text()),
         )
 
@@ -1300,6 +1368,40 @@ def _find_note_ids_for_query(query: str) -> list[int]:
     return [int(note_id) for note_id in note_ids]
 
 
+def run_workflows_background(
+    parent: QWidget,
+    workflows: list[Workflow],
+    *,
+    run_label: str,
+    show_summary_dialog: bool = False,
+    on_done: Callable[[WorkflowSequenceSummary], None] | None = None,
+) -> None:
+    if mw is None:
+        return
+    try:
+        dialog = WorkflowManagerDialog(parent=parent)
+    except ConfigError as error:
+        showCritical(str(error), parent=parent)
+        return
+
+    _WORKFLOW_RUNNER_DIALOGS.append(dialog)
+
+    def finish(summary: WorkflowSequenceSummary) -> None:
+        if dialog in _WORKFLOW_RUNNER_DIALOGS:
+            _WORKFLOW_RUNNER_DIALOGS.remove(dialog)
+        dialog.deleteLater()
+        if on_done is not None:
+            on_done(summary)
+
+    dialog._run_workflow_sequence(
+        workflows,
+        run_label=run_label,
+        show_summary_dialog=show_summary_dialog,
+        require_confirmation=False,
+        on_done=finish,
+    )
+
+
 def _common_fields_for_notes(note_ids: list[int]) -> list[str]:
     if mw is None or mw.col is None or not note_ids:
         return []
@@ -1338,3 +1440,14 @@ def _parse_group_names(value: str) -> list[str]:
         seen_names.add(key)
         parsed_names.append(normalized)
     return parsed_names
+
+
+def _trigger_summary(workflow: Workflow) -> str:
+    trigger_events: list[str] = []
+    if workflow.trigger_on_startup:
+        trigger_events.append("startup")
+    if workflow.trigger_on_periodic:
+        trigger_events.append("monitor")
+    if not trigger_events:
+        return "manual only"
+    return f"{', '.join(trigger_events)} when query matches >= {workflow.trigger_min_matches}"

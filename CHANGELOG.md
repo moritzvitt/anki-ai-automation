@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows semantic versioning where practical.
 
+## Unreleased
+
+### Added
+
+- Workflow triggers that can run automatically on profile startup or when a query condition becomes true.
+- Trigger conditions based on workflow query match counts, including thresholds such as "run when at least N notes match".
+- A `skip if target field not empty` write mode for Browser runs and workflows.
+- Hover help tooltips across the config dialog, Browser dialog, and workflow manager, plus a config option to disable all tooltips.
+- Support for assigning a workflow to multiple groups instead of only one.
+- A VS Code task and formatter script to pretty-print `meta.json` safely.
+
+### Changed
+
+- Reorganized the codebase into `core/`, `ui/`, and `services/` packages to keep related modules together.
+- Workflow previews now show trigger details and multiple group memberships.
+- Workflow group filtering and group runs now include workflows that belong to more than one group.
+
 ## 0.1.0 - 2026-03-27
 
 ### Added
