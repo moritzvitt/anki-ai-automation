@@ -6,7 +6,7 @@ from typing import Any
 from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.operations import QueryOp
-from aqt.qt import QAction, QInputDialog, QMenu
+from aqt.qt import QAction, QMenu
 
 from ..ui.tooltips import show_tooltip
 
@@ -29,40 +29,31 @@ def _on_browser_context_menu(browser: Browser, menu: QMenu) -> None:
     if not note_ids:
         return
 
-    action = QAction("Quick Add Existing Tag...", browser)
-    action.triggered.connect(lambda: _prompt_and_apply_tag(browser, note_ids))
-    menu.addAction(action)
-
-
-def _prompt_and_apply_tag(browser: Browser, note_ids: list[int]) -> None:
-    if mw is None or mw.col is None:
-        show_tooltip("Anki collection is not available.", parent=browser)
-        return
-
     existing_tags = _existing_tags()
     if not existing_tags:
-        show_tooltip("No existing tags were found in this collection.", parent=browser)
+        action = QAction("Quick Add Existing Tag", browser)
+        action.setEnabled(False)
+        menu.addAction(action)
         return
 
-    selected_tag, accepted = QInputDialog.getItem(
-        browser,
-        "Quick Add Existing Tag",
-        "Choose an existing tag",
-        existing_tags,
-        0,
-        True,
-    )
-    if not accepted:
-        return
+    tags_menu = menu.addMenu("Quick Add Existing Tag")
+    for tag in existing_tags:
+        action = QAction(tag, browser)
+        action.triggered.connect(
+            lambda _checked=False, selected_tag=tag: _apply_tag_from_menu(
+                browser,
+                note_ids,
+                selected_tag,
+            )
+        )
+        tags_menu.addAction(action)
 
-    normalized_tag = selected_tag.strip()
+
+def _apply_tag_from_menu(browser: Browser, note_ids: list[int], tag: str) -> None:
+    normalized_tag = tag.strip()
     if not normalized_tag:
         show_tooltip("Choose an existing tag.", parent=browser)
         return
-    if normalized_tag not in set(existing_tags):
-        show_tooltip("Only existing tags can be added from this menu.", parent=browser)
-        return
-
     op = QueryOp(
         parent=browser,
         op=lambda _col: _apply_existing_tag(note_ids, normalized_tag),

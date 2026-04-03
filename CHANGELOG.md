@@ -10,7 +10,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
 - Browser context-menu actions to run enabled workflows or whole workflow groups directly on the current Browser selection instead of relying on each workflow's saved query matches.
-- A separate `browser_extensions` Browser module with a `Quick Add Existing Tag...` action for applying already-existing collection tags to the selected Browser notes, making that feature easier to split into its own add-on later.
+- A separate `browser_extensions` Browser module with a direct `Quick Add Existing Tag` Browser submenu for applying already-existing collection tags to the selected Browser notes, making that feature easier to split into its own add-on later.
 - A structured stage-1 audit pipeline with strict JSON validation, status-based tagging, and local audit metadata persistence in `user_data/audit_log.json`.
 - Dedicated audit prompt/schema and storage modules so a later auto-fix stage can reuse the validated audit output cleanly.
 - A separate pipeline orchestration layer above workflows and groups, with config-defined note selection, declarative conditions, and per-note branching support.
