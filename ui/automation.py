@@ -100,15 +100,34 @@ def open_transform_dialog(browser: Browser, note_ids: list[int]) -> None:
     run_manual_ai_processing(browser, config, note_ids, spec)
 
 
+def open_browser_settings_dialog(parent: QWidget | None = None) -> None:
+    if mw is None:
+        return
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=parent or mw)
+        return
+
+    dialog = TransformWithAIDialog(
+        parent=parent or mw,
+        note_ids=[],
+        config=config,
+        settings_only=True,
+    )
+    dialog.exec()
+
+
 class TransformWithAIDialog(QDialog):
-    def __init__(self, parent: Browser, note_ids: list[int], config) -> None:
+    def __init__(self, parent: QWidget, note_ids: list[int], config, *, settings_only: bool = False) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Transform with AI")
+        self.setWindowTitle("Browser AI Settings" if settings_only else "Transform with AI")
         self.resize(760, 620)
 
         self._browser = parent
         self._note_ids = note_ids
         self._config = config
+        self._settings_only = settings_only
         self._raw_config = load_raw_config()
         self._prompts = _prompt_choices_from_saved_prompts(config.saved_prompts)
         self._system_prompts = _prompt_choices_from_saved_system_prompts(config.saved_system_prompts)
@@ -177,7 +196,9 @@ class TransformWithAIDialog(QDialog):
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            "Run a saved AI prompt on the selected Browser notes."
+            "Manage Browser AI presets, prompts, and run defaults."
+            if self._settings_only
+            else "Run a saved AI prompt on the selected Browser notes."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -190,7 +211,8 @@ class TransformWithAIDialog(QDialog):
         summary_form.addRow("Note types", self.note_types_label)
         set_hover_help(self.note_count_label, "How many selected Browser rows resolve to notes that can be processed.", enabled=self._config.show_tooltips)
         set_hover_help(self.note_types_label, "Shared note types across the current selection.", enabled=self._config.show_tooltips)
-        layout.addWidget(summary_group)
+        if not self._settings_only:
+            layout.addWidget(summary_group)
 
         options_group = QGroupBox("Run Settings")
         options_form = QFormLayout(options_group)
@@ -298,7 +320,11 @@ class TransformWithAIDialog(QDialog):
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
-        buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
+        if self._settings_only:
+            close_button = buttons.addButton("Close", QDialogButtonBox.ButtonRole.AcceptRole)
+            close_button.clicked.connect(self.accept)
+        else:
+            buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
         layout.addWidget(buttons)
 
     def _populate(self) -> None:
@@ -321,7 +347,7 @@ class TransformWithAIDialog(QDialog):
         has_prompt = bool(self._prompts)
         has_system_prompt = bool(self._system_prompts)
         has_model = self.model_combo.count() > 0
-        self.run_button.setEnabled(has_prompt and has_system_prompt and has_model)
+        self.run_button.setEnabled((not self._settings_only) and has_prompt and has_system_prompt and has_model)
 
     def _populate_model_combo(self) -> None:
         current_model = str(self._raw_config.get("model", "")).strip()

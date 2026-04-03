@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from aqt import mw
@@ -11,13 +10,10 @@ from aqt.qt import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QMessageBox,
     QPushButton,
     QPlainTextEdit,
     QVBoxLayout,
@@ -27,7 +23,9 @@ from aqt.utils import showCritical, showInfo
 
 from ..core.config import ADDON_NAME
 from ..services.model_catalog import ModelOption, fallback_model_options, fetch_model_options
+from .automation import open_browser_settings_dialog
 from .tooltips import set_hover_help
+from .workflow import WorkflowManagerDialog
 
 
 def register_config_action() -> None:
@@ -66,9 +64,9 @@ class ConfigDialog(QDialog):
         self.model_status_label = QLabel()
         self.system_prompt_edit = QPlainTextEdit()
         self.prompt_edit = QPlainTextEdit()
-        self.note_type_rules_list = QListWidget()
-        self.prompt_history_list = QListWidget()
         self.refresh_models_button = QPushButton("Refresh Models")
+        self.open_workflows_button = QPushButton("Open Workflow Settings")
+        self.open_browser_settings_button = QPushButton("Open Browser Settings")
 
         self._build_ui()
         self._populate_fields()
@@ -78,20 +76,13 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            "Edit AI Automation settings in a structured form. "
-            "Saving writes to Anki's stored add-on config for this profile."
+            "Manage the core AI Automation settings here. "
+            "Workflow management and Browser AI settings are available through the buttons below."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
-
-        content_layout = QGridLayout()
-        content_layout.setColumnStretch(0, 3)
-        content_layout.setColumnStretch(1, 2)
-        layout.addLayout(content_layout)
-
-        content_layout.addWidget(self._build_main_settings_group(), 0, 0)
-        content_layout.addWidget(self._build_prompt_history_group(), 0, 1)
-        content_layout.addWidget(self._build_note_type_rules_group(), 1, 0, 1, 2)
+        layout.addWidget(self._build_main_settings_group())
+        layout.addWidget(self._build_navigation_group())
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._save)
@@ -139,68 +130,32 @@ class ConfigDialog(QDialog):
         form.addRow("Prompt template", self.prompt_edit)
         return group
 
-    def _build_prompt_history_group(self) -> QGroupBox:
-        group = QGroupBox("Prompt History")
+    def _build_navigation_group(self) -> QGroupBox:
+        group = QGroupBox("Other Settings")
         layout = QVBoxLayout(group)
 
         help_text = QLabel(
-            "When you save a changed prompt, the previous prompt is kept here so you can restore it later."
+            "Open the dedicated dialogs for reusable workflows and Browser AI run settings."
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
+
+        buttons_row = QHBoxLayout()
+        self.open_workflows_button.clicked.connect(self._open_workflow_settings)
+        self.open_browser_settings_button.clicked.connect(self._open_browser_settings)
         set_hover_help(
-            self.prompt_history_list,
-            "Older saved versions of the main prompt template.",
+            self.open_workflows_button,
+            "Open the workflow manager to create, edit, group, and trigger reusable query-based runs.",
             enabled=bool(self._config.get("show_tooltips", True)),
         )
-        layout.addWidget(self.prompt_history_list)
-
-        button_row = QHBoxLayout()
-        use_selected_button = QPushButton("Use Selected Prompt")
-        delete_selected_button = QPushButton("Delete Selected")
-        set_hover_help(use_selected_button, "Restore the highlighted older prompt into the editor.", enabled=bool(self._config.get("show_tooltips", True)))
-        set_hover_help(delete_selected_button, "Remove the highlighted prompt history entry.", enabled=bool(self._config.get("show_tooltips", True)))
-        use_selected_button.clicked.connect(self._use_selected_prompt)
-        delete_selected_button.clicked.connect(self._delete_selected_prompt)
-        button_row.addWidget(use_selected_button)
-        button_row.addWidget(delete_selected_button)
-        layout.addLayout(button_row)
-        return group
-
-    def _build_note_type_rules_group(self) -> QGroupBox:
-        group = QGroupBox("Note Type Rules")
-        layout = QVBoxLayout(group)
-
-        rules_label = QLabel(
-            "Choose how notes are written back by note type. Prompt placeholders determine what content is sent."
-        )
-        rules_label.setWordWrap(True)
-        layout.addWidget(rules_label)
-
-        self.note_type_rules_list.setMinimumHeight(180)
         set_hover_help(
-            self.note_type_rules_list,
-            "Per-note-type output rules. These decide which fields are written back when the add-on runs automatically.",
+            self.open_browser_settings_button,
+            "Open the Browser AI settings dialog for saved prompts, presets, write modes, and Browser defaults.",
             enabled=bool(self._config.get("show_tooltips", True)),
         )
-        layout.addWidget(QLabel("Note type rules"))
-        layout.addWidget(self.note_type_rules_list)
-
-        rules_buttons = QHBoxLayout()
-        add_rule_button = QPushButton("Add Rule")
-        edit_rule_button = QPushButton("Edit Rule")
-        delete_rule_button = QPushButton("Delete Rule")
-        set_hover_help(add_rule_button, "Create a new note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
-        set_hover_help(edit_rule_button, "Edit the currently selected note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
-        set_hover_help(delete_rule_button, "Delete the currently selected note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
-        add_rule_button.clicked.connect(self._add_rule)
-        edit_rule_button.clicked.connect(self._edit_rule)
-        delete_rule_button.clicked.connect(self._delete_rule)
-        rules_buttons.addWidget(add_rule_button)
-        rules_buttons.addWidget(edit_rule_button)
-        rules_buttons.addWidget(delete_rule_button)
-        layout.addLayout(rules_buttons)
-
+        buttons_row.addWidget(self.open_workflows_button)
+        buttons_row.addWidget(self.open_browser_settings_button)
+        layout.addLayout(buttons_row)
         return group
 
     def _populate_fields(self) -> None:
@@ -209,7 +164,6 @@ class ConfigDialog(QDialog):
         self.api_key_edit.setText(str(self._config.get("openai_api_key", "")))
         self.system_prompt_edit.setPlainText(str(self._config.get("system_prompt", "")))
         self.prompt_edit.setPlainText(self._current_prompt)
-        self._populate_rule_list()
 
         self._set_model_options(
             fallback_model_options(
@@ -221,11 +175,6 @@ class ConfigDialog(QDialog):
         self.model_status_label.setText(
             "Showing a curated flashcard-writing model list. Click Refresh Models to load the current shortlist from OpenAI."
         )
-
-        self.prompt_history_list.clear()
-        for prompt in self._config.get("prompt_history", []):
-            if isinstance(prompt, str) and prompt.strip():
-                self.prompt_history_list.addItem(_history_preview(prompt))
 
     def _save(self) -> None:
         new_prompt = self.prompt_edit.toPlainText().strip()
@@ -253,56 +202,12 @@ class ConfigDialog(QDialog):
         showInfo("AI Automation settings saved.", parent=self)
         self.accept()
 
-    def _populate_rule_list(self) -> None:
-        self.note_type_rules_list.clear()
-        for mapping in self._config.get("field_mappings", []):
-            if isinstance(mapping, dict):
-                self.note_type_rules_list.addItem(_rule_preview(mapping))
+    def _open_workflow_settings(self) -> None:
+        dialog = WorkflowManagerDialog(parent=self)
+        dialog.exec()
 
-    def _add_rule(self) -> None:
-        dialog = MappingDialog(parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            mappings = list(self._config.get("field_mappings", []))
-            mappings.append(dialog.mapping())
-            self._config["field_mappings"] = mappings
-            self._populate_rule_list()
-
-    def _edit_rule(self) -> None:
-        row = self.note_type_rules_list.currentRow()
-        mappings = self._config.get("field_mappings", [])
-        if not isinstance(mappings, list) or row < 0 or row >= len(mappings):
-            return
-
-        mapping = mappings[row]
-        if not isinstance(mapping, dict):
-            return
-
-        dialog = MappingDialog(parent=self, mapping=mapping)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            mappings[row] = dialog.mapping()
-            self._config["field_mappings"] = mappings
-            self._populate_rule_list()
-            self.note_type_rules_list.setCurrentRow(row)
-
-    def _delete_rule(self) -> None:
-        row = self.note_type_rules_list.currentRow()
-        mappings = self._config.get("field_mappings", [])
-        if not isinstance(mappings, list) or row < 0 or row >= len(mappings):
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Delete Note Type Rule",
-            "Remove the selected note type rule?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        del mappings[row]
-        self._config["field_mappings"] = mappings
-        self._populate_rule_list()
+    def _open_browser_settings(self) -> None:
+        open_browser_settings_dialog(self)
 
     def _refresh_model_options(self) -> None:
         self.refresh_models_button.setEnabled(False)
@@ -334,35 +239,6 @@ class ConfigDialog(QDialog):
                         history.append(stripped)
 
         return history[:50]
-
-    def _use_selected_prompt(self) -> None:
-        row = self.prompt_history_list.currentRow()
-        history = self._config.get("prompt_history", [])
-        if not isinstance(history, list) or row < 0 or row >= len(history):
-            return
-        selected_prompt = history[row]
-        if isinstance(selected_prompt, str):
-            self.prompt_edit.setPlainText(selected_prompt)
-
-    def _delete_selected_prompt(self) -> None:
-        row = self.prompt_history_list.currentRow()
-        history = self._config.get("prompt_history", [])
-        if not isinstance(history, list) or row < 0 or row >= len(history):
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Delete Prompt History Entry",
-            "Remove the selected prompt from history?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        del history[row]
-        self._config["prompt_history"] = history
-        self._populate_fields()
 
     def _load_config(self) -> dict[str, Any]:
         if self._addon_manager is None:
@@ -414,95 +290,3 @@ class ConfigDialog(QDialog):
         if current_model:
             self.model_combo.insertItem(0, current_model + " (Current selection)", current_model)
             self.model_combo.setCurrentIndex(0)
-
-
-def _history_preview(prompt: str) -> str:
-    single_line = " ".join(prompt.split())
-    return single_line[:100] + ("..." if len(single_line) > 100 else "")
-
-
-def _rule_preview(mapping: dict[str, Any]) -> str:
-    note_type = str(mapping.get("note_type", "*"))
-    output_fields = mapping.get("output_fields", [])
-    output_text = ", ".join(output_fields) if isinstance(output_fields, list) else ""
-    extras: list[str] = []
-    if mapping.get("prompt_template"):
-        extras.append("custom prompt")
-    if mapping.get("system_prompt"):
-        extras.append("custom system")
-    suffix = f" [{', '.join(extras)}]" if extras else ""
-    return f"{note_type} -> {output_text}{suffix}"
-
-
-class MappingDialog(QDialog):
-    def __init__(self, parent: QWidget, mapping: dict[str, Any] | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Note Type Rule")
-        self.resize(620, 520)
-
-        self.note_type_edit = QLineEdit()
-        self.output_fields_edit = QLineEdit()
-        self.prompt_template_edit = QPlainTextEdit()
-        self.system_prompt_edit = QPlainTextEdit()
-
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        self.note_type_edit.setPlaceholderText("Basic or *")
-        self.output_fields_edit.setPlaceholderText("Back or Japanese Notes, Extra Field")
-        self.prompt_template_edit.setPlaceholderText("Optional custom prompt for this note type")
-        self.system_prompt_edit.setPlaceholderText("Optional custom system prompt for this note type")
-        self.prompt_template_edit.setMinimumHeight(140)
-        self.system_prompt_edit.setMinimumHeight(120)
-        set_hover_help(self.note_type_edit, "Exact note type name, or * to match every note type not covered by a more specific rule.")
-        set_hover_help(self.output_fields_edit, "Comma-separated list of note fields that this rule is allowed to update.")
-        set_hover_help(self.prompt_template_edit, "Optional rule-specific prompt that overrides the global prompt template.")
-        set_hover_help(self.system_prompt_edit, "Optional rule-specific system prompt that overrides the global system prompt.")
-        form.addRow("Note type", self.note_type_edit)
-        form.addRow("Output fields", self.output_fields_edit)
-        form.addRow("Prompt override", self.prompt_template_edit)
-        form.addRow("System override", self.system_prompt_edit)
-        layout.addLayout(form)
-
-        help_text = QLabel(
-            "Prompt placeholders are the source of truth for what gets sent. "
-            "Use output fields here to define which note fields the model should update."
-        )
-        help_text.setWordWrap(True)
-        layout.addWidget(help_text)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self._validate_and_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        if mapping:
-            self.note_type_edit.setText(str(mapping.get("note_type", "*")))
-            output_fields = mapping.get("output_fields", [])
-            if isinstance(output_fields, list):
-                self.output_fields_edit.setText(", ".join(str(field) for field in output_fields))
-            self.prompt_template_edit.setPlainText(str(mapping.get("prompt_template") or ""))
-            self.system_prompt_edit.setPlainText(str(mapping.get("system_prompt") or ""))
-
-    def mapping(self) -> dict[str, Any]:
-        mapping: dict[str, Any] = {
-            "note_type": self.note_type_edit.text().strip() or "*",
-            "output_fields": [
-                field.strip()
-                for field in self.output_fields_edit.text().split(",")
-                if field.strip()
-            ],
-        }
-        prompt_template = self.prompt_template_edit.toPlainText().strip()
-        system_prompt = self.system_prompt_edit.toPlainText().strip()
-        if prompt_template:
-            mapping["prompt_template"] = prompt_template
-        if system_prompt:
-            mapping["system_prompt"] = system_prompt
-        return mapping
-
-    def _validate_and_accept(self) -> None:
-        mapping = self.mapping()
-        if not mapping["output_fields"]:
-            showCritical("At least one output field is required.", parent=self)
-            return
-        self.accept()

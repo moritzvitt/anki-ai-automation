@@ -796,6 +796,10 @@ class WorkflowDialog(QDialog):
         self.preset_combo = QComboBox()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
+        self.prompt_preview = QPlainTextEdit()
+        self.prompt_preview.setMinimumHeight(140)
+        self.system_prompt_preview = QPlainTextEdit()
+        self.system_prompt_preview.setMinimumHeight(120)
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
         self.delimiter_edit = QLineEdit()
@@ -841,7 +845,19 @@ class WorkflowDialog(QDialog):
         system_prompt_layout = QHBoxLayout(system_prompt_row)
         system_prompt_layout.setContentsMargins(0, 0, 0, 0)
         system_prompt_layout.addWidget(self.system_prompt_combo, stretch=1)
+        new_system_button = QPushButton("New")
+        edit_system_button = QPushButton("Edit")
+        delete_system_button = QPushButton("Delete")
         set_hover_help(self.system_prompt_combo, "Choose the saved system prompt for this workflow.", enabled=self._show_tooltips)
+        set_hover_help(new_system_button, "Create a new saved system prompt.", enabled=self._show_tooltips)
+        set_hover_help(edit_system_button, "Edit the selected saved system prompt.", enabled=self._show_tooltips)
+        set_hover_help(delete_system_button, "Delete the selected saved system prompt.", enabled=self._show_tooltips)
+        new_system_button.clicked.connect(self._create_system_prompt)
+        edit_system_button.clicked.connect(self._edit_system_prompt)
+        delete_system_button.clicked.connect(self._delete_system_prompt)
+        system_prompt_layout.addWidget(new_system_button)
+        system_prompt_layout.addWidget(edit_system_button)
+        system_prompt_layout.addWidget(delete_system_button)
 
         query_row = QWidget()
         query_layout = QVBoxLayout(query_row)
@@ -864,6 +880,10 @@ class WorkflowDialog(QDialog):
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+        self.prompt_combo.currentIndexChanged.connect(self._refresh_prompt_preview)
+        self.system_prompt_combo.currentIndexChanged.connect(self._refresh_system_prompt_preview)
+        self.prompt_preview.textChanged.connect(self._sync_prompt_from_editor)
+        self.system_prompt_preview.textChanged.connect(self._sync_system_prompt_from_editor)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setRange(0.0, 2.0)
@@ -900,6 +920,8 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
+        set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
+        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
@@ -924,6 +946,10 @@ class WorkflowDialog(QDialog):
         form.addRow("Trigger min matches", self.trigger_min_matches_spin)
         form.addRow("Groups", self.group_edit)
         layout.addLayout(form)
+        layout.addWidget(QLabel("Prompt"))
+        layout.addWidget(self.prompt_preview)
+        layout.addWidget(QLabel("System prompt"))
+        layout.addWidget(self.system_prompt_preview)
 
         help_text = QLabel(
             "Queries use normal Anki Browser syntax and operate on notes. "
@@ -941,6 +967,8 @@ class WorkflowDialog(QDialog):
         self._populate_prompt_combo()
         self._populate_system_prompt_combo()
         self._populate_group_edit()
+        self._refresh_prompt_preview()
+        self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
         self._refresh_temperature_ui()
 
@@ -971,6 +999,8 @@ class WorkflowDialog(QDialog):
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
         self.group_edit.setText(", ".join(self._current_group_names))
+        self._refresh_prompt_preview()
+        self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
         self._refresh_query_count()
 
@@ -1049,11 +1079,64 @@ class WorkflowDialog(QDialog):
                 return prompt
         return self._prompts[0] if self._prompts else None
 
+    def _refresh_prompt_preview(self) -> None:
+        prompt = self._selected_prompt()
+        self.prompt_preview.blockSignals(True)
+        self.prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
+        self.prompt_preview.blockSignals(False)
+
     def _populate_system_prompt_combo(self) -> None:
         self.system_prompt_combo.clear()
         self.system_prompt_combo.addItem("Default system prompt", "")
         for prompt in self._system_prompts:
             self.system_prompt_combo.addItem(prompt.name, prompt.prompt_id)
+
+    def _selected_system_prompt(self) -> PromptChoice | None:
+        prompt_id = self.system_prompt_combo.currentData()
+        if not prompt_id:
+            return None
+        for prompt in self._system_prompts:
+            if prompt.prompt_id == prompt_id:
+                return prompt
+        return None
+
+    def _refresh_system_prompt_preview(self) -> None:
+        prompt = self._selected_system_prompt()
+        self.system_prompt_preview.blockSignals(True)
+        self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else self._raw_config.get("system_prompt", ""))
+        self.system_prompt_preview.blockSignals(False)
+
+    def _sync_prompt_from_editor(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            return
+        updated_text = self.prompt_preview.toPlainText().strip()
+        for index, current in enumerate(self._prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._prompts[index] = PromptChoice(
+                    prompt_id=current.prompt_id,
+                    name=current.name,
+                    prompt_text=updated_text,
+                )
+                self._save_prompts()
+                return
+
+    def _sync_system_prompt_from_editor(self) -> None:
+        prompt = self._selected_system_prompt()
+        updated_text = self.system_prompt_preview.toPlainText().strip()
+        if prompt is None:
+            self._raw_config["system_prompt"] = updated_text
+            save_raw_config(self._raw_config)
+            return
+        for index, current in enumerate(self._system_prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._system_prompts[index] = PromptChoice(
+                    prompt_id=current.prompt_id,
+                    name=current.name,
+                    prompt_text=updated_text,
+                )
+                self._save_system_prompts()
+                return
 
     def _refresh_target_mode_ui(self) -> None:
         is_multi = self.multiple_target_fields_check.isChecked()
@@ -1271,6 +1354,7 @@ class WorkflowDialog(QDialog):
         index = self.prompt_combo.findData(choice.prompt_id)
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
 
     def _edit_prompt(self) -> None:
         prompt = self._selected_prompt()
@@ -1300,6 +1384,7 @@ class WorkflowDialog(QDialog):
         index = self.prompt_combo.findData(replacement.prompt_id)
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
 
     def _delete_prompt(self) -> None:
         prompt = self._selected_prompt()
@@ -1320,11 +1405,94 @@ class WorkflowDialog(QDialog):
         self._prompts = [item for item in self._prompts if item.prompt_id != prompt.prompt_id]
         self._save_prompts()
         self._populate_prompt_combo()
+        self._refresh_prompt_preview()
 
     def _save_prompts(self) -> None:
         self._raw_config["saved_prompts"] = [
             {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
             for prompt in self._prompts
+        ]
+        save_raw_config(self._raw_config)
+
+    def _create_system_prompt(self) -> None:
+        dialog = SavedPromptDialog(
+            parent=self,
+            window_title="Saved System Prompt",
+            prompt_label="System prompt",
+            placeholder_text="You improve Anki flashcards...",
+            help_text="System prompt names appear in the picker. The full system prompt text is stored for workflow runs.",
+            id_prefix="system-prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.prompt_choice()
+        if choice is None:
+            return
+        self._system_prompts.append(choice)
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        index = self.system_prompt_combo.findData(choice.prompt_id)
+        if index >= 0:
+            self.system_prompt_combo.setCurrentIndex(index)
+        self._refresh_system_prompt_preview()
+
+    def _edit_system_prompt(self) -> None:
+        prompt = self._selected_system_prompt()
+        if prompt is None:
+            return
+        dialog = SavedPromptDialog(
+            parent=self,
+            prompt=prompt,
+            window_title="Saved System Prompt",
+            prompt_label="System prompt",
+            placeholder_text="You improve Anki flashcards...",
+            help_text="System prompt names appear in the picker. The full system prompt text is stored for workflow runs.",
+            id_prefix="system-prompt",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
+        if replacement is None:
+            return
+        for index, current in enumerate(self._system_prompts):
+            if current.prompt_id == prompt.prompt_id:
+                self._system_prompts[index] = replacement
+                break
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        index = self.system_prompt_combo.findData(replacement.prompt_id)
+        if index >= 0:
+            self.system_prompt_combo.setCurrentIndex(index)
+        self._refresh_system_prompt_preview()
+
+    def _delete_system_prompt(self) -> None:
+        prompt = self._selected_system_prompt()
+        if prompt is None:
+            showCritical("Choose a saved system prompt before deleting.", parent=self)
+            return
+        if prompt.prompt_id == "default-system-prompt" and len(self._system_prompts) == 1:
+            showCritical("Create another saved system prompt before deleting the only available system prompt.", parent=self)
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Saved System Prompt",
+            f"Delete the saved system prompt '{prompt.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._system_prompts = [item for item in self._system_prompts if item.prompt_id != prompt.prompt_id]
+        self._save_system_prompts()
+        self._populate_system_prompt_combo()
+        self._refresh_system_prompt_preview()
+
+    def _save_system_prompts(self) -> None:
+        self._raw_config["saved_system_prompts"] = [
+            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
+            for prompt in self._system_prompts
         ]
         save_raw_config(self._raw_config)
 
