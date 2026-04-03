@@ -240,11 +240,20 @@ def start_prepared_manual_processing(
     interrupt_dialog.interrupt_button.clicked.connect(lambda: _request_processing_interrupt(interrupt_dialog, cancel_event))
     interrupt_dialog.show()
     total_snapshots = len(prepared.snapshots)
+    already_applied_note_ids: set[int] = set()
+    already_applied_count = 0
 
     def report_progress(completed_count: int) -> None:
         if mw is None or not hasattr(mw, "taskman"):
             return
         mw.taskman.run_on_main(lambda: interrupt_dialog.set_progress(min(completed_count, total_snapshots)))
+
+    def apply_batch_updates(batch_updates: list[NoteUpdate]) -> None:
+        nonlocal already_applied_count
+        if mw is None or mw.col is None or not batch_updates:
+            return
+        already_applied_count += _apply_note_updates(batch_updates)
+        already_applied_note_ids.update(update.note_id for update in batch_updates)
 
     op = QueryOp(
         parent=browser,
@@ -255,6 +264,7 @@ def start_prepared_manual_processing(
                 prepared.failures,
                 cancel_event=cancel_event,
                 progress_callback=report_progress,
+                batch_apply_callback=apply_batch_updates,
             )
         ),
         success=lambda result: _finish_prepared_processing(
@@ -264,6 +274,8 @@ def start_prepared_manual_processing(
             interrupt_dialog=interrupt_dialog,
             show_feedback=show_feedback,
             on_done=on_done,
+            already_applied_note_ids=already_applied_note_ids,
+            already_applied_count=already_applied_count,
         ),
     )
     op.with_progress(label=progress_label or f"Processing {len(prepared.snapshots)} note(s) with AI...")
@@ -472,35 +484,62 @@ async def _process_snapshots_async(
     *,
     cancel_event: Event | None = None,
     progress_callback: Callable[[int], None] | None = None,
+    batch_apply_callback: Callable[[list[NoteUpdate]], None] | None = None,
 ) -> ProcessingResult:
     updates_by_note_id: dict[int, NoteUpdate] = {}
     failures = list(initial_failures)
-    max_workers = max(1, min(config.max_parallel_requests, config.batch_size))
+    batch_size = max(1, config.batch_size)
+    max_workers = max(1, min(config.max_parallel_requests, batch_size))
     was_cancelled = False
     completed_count = 0
 
-    semaphore = asyncio.Semaphore(max_workers)
+    async def process_batch(batch_snapshots: list[NoteSnapshot]) -> tuple[list[NoteUpdate], list[NoteFailure]]:
+        semaphore = asyncio.Semaphore(max_workers)
 
-    async def run_snapshot(snapshot: NoteSnapshot) -> tuple[NoteUpdate | None, NoteFailure | None]:
-        if cancel_event is not None and cancel_event.is_set():
-            return None, None
-        async with semaphore:
+        async def run_snapshot(snapshot: NoteSnapshot) -> tuple[NoteUpdate | None, NoteFailure | None]:
             if cancel_event is not None and cancel_event.is_set():
                 return None, None
-            return await asyncio.to_thread(_process_single_snapshot, config, snapshot)
+            async with semaphore:
+                if cancel_event is not None and cancel_event.is_set():
+                    return None, None
+                return await asyncio.to_thread(_process_single_snapshot, config, snapshot)
 
-    tasks = [asyncio.create_task(run_snapshot(snapshot)) for snapshot in snapshots]
-    for completed in asyncio.as_completed(tasks):
-        update, failure = await completed
-        completed_count += 1
-        if progress_callback is not None:
-            progress_callback(completed_count)
-        if update is not None:
-            updates_by_note_id[update.note_id] = update
-        if failure is not None:
-            failures.append(failure)
+        batch_updates_by_note_id: dict[int, NoteUpdate] = {}
+        batch_failures: list[NoteFailure] = []
+        tasks = [asyncio.create_task(run_snapshot(snapshot)) for snapshot in batch_snapshots]
+        for completed in asyncio.as_completed(tasks):
+            update, failure = await completed
+            if update is not None:
+                batch_updates_by_note_id[update.note_id] = update
+            if failure is not None:
+                batch_failures.append(failure)
+        ordered_updates = [
+            batch_updates_by_note_id[snapshot.note_id]
+            for snapshot in batch_snapshots
+            if snapshot.note_id in batch_updates_by_note_id
+        ]
+        return ordered_updates, batch_failures
+
+    for batch_start in range(0, len(snapshots), batch_size):
         if cancel_event is not None and cancel_event.is_set():
             was_cancelled = True
+            break
+
+        batch_snapshots = snapshots[batch_start: batch_start + batch_size]
+        batch_updates, batch_failures = await process_batch(batch_snapshots)
+        completed_count += len(batch_snapshots)
+        if progress_callback is not None:
+            progress_callback(completed_count)
+        for update in batch_updates:
+            updates_by_note_id[update.note_id] = update
+        failures.extend(batch_failures)
+
+        if batch_apply_callback is not None and batch_updates and mw is not None and hasattr(mw, "taskman"):
+            mw.taskman.run_on_main(lambda updates=list(batch_updates): batch_apply_callback(updates))
+
+        if cancel_event is not None and cancel_event.is_set():
+            was_cancelled = True
+            break
 
     updates = [
         updates_by_note_id[snapshot.note_id]
@@ -510,12 +549,14 @@ async def _process_snapshots_async(
     return ProcessingResult(updates=updates, failures=failures, was_cancelled=was_cancelled)
 
 
-def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResult, *, show_feedback: bool = True) -> None:
+def _apply_note_updates(updates: list[NoteUpdate], *, skip_note_ids: set[int] | None = None) -> int:
     assert mw is not None and mw.col is not None
 
     applied = 0
     changed_notes = []
-    for update in result.updates:
+    for update in updates:
+        if skip_note_ids is not None and update.note_id in skip_note_ids:
+            continue
         note = mw.col.get_note(update.note_id)
         if note is None:
             continue
@@ -540,6 +581,24 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
         else:
             for note in changed_notes:
                 mw.col.update_note(note)
+    return applied
+
+
+def _apply_result(
+    browser: Browser,
+    config: AddonConfig,
+    result: ProcessingResult,
+    *,
+    show_feedback: bool = True,
+    already_applied_note_ids: set[int] | None = None,
+    already_applied_count: int = 0,
+) -> None:
+    assert mw is not None and mw.col is not None
+
+    applied = already_applied_count + _apply_note_updates(
+        result.updates,
+        skip_note_ids=already_applied_note_ids,
+    )
 
     usage_totals = _aggregate_usage(result.updates)
     if usage_totals["request_count"]:
@@ -896,10 +955,19 @@ def _finish_prepared_processing(
     interrupt_dialog: ProcessingInterruptDialog | None,
     show_feedback: bool,
     on_done: Callable[[ProcessingResult], None] | None,
+    already_applied_note_ids: set[int] | None = None,
+    already_applied_count: int = 0,
 ) -> None:
     if interrupt_dialog is not None:
         interrupt_dialog.close()
-    _apply_result(browser, config, result, show_feedback=show_feedback)
+    _apply_result(
+        browser,
+        config,
+        result,
+        show_feedback=show_feedback,
+        already_applied_note_ids=already_applied_note_ids,
+        already_applied_count=already_applied_count,
+    )
     if on_done is not None:
         on_done(result)
 
