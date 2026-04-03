@@ -70,7 +70,7 @@ class WorkflowDraft:
     multiple_target_fields: bool
     convert_markdown_to_html: bool
     response_delimiter: str | None
-    group_name: str | None
+    group_names: list[str]
 
 
 @dataclass
@@ -211,7 +211,7 @@ class WorkflowManagerDialog(QDialog):
         current_group_id = self.group_run_combo.currentData()
         if isinstance(current_group_id, str) and current_group_id:
             self._visible_workflows = [
-                workflow for workflow in self._workflows if workflow.group_id == current_group_id
+                workflow for workflow in self._workflows if current_group_id in (workflow.group_ids or [])
             ]
         else:
             self._visible_workflows = list(self._workflows)
@@ -235,7 +235,8 @@ class WorkflowManagerDialog(QDialog):
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
-        group_name = self._group_name(workflow.group_id) or "No group"
+        group_names = self._group_names(workflow.group_ids)
+        group_summary = ", ".join(group_names) if group_names else "No groups"
         return (
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
@@ -245,7 +246,7 @@ class WorkflowManagerDialog(QDialog):
             f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'} | "
             f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
             f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
-            f"Delimiter: {workflow.response_delimiter or '-'} | Group: {group_name}"
+            f"Delimiter: {workflow.response_delimiter or '-'} | Groups: {group_summary}"
         )
 
     def _prompt_name(self, prompt_id: str) -> str:
@@ -254,13 +255,11 @@ class WorkflowManagerDialog(QDialog):
                 return prompt.name
         return "Missing prompt"
 
-    def _group_name(self, group_id: str | None) -> str | None:
-        if group_id is None:
-            return None
-        for group in self._groups:
-            if group.group_id == group_id:
-                return group.name
-        return None
+    def _group_names(self, group_ids: list[str] | None) -> list[str]:
+        if not group_ids:
+            return []
+        name_lookup = {group.group_id: group.name for group in self._groups}
+        return [name_lookup[group_id] for group_id in group_ids if group_id in name_lookup]
 
     def _system_prompt_name(self, prompt_id: str | None) -> str:
         if prompt_id is None:
@@ -290,7 +289,8 @@ class WorkflowManagerDialog(QDialog):
                 "multiple_target_fields": workflow.multiple_target_fields,
                 "convert_markdown_to_html": workflow.convert_markdown_to_html,
                 "response_delimiter": workflow.response_delimiter,
-                "group_id": workflow.group_id,
+                "group_ids": workflow.group_ids or [],
+                "group_id": (workflow.group_ids or [None])[0],
                 "position": index,
             }
             for index, workflow in enumerate(self._workflows)
@@ -336,7 +336,7 @@ class WorkflowManagerDialog(QDialog):
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
-            group_id=self._group_id_for_name(draft.group_name),
+            group_ids=self._group_ids_for_names(draft.group_names),
             position=len(self._workflows),
         )
         self._workflows.append(workflow)
@@ -356,7 +356,7 @@ class WorkflowManagerDialog(QDialog):
             current_model=self._config.model,
             model_pricing=self._config.model_pricing,
             workflow=workflow,
-            current_group_name=self._group_name(workflow.group_id),
+            current_group_names=self._group_names(workflow.group_ids),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -377,7 +377,7 @@ class WorkflowManagerDialog(QDialog):
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
-            group_id=self._group_id_for_name(draft.group_name),
+            group_ids=self._group_ids_for_names(draft.group_names),
         )
         self._save_state()
         self._select_workflow_by_id(workflow.workflow_id)
@@ -452,11 +452,11 @@ class WorkflowManagerDialog(QDialog):
         if not isinstance(group_id, str) or not group_id:
             show_tooltip("Choose a workflow group to run.", parent=self)
             return
-        workflows = [workflow for workflow in self._workflows if workflow.group_id == group_id]
+        workflows = [workflow for workflow in self._workflows if group_id in (workflow.group_ids or [])]
         if not workflows:
             show_tooltip("This group does not contain any workflows.", parent=self)
             return
-        group_name = self._group_name(group_id) or "Selected group"
+        group_name = self._group_names([group_id])[0] if self._group_names([group_id]) else "Selected group"
         self._run_workflow_sequence(workflows, run_label=group_name)
 
     def _run_workflow_sequence(self, workflows: list[Workflow], *, run_label: str) -> None:
@@ -668,21 +668,26 @@ class WorkflowManagerDialog(QDialog):
                 report_lines.append(f"- ...and {len(summary.failures) - 40} more")
         showInfo("\n".join(report_lines), parent=self)
 
-    def _group_id_for_name(self, group_name: str | None) -> str | None:
-        if group_name is None or not group_name.strip():
-            return None
-        normalized = group_name.strip()
-        for group in self._groups:
-            if group.name == normalized:
-                return group.group_id
-
-        new_group = WorkflowGroup(group_id=new_object_id("group"), name=normalized)
-        self._groups.append(new_group)
-        self._groups.sort(key=lambda group: group.name.lower())
-        return new_group.group_id
+    def _group_ids_for_names(self, group_names: list[str]) -> list[str]:
+        resolved_group_ids: list[str] = []
+        seen_names: set[str] = set()
+        for group_name in group_names:
+            normalized = group_name.strip()
+            if not normalized or normalized.lower() in seen_names:
+                continue
+            seen_names.add(normalized.lower())
+            existing_group = next((group for group in self._groups if group.name == normalized), None)
+            if existing_group is not None:
+                resolved_group_ids.append(existing_group.group_id)
+                continue
+            new_group = WorkflowGroup(group_id=new_object_id("group"), name=normalized)
+            self._groups.append(new_group)
+            self._groups.sort(key=lambda group: group.name.lower())
+            resolved_group_ids.append(new_group.group_id)
+        return resolved_group_ids
 
     def _remove_unused_groups(self) -> None:
-        used_group_ids = {workflow.group_id for workflow in self._workflows if workflow.group_id}
+        used_group_ids = {group_id for workflow in self._workflows for group_id in (workflow.group_ids or [])}
         self._groups = [group for group in self._groups if group.group_id in used_group_ids]
 
     def _select_workflow_by_id(self, workflow_id: str) -> None:
@@ -711,7 +716,7 @@ class WorkflowDialog(QDialog):
         current_model: str,
         model_pricing: dict,
         workflow: Workflow | None = None,
-        current_group_name: str | None = None,
+        current_group_names: list[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Workflow")
@@ -723,7 +728,7 @@ class WorkflowDialog(QDialog):
         loaded_presets = load_config().processing_presets
         self._presets = _preset_choices_from_saved_processing_presets(loaded_presets)
         self._groups = list(groups)
-        self._current_group_name = current_group_name or ""
+        self._current_group_names = current_group_names or []
         self._current_model = current_model
         self._show_tooltips = load_config().show_tooltips
         self._model_options = fallback_model_options(
@@ -746,8 +751,7 @@ class WorkflowDialog(QDialog):
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
-        self.group_combo = QComboBox()
-        self.group_combo.setEditable(True)
+        self.group_edit = QLineEdit()
 
         self._build_ui()
         self._populate(workflow)
@@ -840,7 +844,7 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
-        set_hover_help(self.group_combo, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
+        set_hover_help(self.group_edit, "Optional comma-separated workflow groups used to organize and batch-run related workflows.", enabled=self._show_tooltips)
         form.addRow("Preset", preset_row)
         form.addRow("Model", self.model_combo)
         temperature_row = QWidget()
@@ -856,7 +860,7 @@ class WorkflowDialog(QDialog):
         form.addRow("Response delimiter", self.delimiter_edit)
         form.addRow("Target field", self.target_field_combo)
         form.addRow("Mode", self.mode_combo)
-        form.addRow("Group", self.group_combo)
+        form.addRow("Groups", self.group_edit)
         layout.addLayout(form)
 
         help_text = QLabel(
@@ -874,7 +878,7 @@ class WorkflowDialog(QDialog):
     def _populate(self, workflow: Workflow | None) -> None:
         self._populate_prompt_combo()
         self._populate_system_prompt_combo()
-        self._populate_group_combo()
+        self._populate_group_edit()
         self._refresh_target_mode_ui()
         self._refresh_temperature_ui()
 
@@ -901,7 +905,7 @@ class WorkflowDialog(QDialog):
         mode_index = self.mode_combo.findData(workflow.mode)
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
-        self.group_combo.setEditText(self._current_group_name)
+        self.group_edit.setText(", ".join(self._current_group_names))
         self._refresh_target_mode_ui()
         self._refresh_query_count()
 
@@ -913,7 +917,6 @@ class WorkflowDialog(QDialog):
         system_prompt_id = self.system_prompt_combo.currentData() or ""
         target_field = self.target_field_combo.currentText().strip()
         mode = self.mode_combo.currentData() or WRITE_MODE_OVERWRITE
-        group_name = self.group_combo.currentText().strip()
         if not isinstance(prompt_id, str):
             return None
         return WorkflowDraft(
@@ -928,7 +931,7 @@ class WorkflowDialog(QDialog):
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
-            group_name=group_name or None,
+            group_names=_parse_group_names(self.group_edit.text()),
         )
 
     def _populate_model_combo(self) -> None:
@@ -964,13 +967,12 @@ class WorkflowDialog(QDialog):
             if index >= 0:
                 self.prompt_combo.setCurrentIndex(index)
 
-    def _populate_group_combo(self) -> None:
-        self.group_combo.clear()
-        self.group_combo.addItem("", "")
-        for group in sorted(self._groups, key=lambda item: item.name.lower()):
-            self.group_combo.addItem(group.name, group.group_id)
-        if self._current_group_name:
-            self.group_combo.setEditText(self._current_group_name)
+    def _populate_group_edit(self) -> None:
+        known_group_names = ", ".join(group.name for group in sorted(self._groups, key=lambda item: item.name.lower()))
+        if known_group_names:
+            self.group_edit.setPlaceholderText(f"Comma-separated, e.g. {known_group_names}")
+        else:
+            self.group_edit.setPlaceholderText("Comma-separated group names")
 
     def _selected_prompt(self) -> PromptChoice | None:
         prompt_id = self.prompt_combo.currentData()
@@ -1321,3 +1323,18 @@ def _blend_colors(base: QColor, accent: QColor, ratio: float) -> QColor:
         round((base.green() * inverse) + (accent.green() * ratio)),
         round((base.blue() * inverse) + (accent.blue() * ratio)),
     )
+
+
+def _parse_group_names(value: str) -> list[str]:
+    parsed_names: list[str] = []
+    seen_names: set[str] = set()
+    for raw_name in value.split(","):
+        normalized = raw_name.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen_names:
+            continue
+        seen_names.add(key)
+        parsed_names.append(normalized)
+    return parsed_names
