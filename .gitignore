@@ -1,8 +1,9 @@
 # Python
 __pycache__/
 *.py[cod]
+venv/
+env/
 venv-ai-automation/
-
 # Build artifacts
 *.ankiaddon
 *.zip
