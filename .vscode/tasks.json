@@ -2,6 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Format meta.json",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "tools/format_meta_json.py",
+        "meta.json"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "Validate addon",
       "type": "shell",
       "command": "python3",
