@@ -30,6 +30,7 @@ from .usage_stats import record_usage_run
 
 WRITE_MODE_APPEND = "append"
 WRITE_MODE_OVERWRITE = "overwrite"
+WRITE_MODE_SKIP_NONEMPTY = "skip_nonempty"
 
 
 @dataclass(frozen=True)
@@ -348,6 +349,16 @@ def _build_manual_snapshots(
         note_type_name = str(note_type["name"])
         available_fields = {field_name: note[field_name] for field_name in note.keys()}
 
+        if spec.multiple_target_fields and spec.write_mode == WRITE_MODE_SKIP_NONEMPTY:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason="Skip-if-not-empty mode is not supported with multiple target fields.",
+                )
+            )
+            continue
+
         if spec.target_field not in available_fields:
             if not spec.multiple_target_fields:
                 failures.append(
@@ -358,6 +369,22 @@ def _build_manual_snapshots(
                     )
                 )
                 continue
+
+        if (
+            not spec.multiple_target_fields
+            and spec.write_mode == WRITE_MODE_SKIP_NONEMPTY
+            and available_fields.get(spec.target_field, "").strip()
+        ):
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason=(
+                        f"Skipped because target field '{spec.target_field}' already contains data."
+                    ),
+                )
+            )
+            continue
 
         missing_prompt_fields = _missing_prompt_fields(
             prompt_template=spec.prompt_template,

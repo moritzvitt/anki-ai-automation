@@ -34,7 +34,13 @@ from .config import (
     save_raw_config,
 )
 from .model_catalog import fallback_model_options
-from .processing import ManualProcessingSpec, WRITE_MODE_APPEND, WRITE_MODE_OVERWRITE, run_manual_ai_processing
+from .processing import (
+    ManualProcessingSpec,
+    WRITE_MODE_APPEND,
+    WRITE_MODE_OVERWRITE,
+    WRITE_MODE_SKIP_NONEMPTY,
+    run_manual_ai_processing,
+)
 
 
 @dataclass(frozen=True)
@@ -234,6 +240,7 @@ class TransformWithAIDialog(QDialog):
         self.system_prompt_combo.currentIndexChanged.connect(self._refresh_system_prompt_preview)
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
+        self.mode_combo.addItem("Skip if target field not empty", WRITE_MODE_SKIP_NONEMPTY)
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setRange(0.0, 2.0)
         self.temperature_spin.setSingleStep(0.1)
@@ -396,6 +403,8 @@ class TransformWithAIDialog(QDialog):
         is_multi = self.multiple_target_fields_check.isChecked()
         self.target_field_combo.setEnabled(not is_multi)
         self.delimiter_edit.setEnabled(is_multi)
+        if is_multi and self.mode_combo.currentData() == WRITE_MODE_SKIP_NONEMPTY:
+            self._set_combo_to_data(self.mode_combo, WRITE_MODE_OVERWRITE)
 
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
@@ -765,6 +774,12 @@ class TransformWithAIDialog(QDialog):
             return
         if is_multi and not self.delimiter_edit.text().strip():
             showCritical("Enter the response delimiter for multiple target field mode.", parent=self)
+            return
+        if is_multi and self.mode_combo.currentData() == WRITE_MODE_SKIP_NONEMPTY:
+            showCritical(
+                "Skip-if-not-empty mode is only available for a single target field.",
+                parent=self,
+            )
             return
         if not (self.model_combo.currentData() or self.model_combo.currentText().strip()):
             showCritical("Choose a model before running.", parent=self)

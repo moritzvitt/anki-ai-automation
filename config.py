@@ -425,7 +425,7 @@ def _read_processing_presets(
 
     allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
     allowed_system_prompt_ids = {prompt.prompt_id for prompt in saved_system_prompts}
-    allowed_modes = {"append", "overwrite"}
+    allowed_modes = {"append", "overwrite", "skip_nonempty"}
     presets: list[ProcessingPreset] = []
     seen_ids: set[str] = set()
 
@@ -454,7 +454,9 @@ def _read_processing_presets(
 
         mode = _read_string(item, "mode", default="overwrite")
         if mode not in allowed_modes:
-            raise ConfigError("Processing preset mode must be 'append' or 'overwrite'.")
+            raise ConfigError(
+                "Processing preset mode must be 'append', 'overwrite', or 'skip_nonempty'."
+            )
 
         multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
         response_delimiter = _read_optional_string(item, "response_delimiter")
@@ -509,7 +511,7 @@ def _read_workflows(
         prompt.prompt_id for prompt in (saved_system_prompts or [])
     }
     allowed_group_ids = {group.group_id for group in workflow_groups}
-    allowed_modes = {"append", "overwrite"}
+    allowed_modes = {"append", "overwrite", "skip_nonempty"}
     workflows: list[Workflow] = []
     seen_ids: set[str] = set()
 
@@ -530,7 +532,9 @@ def _read_workflows(
 
         mode = _read_string(item, "mode")
         if mode not in allowed_modes:
-            raise ConfigError("Workflow mode must be 'append' or 'overwrite'.")
+            raise ConfigError(
+                "Workflow mode must be 'append', 'overwrite', or 'skip_nonempty'."
+            )
 
         group_id = _read_optional_string(item, "group_id")
         if group_id is not None and group_id not in allowed_group_ids:

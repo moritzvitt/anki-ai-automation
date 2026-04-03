@@ -50,6 +50,7 @@ from .processing import (
     ProcessingResult,
     WRITE_MODE_APPEND,
     WRITE_MODE_OVERWRITE,
+    WRITE_MODE_SKIP_NONEMPTY,
     prepare_manual_ai_processing,
     start_prepared_manual_processing,
 )
@@ -780,6 +781,7 @@ class WorkflowDialog(QDialog):
         self._populate_preset_combo()
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
+        self.mode_combo.addItem("Skip if target field not empty", WRITE_MODE_SKIP_NONEMPTY)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
@@ -953,6 +955,8 @@ class WorkflowDialog(QDialog):
         is_multi = self.multiple_target_fields_check.isChecked()
         self.target_field_combo.setEnabled(not is_multi)
         self.delimiter_edit.setEnabled(is_multi)
+        if is_multi and self.mode_combo.currentData() == WRITE_MODE_SKIP_NONEMPTY:
+            self._set_combo_to_data(self.mode_combo, WRITE_MODE_OVERWRITE)
 
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
@@ -1236,6 +1240,12 @@ class WorkflowDialog(QDialog):
             return
         if draft.multiple_target_fields and not draft.response_delimiter:
             showCritical("Enter the response delimiter for multiple target field mode.", parent=self)
+            return
+        if draft.multiple_target_fields and draft.mode == WRITE_MODE_SKIP_NONEMPTY:
+            showCritical(
+                "Skip-if-not-empty mode is only available for a single target field.",
+                parent=self,
+            )
             return
         if not draft.multiple_target_fields and not draft.target_field:
             showCritical("Target field must not be empty.", parent=self)
