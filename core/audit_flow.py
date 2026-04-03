@@ -67,17 +67,17 @@ class AuditField(StrEnum):
 
 
 STATUS_TAGS = {
-    AuditStatus.GOOD: "ai_good",
-    AuditStatus.FIXABLE_MINOR: "ai_fix_minor",
-    AuditStatus.FIXABLE_MAJOR: "ai_fix_major",
-    AuditStatus.REJECT: "ai_reject",
-    AuditStatus.SKIP: "ai_skip",
+    AuditStatus.GOOD: "ai::audit::good",
+    AuditStatus.FIXABLE_MINOR: "ai::audit::fix_minor",
+    AuditStatus.FIXABLE_MAJOR: "ai::audit::fix_major",
+    AuditStatus.REJECT: "ai::audit::reject",
+    AuditStatus.SKIP: "ai::audit::skip",
 }
 ALL_STATUS_TAGS = tuple(STATUS_TAGS.values())
-TAG_AI_CHECKED = "ai_checked"
-TAG_AI_MANUAL_REVIEW = "ai_manual_review"
-TAG_AI_DONE_TODAY = "ai_done_today"
-TAG_AI_AUDIT_FAILED = "ai_audit_failed"
+TAG_AI_CHECKED = "ai::audit::checked"
+TAG_AI_MANUAL_REVIEW = "ai::review::manual"
+TAG_AI_PROCESSED = "ai::audit::processed"
+TAG_AI_AUDIT_FAILED = "ai::audit::failed"
 
 METADATA_FIELD_STATUS = "AI Audit Status"
 METADATA_FIELD_SUMMARY = "AI Audit Summary"
@@ -89,11 +89,11 @@ METADATA_FIELD_RAW = "AI Audit Raw"
 
 def _default_status_tag_map() -> dict[str, str]:
     return {
-        AuditStatus.GOOD.value: "ai_good",
-        AuditStatus.FIXABLE_MINOR.value: "ai_fix_minor",
-        AuditStatus.FIXABLE_MAJOR.value: "ai_fix_major",
-        AuditStatus.REJECT.value: "ai_reject",
-        AuditStatus.SKIP.value: "ai_skip",
+        AuditStatus.GOOD.value: "ai::audit::good",
+        AuditStatus.FIXABLE_MINOR.value: "ai::audit::fix_minor",
+        AuditStatus.FIXABLE_MAJOR.value: "ai::audit::fix_major",
+        AuditStatus.REJECT.value: "ai::audit::reject",
+        AuditStatus.SKIP.value: "ai::audit::skip",
     }
 
 
@@ -243,7 +243,7 @@ def _prepare_audit_candidates(
             continue
 
         entry = get_note_audit_entry(audit_log, note_id)
-        if note.has_tag(TAG_AI_DONE_TODAY) and entry and str(entry.get("processed_on", "")) == today:
+        if entry and str(entry.get("processed_on", "")) == today:
             skipped.append(f"Note {note_id}: already audited today.")
             continue
 
@@ -579,8 +579,8 @@ def apply_audit_run_result(
     current_model = workflow.model if workflow is not None and workflow.model else (active_config.model if active_config is not None else "")
     status_tag_map = dict(workflow.status_tag_map) if workflow is not None and workflow.status_tag_map else _default_status_tag_map()
     extra_status_tags = dict(workflow.extra_status_tags) if workflow is not None and workflow.extra_status_tags else _default_extra_status_tags()
-    success_tags = list(workflow.success_tags) if workflow is not None and workflow.success_tags else [TAG_AI_CHECKED, TAG_AI_DONE_TODAY]
-    failure_tags = list(workflow.failure_tags) if workflow is not None and workflow.failure_tags else [TAG_AI_AUDIT_FAILED, TAG_AI_DONE_TODAY]
+    success_tags = list(workflow.success_tags) if workflow is not None and workflow.success_tags else [TAG_AI_CHECKED, TAG_AI_PROCESSED]
+    failure_tags = list(workflow.failure_tags) if workflow is not None and workflow.failure_tags else [TAG_AI_AUDIT_FAILED, TAG_AI_PROCESSED]
     clear_status_tags = list(workflow.clear_status_tags) if workflow is not None and workflow.clear_status_tags else list(status_tag_map.values())
     metadata_field_map = dict(workflow.metadata_field_map) if workflow is not None and workflow.metadata_field_map else _default_metadata_field_map()
     removable_audit_tags = set(clear_status_tags)

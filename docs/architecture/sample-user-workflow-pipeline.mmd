@@ -8,7 +8,7 @@ graph TD
     F -->|GOOD| G[Keep tags and metadata only]
     F -->|SKIP| H[Keep skip tags and stop]
     F -->|FIXABLE_MAJOR| I[Add manual review tags]
-    F -->|REJECT| J[Add tag mark]
+    F -->|REJECT| J[Add tag ai review mark]
     J --> K[Suspend note cards]
     F -->|FIXABLE_MINOR| L{fields_to_update}
 

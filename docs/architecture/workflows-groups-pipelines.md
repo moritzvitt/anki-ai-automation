@@ -201,7 +201,7 @@ So the split is:
 6. The current seeded MLR pipeline uses:
    - `mlr-audit`
    - conditional field-specific follow-up workflows
-   - `tag` to add `mark` to rejected notes
+   - `tag` to add `ai::review::mark` to rejected notes
    - `suspend_cards` to suspend rejected notes' cards
 
 ## Extension Points

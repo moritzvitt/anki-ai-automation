@@ -12,12 +12,12 @@ It is based on the current seeded setup:
 The sample pipeline:
 
 1. selects `Moritz Language Reactor` notes
-2. excludes notes already processed today and already suspended or buried notes
+2. excludes already suspended or buried notes
 3. limits the selection to 15 notes
 4. runs the `mlr-audit` workflow on those notes
 5. branches per note based on the validated audit result
 6. runs field-specific follow-up workflows only when `FIXABLE_MINOR` notes explicitly request those fields
-7. tags rejected notes with `mark` and suspends their cards
+7. tags rejected notes with `ai::review::mark` and suspends their cards
 
 ## Mermaid Diagram
 
@@ -32,7 +32,7 @@ graph TD
     F -->|GOOD| G[Keep tags and metadata only]
     F -->|SKIP| H[Keep skip tags and stop]
     F -->|FIXABLE_MAJOR| I[Add manual review tags]
-    F -->|REJECT| J[Add tag mark]
+    F -->|REJECT| J[Add tag ai review mark]
     J --> K[Suspend note cards]
     F -->|FIXABLE_MINOR| L{fields_to_update}
 
@@ -70,7 +70,7 @@ Conceptually it is configured like this:
 {
   "id": "mlr-audit",
   "name": "MLR Audit",
-  "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today limit:15",
+  "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried limit:15",
   "workflow_type": "audit",
   "enabled": true,
   "prompt_id": "mlr-audit-prompt",
@@ -80,25 +80,25 @@ Conceptually it is configured like this:
   "schema_preset": "mlr_audit",
   "note_type_filter": "Moritz Language Reactor",
   "clear_status_tags": [
-    "ai_good",
-    "ai_fix_minor",
-    "ai_fix_major",
-    "ai_reject",
-    "ai_skip"
+    "ai::audit::good",
+    "ai::audit::fix_minor",
+    "ai::audit::fix_major",
+    "ai::audit::reject",
+    "ai::audit::skip"
   ],
   "status_tag_map": {
-    "GOOD": "ai_good",
-    "FIXABLE_MINOR": "ai_fix_minor",
-    "FIXABLE_MAJOR": "ai_fix_major",
-    "REJECT": "ai_reject",
-    "SKIP": "ai_skip"
+    "GOOD": "ai::audit::good",
+    "FIXABLE_MINOR": "ai::audit::fix_minor",
+    "FIXABLE_MAJOR": "ai::audit::fix_major",
+    "REJECT": "ai::audit::reject",
+    "SKIP": "ai::audit::skip"
   },
   "extra_status_tags": {
-    "FIXABLE_MAJOR": ["ai_manual_review"],
-    "REJECT": ["ai_manual_review"]
+    "FIXABLE_MAJOR": ["ai::review::manual"],
+    "REJECT": ["ai::review::manual"]
   },
-  "success_tags": ["ai_checked", "ai_done_today"],
-  "failure_tags": ["ai_audit_failed", "ai_done_today"],
+  "success_tags": ["ai::audit::checked", "ai::audit::processed"],
+  "failure_tags": ["ai::audit::failed", "ai::audit::processed"],
   "metadata_field_map": {
     "status": "AI Audit Status",
     "summary": "AI Audit Summary",
@@ -121,7 +121,7 @@ The current seeded pipeline now does the whole first-pass audit-and-follow-up fl
   "name": "MLR Audit First 15",
   "enabled": true,
   "note_selector": {
-    "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today",
+    "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried",
     "limit": 15
   },
   "steps": [
@@ -181,7 +181,7 @@ The current seeded pipeline now does the whole first-pass audit-and-follow-up fl
     {
       "id": "mark-reject",
       "type": "tag",
-      "add_tags": ["mark"],
+      "add_tags": ["ai::review::mark"],
       "when": { "artifact_equals": ["audit.status", "REJECT"] }
     },
     {
@@ -222,7 +222,7 @@ The audit workflow itself does not rewrite fields like:
 
 Instead it writes:
 
-- status/process tags such as `ai_good`, `ai_fix_minor`, `ai_done_today`
+- status/process tags such as `ai::audit::good`, `ai::audit::fix_minor`, `ai::audit::processed`
 - audit metadata in optional note fields if they exist
 - audit entries in `user_data/audit_log.json`
 
@@ -252,7 +252,7 @@ Each one stays atomic:
 
 - The audit step strips HTML from `Cloze` before rendering the audit prompt.
 - The pipeline uses `artifact_contains` so list-valued audit output like `fields_to_update` can drive branching.
-- Rejected notes get tag `mark`, then the cards that belong to those notes are suspended.
+- Rejected notes get tag `ai::review::mark`, then the cards that belong to those notes are suspended.
 - `FIXABLE_MAJOR` currently stays in the audit/tagging lane and does not auto-rewrite fields.
 
 ## Mermaid For The Standalone Preview
@@ -264,6 +264,7 @@ The same diagram also exists as a standalone Mermaid source file:
 ## Notes
 
 - The workflow query and the pipeline note selector both currently encode the same initial note scope for convenience.
+- Same-day skip behavior is enforced from stored audit metadata, not from a date-like persistent tag.
 - The sample workflow query uses `limit:15`. That works when the separate `limit-search-results` add-on is installed.
 - The workflow also includes its own query, but when called from a pipeline the pipeline is the orchestration layer and provides the note set.
 - The audit workflow currently uses the Responses API because it needs structured output validation.

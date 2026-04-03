@@ -20,6 +20,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - A Tools action to backfill the optional `AI Audit ...` note fields from the stored audit log after those fields are added to a note type.
 - A dedicated `MLR Fix Minor -> Grammar` follow-up workflow and prompt so audit-driven support-field fixes can cover `Grammar` as well as `Japanese Notes`, `Notes`, and `Word Definition`.
 - A `suspend_cards` pipeline step and an `artifact_contains` condition operator for declarative per-note branching on validated list artifacts.
+- A Tools action to migrate older underscore-style AI tags such as `ai_good` and `mark` to the newer Anki tag-tree format under `ai::...`.
 
 ### Changed
 
@@ -28,6 +29,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Pipeline tag steps and card-suspension steps now defer their Anki mutations until the main thread, reducing crashes from background-thread UI/collection interactions.
 - Delimited multi-field parsing now accepts `{Field Name}` section headers and keeps valid partial field updates even when some requested sections are missing or malformed.
 - The seeded MLR follow-up workflows now add explicit success and failure tags so fixed and failed notes can be filtered more easily after audit-driven processing.
+- AI audit/fix tags now use Anki’s native tag-tree format like `ai::audit::good`, `ai::fix::minor`, and `ai::review::manual`, and the persistent `done_today` tag has been replaced with the more accurate `ai::audit::processed`.
 - Simplified the core settings dialog by removing prompt fields, adding a clearer add-on summary, renaming the model selector to `Default model`, and adding a button that opens Anki's built-in raw JSON config editor.
 - Added a Responses API helper for strict JSON-schema audit requests, and preserved Browser selection order so the first 15 selected notes can be audited predictably.
 - Workflows now expose reusable execution hooks so pipelines can orchestrate atomic workflow runs without duplicating prompt/update logic, and pipelines now dispatch workflows uniformly by workflow ID instead of using a special audit-only execution path.
@@ -35,7 +37,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Workflow config loading is now more tolerant of older saved key names and correctly allows empty `target_field` values for audit workflows.
 - Audit workflow side effects now apply on the main thread after background execution, which makes Browser audits and pipeline audits more stable and avoids mutating notes from the worker thread.
 - The seeded `MLR Audit First 15` pipeline now runs the audit and then conditionally executes field-specific follow-up workflows for `FIXABLE_MINOR` notes in one pass.
-- Rejected notes in the seeded MLR audit pipeline are now tagged `mark` and have their cards suspended automatically.
+- Rejected notes in the seeded MLR audit pipeline are now tagged `ai::review::mark` and have their cards suspended automatically.
 - Audit preparation now strips HTML from the `Cloze` field before sending it to the model, which makes audit prompts more stable for HTML-rich note content.
 - The architecture docs were refreshed to match the typed workflow model, pipeline branching behavior, and current MLR audit-follow-up flow.
 - The sample audit pipeline docs and standalone Mermaid diagram were updated to show the current seeded follow-up branches and reject-handling path instead of the earlier audit-only prototype.
