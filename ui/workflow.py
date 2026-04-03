@@ -876,6 +876,7 @@ class WorkflowDialog(QDialog):
         self.system_prompt_preview.setMinimumHeight(120)
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
+        self.convert_markdown_to_html_check.setChecked(True)
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)

@@ -50,7 +50,7 @@ class ProcessingPreset:
     target_field: str = ""
     mode: str = "overwrite"
     multiple_target_fields: bool = False
-    convert_markdown_to_html: bool = False
+    convert_markdown_to_html: bool = True
     response_delimiter: str | None = None
 
 
@@ -75,7 +75,7 @@ class Workflow:
     api_mode: str | None = None
     system_prompt_id: str | None = None
     multiple_target_fields: bool = False
-    convert_markdown_to_html: bool = False
+    convert_markdown_to_html: bool = True
     response_delimiter: str | None = None
     schema_preset: str | None = None
     response_schema_json: str | None = None
@@ -607,7 +607,7 @@ def _read_processing_presets(
                 ),
                 mode=mode,
                 multiple_target_fields=multiple_target_fields,
-                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
+                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=True),
                 response_delimiter=response_delimiter,
             )
         )
@@ -721,7 +721,7 @@ def _read_workflows(
                 api_mode=api_mode,
                 system_prompt_id=system_prompt_id,
                 multiple_target_fields=multiple_target_fields,
-                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
+                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=True),
                 response_delimiter=response_delimiter,
                 schema_preset=schema_preset,
                 response_schema_json=response_schema_json,

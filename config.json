@@ -150,7 +150,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     },
     {
       "id": "preset-mlr-japanese-notes",
@@ -161,7 +162,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     },
     {
       "id": "preset-mlr-word-definition",
@@ -172,7 +174,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     },
     {
       "id": "preset-mlr-grammar-notes",
@@ -183,7 +186,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     },
     {
       "id": "preset-mlr-cloze-optimization",
@@ -194,7 +198,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     },
     {
       "id": "preset-mlr-fix-only",
@@ -205,7 +210,8 @@
       "target_field": "",
       "mode": "overwrite",
       "multiple_target_fields": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "convert_markdown_to_html": true
     }
   ],
   "workflow_groups": [
@@ -421,7 +427,7 @@
       "temperature": null,
       "system_prompt_id": "delimited-field-sections",
       "multiple_target_fields": true,
-      "convert_markdown_to_html": false,
+      "convert_markdown_to_html": true,
       "response_delimiter": "--{field}--",
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
@@ -456,7 +462,7 @@
       "temperature": null,
       "system_prompt_id": "default-system-prompt",
       "multiple_target_fields": false,
-      "convert_markdown_to_html": false,
+      "convert_markdown_to_html": true,
       "response_delimiter": null,
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
@@ -491,7 +497,7 @@
       "temperature": null,
       "system_prompt_id": "delimited-field-sections",
       "multiple_target_fields": true,
-      "convert_markdown_to_html": false,
+      "convert_markdown_to_html": true,
       "response_delimiter": "--{field}--",
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
@@ -529,7 +535,7 @@
       "api_mode": "responses",
       "system_prompt_id": "mlr-audit-system",
       "multiple_target_fields": false,
-      "convert_markdown_to_html": false,
+      "convert_markdown_to_html": true,
       "response_delimiter": null,
       "schema_preset": "mlr_audit",
       "response_schema_json": null,
@@ -614,7 +620,7 @@
       "model": "gpt-5-mini",
       "system_prompt_id": "delimited-field-sections",
       "multiple_target_fields": true,
-      "convert_markdown_to_html": false,
+      "convert_markdown_to_html": true,
       "response_delimiter": "--{field}--"
     }
   ],
