@@ -14,7 +14,7 @@ The short version:
 - System prompt text:
   - [`prompt_library/system_prompts/mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
 - User prompt template:
-  - [`prompt_library/user_prompts/mlr-audit.md`](../../prompt_library/user_prompts/mlr-audit.md)
+  - [`prompt_library/default_prompts/mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
 - Audit preset registry and JSON schema:
   - [`core/audit_prompts.py`](../../core/audit_prompts.py)
 - Audit execution:
@@ -50,7 +50,7 @@ Related files:
 - [`core/audit_flow.py`](../../core/audit_flow.py)
 - [`core/prompting.py`](../../core/prompting.py)
 - [`prompt_library/system_prompts/mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
-- [`prompt_library/user_prompts/mlr-audit.md`](../../prompt_library/user_prompts/mlr-audit.md)
+- [`prompt_library/default_prompts/mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
 
 ## 1. Workflow Config Chooses The Audit Preset
 
@@ -82,7 +82,7 @@ The actual audit prompt wording does not live inline in the workflow config pars
 Instead:
 
 - [`mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md) contains the audit system prompt
-- [`mlr-audit.md`](../../prompt_library/user_prompts/mlr-audit.md) contains the user prompt template with placeholders like `{{Cloze}}` and `{{Subtitle}}`
+- [`mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md) contains the user prompt template with placeholders like `{{Cloze}}` and `{{Subtitle}}`
 
 [`core/audit_prompts.py`](../../core/audit_prompts.py) loads those files once and exposes them as the preset defaults.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import uuid
 from typing import Any
 
@@ -10,6 +11,10 @@ from ..services.pricing import ModelPricing
 
 
 ADDON_NAME = __name__.split(".")[0]
+PROMPT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "prompt_library"
+DEFAULT_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "default_prompts"
+USER_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "user_prompts"
+SAVED_PROMPT_ORDER_KEY = "saved_prompt_order"
 
 
 class ConfigError(RuntimeError):
@@ -209,7 +214,7 @@ def load_config() -> AddonConfig:
     field_mappings = [_parse_field_mapping(item, index=index) for index, item in enumerate(field_mappings_raw)]
 
     saved_prompts = _read_saved_prompts(
-        raw.get("saved_prompts", []),
+        raw,
         fallback_prompt_template=default_prompt_template,
     )
     saved_system_prompts = _read_saved_system_prompts(
@@ -438,8 +443,18 @@ def _read_optional_string_list_map(source: dict[str, Any], key: str) -> dict[str
     return parsed
 
 
-def _read_saved_prompts(value: Any, *, fallback_prompt_template: str) -> list[SavedPrompt]:
-    if value in (None, []):
+def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template: str) -> list[SavedPrompt]:
+    file_prompts, file_order = _load_prompt_files()
+    config_scope = _prompt_config_scope(raw_config)
+    legacy_entries = _read_legacy_saved_prompts(config_scope.get("saved_prompts", []))
+    if legacy_entries:
+        imported = _import_legacy_prompts_to_files(file_prompts, legacy_entries)
+        if imported:
+            file_prompts, file_order = _load_prompt_files()
+        config_scope["saved_prompts"] = []
+        save_raw_config(raw_config)
+
+    if not file_prompts:
         return [
             SavedPrompt(
                 prompt_id="default-prompt",
@@ -448,27 +463,22 @@ def _read_saved_prompts(value: Any, *, fallback_prompt_template: str) -> list[Sa
             )
         ]
 
-    if not isinstance(value, list):
-        raise ConfigError("Config key 'saved_prompts' must be a list.")
-
+    configured_order = _read_prompt_order(config_scope.get(SAVED_PROMPT_ORDER_KEY))
+    ordered_ids = configured_order or file_order
     prompts: list[SavedPrompt] = []
     seen_ids: set[str] = set()
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ConfigError(f"saved_prompts[{index}] must be an object.")
-
-        prompt_id = _read_string(item, "id", default=f"prompt-{index + 1}")
-        if prompt_id in seen_ids:
-            raise ConfigError(f"saved_prompts[{index}] uses duplicate id '{prompt_id}'.")
+    for prompt_id in ordered_ids:
+        prompt = file_prompts.get(prompt_id)
+        if prompt is None or prompt_id in seen_ids:
+            continue
+        prompts.append(prompt)
         seen_ids.add(prompt_id)
-        prompts.append(
-            SavedPrompt(
-                prompt_id=prompt_id,
-                name=_read_string(item, "name"),
-                prompt_text=_read_string(item, "prompt"),
-            )
-        )
-
+    for prompt_id in file_order:
+        if prompt_id in seen_ids:
+            continue
+        prompt = file_prompts[prompt_id]
+        prompts.append(prompt)
+        seen_ids.add(prompt_id)
     return prompts
 
 
@@ -956,6 +966,27 @@ def save_raw_config(raw_config: dict[str, Any]) -> None:
     mw.addonManager.writeConfig(ADDON_NAME, raw_config)
 
 
+def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
+    config_scope = _prompt_config_scope(raw_config)
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for prompt in prompts:
+        prompt_id = str(getattr(prompt, "prompt_id", "")).strip()
+        name = str(getattr(prompt, "name", "")).strip()
+        prompt_text = str(getattr(prompt, "prompt_text", "")).strip()
+        if not prompt_id or not name or not prompt_text:
+            continue
+        _write_prompt_markdown(_target_prompt_path(prompt_id), name, prompt_text)
+        if prompt_id not in seen_ids:
+            ordered_ids.append(prompt_id)
+            seen_ids.add(prompt_id)
+
+    _prune_removed_user_prompt_files(seen_ids)
+    config_scope["saved_prompts"] = []
+    config_scope[SAVED_PROMPT_ORDER_KEY] = ordered_ids
+    save_raw_config(raw_config)
+
+
 def new_object_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
@@ -974,3 +1005,122 @@ def _read_optional_string_list(value: Any, key: str) -> list[str]:
         if stripped:
             items.append(stripped)
     return items
+
+
+def _read_legacy_saved_prompts(value: Any) -> list[SavedPrompt]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'saved_prompts' must be a list.")
+
+    prompts: list[SavedPrompt] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"saved_prompts[{index}] must be an object.")
+        prompt_id = _read_string(item, "id", default=f"prompt-{index + 1}")
+        if prompt_id in seen_ids:
+            raise ConfigError(f"saved_prompts[{index}] uses duplicate id '{prompt_id}'.")
+        seen_ids.add(prompt_id)
+        prompts.append(
+            SavedPrompt(
+                prompt_id=prompt_id,
+                name=_read_string(item, "name"),
+                prompt_text=_read_string(item, "prompt"),
+            )
+        )
+    return prompts
+
+
+def _load_prompt_files() -> tuple[dict[str, SavedPrompt], list[str]]:
+    merged: dict[str, SavedPrompt] = {}
+    order: list[str] = []
+    for directory in (DEFAULT_PROMPTS_DIR, USER_PROMPTS_DIR):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            prompt_id = path.stem
+            name, prompt_text = _read_prompt_markdown(path)
+            merged[prompt_id] = SavedPrompt(
+                prompt_id=prompt_id,
+                name=name,
+                prompt_text=prompt_text,
+            )
+            if prompt_id in order:
+                order.remove(prompt_id)
+            order.append(prompt_id)
+    return merged, order
+
+
+def _import_legacy_prompts_to_files(
+    file_prompts: dict[str, SavedPrompt],
+    legacy_prompts: list[SavedPrompt],
+) -> bool:
+    imported = False
+    for prompt in legacy_prompts:
+        current = file_prompts.get(prompt.prompt_id)
+        if current is not None and current.name == prompt.name and current.prompt_text == prompt.prompt_text:
+            continue
+        _write_prompt_markdown(USER_PROMPTS_DIR / f"{prompt.prompt_id}.md", prompt.name, prompt.prompt_text)
+        imported = True
+    return imported
+
+
+def _read_prompt_markdown(path: Path) -> tuple[str, str]:
+    text = path.read_text(encoding="utf-8").strip()
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("# "):
+        raise ConfigError(f"Prompt file '{path}' must start with a '# Name' heading.")
+    name = lines[0][2:].strip()
+    body_lines = lines[1:]
+    while body_lines and not body_lines[0].strip():
+        body_lines = body_lines[1:]
+    prompt_text = "\n".join(body_lines).strip()
+    if not prompt_text:
+        raise ConfigError(f"Prompt file '{path}' has no prompt body.")
+    return name, prompt_text
+
+
+def _write_prompt_markdown(path: Path, name: str, prompt_text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = f"# {name.strip()}\n\n{prompt_text.strip()}\n"
+    path.write_text(content, encoding="utf-8")
+
+
+def _target_prompt_path(prompt_id: str) -> Path:
+    default_path = DEFAULT_PROMPTS_DIR / f"{prompt_id}.md"
+    if default_path.exists():
+        return default_path
+    return USER_PROMPTS_DIR / f"{prompt_id}.md"
+
+
+def _prune_removed_user_prompt_files(active_prompt_ids: set[str]) -> None:
+    if not USER_PROMPTS_DIR.exists():
+        return
+    for path in USER_PROMPTS_DIR.glob("*.md"):
+        if path.stem not in active_prompt_ids:
+            path.unlink()
+
+
+def _read_prompt_order(value: Any) -> list[str]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        return []
+    order: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        prompt_id = item.strip()
+        if prompt_id and prompt_id not in seen:
+            order.append(prompt_id)
+            seen.add(prompt_id)
+    return order
+
+
+def _prompt_config_scope(raw_config: dict[str, Any]) -> dict[str, Any]:
+    nested = raw_config.get("config")
+    if isinstance(nested, dict):
+        return nested
+    return raw_config

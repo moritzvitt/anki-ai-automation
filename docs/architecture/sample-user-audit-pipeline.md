@@ -57,7 +57,7 @@ Related files:
 - [`core/audit_prompts.py`](../../core/audit_prompts.py)
 - [`core/audit_flow.py`](../../core/audit_flow.py)
 - [`prompt_library/system_prompts/mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
-- [`prompt_library/user_prompts/mlr-audit.md`](../../prompt_library/user_prompts/mlr-audit.md)
+- [`prompt_library/default_prompts/mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
 - [`user_data/audit_log.json`](../../user_data/audit_log.json)
 
 ## Current Example Workflow

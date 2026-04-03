@@ -51,7 +51,7 @@ def build_prompt_entry(prompt_id: str, directory: str) -> dict[str, str]:
 
 def main() -> None:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    config["saved_prompts"] = [build_prompt_entry(prompt_id, "user_prompts") for prompt_id in USER_PROMPT_ORDER]
+    config["saved_prompts"] = [build_prompt_entry(prompt_id, "default_prompts") for prompt_id in USER_PROMPT_ORDER]
     config["saved_system_prompts"] = [
         build_prompt_entry(prompt_id, "system_prompts") for prompt_id in SYSTEM_PROMPT_ORDER
     ]

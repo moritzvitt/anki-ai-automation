@@ -154,7 +154,7 @@ The audit workflow itself still has a richer contract than a field update workfl
 Prompt text for the audit preset now lives in:
 
 - [`mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
-- [`mlr-audit.md`](../../prompt_library/user_prompts/mlr-audit.md)
+- [`mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
 
 Schema and validation metadata still live in:
 

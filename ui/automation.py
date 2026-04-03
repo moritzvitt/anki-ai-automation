@@ -31,6 +31,7 @@ from ..core.config import (
     load_config,
     load_raw_config,
     new_object_id,
+    save_saved_prompts,
     save_raw_config,
 )
 from ..services.model_catalog import fallback_model_options
@@ -867,11 +868,7 @@ class TransformWithAIDialog(QDialog):
         self._refresh_system_prompt_preview()
 
     def _save_prompts(self) -> None:
-        self._raw_config["saved_prompts"] = [
-            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
-            for prompt in self._prompts
-        ]
-        save_raw_config(self._raw_config)
+        save_saved_prompts(self._raw_config, self._prompts)
 
     def _save_system_prompts(self) -> None:
         self._raw_config["saved_system_prompts"] = [
