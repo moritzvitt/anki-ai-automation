@@ -64,12 +64,19 @@ def execute_workflow(
     *,
     note_ids: list[int] | None = None,
     show_feedback: bool = False,
+    skip_already_processed_today: bool = True,
 ) -> WorkflowExecutionResult:
     matched_note_ids = list(note_ids) if note_ids is not None else _find_note_ids_for_query(workflow.query)
     if workflow.workflow_type == "field_update":
         return _execute_field_update_workflow(config, workflow, matched_note_ids)
     if workflow.workflow_type == "audit":
-        return _execute_audit_workflow(config, workflow, matched_note_ids, show_feedback=show_feedback)
+        return _execute_audit_workflow(
+            config,
+            workflow,
+            matched_note_ids,
+            show_feedback=show_feedback,
+            skip_already_processed_today=skip_already_processed_today,
+        )
     raise RuntimeError(f"Unsupported workflow type '{workflow.workflow_type}'.")
 
 
@@ -79,11 +86,18 @@ def execute_workflow_by_id(
     *,
     note_ids: list[int] | None = None,
     show_feedback: bool = False,
+    skip_already_processed_today: bool = True,
 ) -> WorkflowExecutionResult:
     workflow = next((item for item in config.workflows if item.workflow_id == workflow_id), None)
     if workflow is None:
         raise RuntimeError(f"Unknown workflow id '{workflow_id}'.")
-    return execute_workflow(config, workflow, note_ids=note_ids, show_feedback=show_feedback)
+    return execute_workflow(
+        config,
+        workflow,
+        note_ids=note_ids,
+        show_feedback=show_feedback,
+        skip_already_processed_today=skip_already_processed_today,
+    )
 
 
 def _execute_field_update_workflow(
@@ -166,9 +180,16 @@ def _execute_audit_workflow(
     note_ids: list[int],
     *,
     show_feedback: bool,
+    skip_already_processed_today: bool,
 ) -> WorkflowExecutionResult:
     ordered_note_ids = [int(note_id) for note_id in note_ids]
-    result = execute_audit_workflow(config, workflow, note_ids, max_notes=None)
+    result = execute_audit_workflow(
+        config,
+        workflow,
+        note_ids,
+        max_notes=None,
+        skip_already_processed_today=skip_already_processed_today,
+    )
 
     succeeded_note_ids = [item.note_id for item in result.successes]
     failed_note_ids = [item.note_id for item in result.failures]

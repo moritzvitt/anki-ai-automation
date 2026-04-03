@@ -6,7 +6,7 @@ from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.operations import QueryOp
 from aqt.qt import QAction, QMenu
-from aqt.utils import showCritical, showInfo
+from aqt.utils import showCritical
 
 from ..core.audit_flow import apply_audit_run_result
 from ..core.config import ConfigError, load_config
@@ -63,7 +63,13 @@ def _trigger_audit(browser: Browser) -> None:
 
     op = QueryOp(
         parent=browser,
-        op=lambda _col: execute_workflow_by_id(config, "mlr-audit", note_ids=note_ids, show_feedback=False),
+        op=lambda _col: execute_workflow_by_id(
+            config,
+            "mlr-audit",
+            note_ids=note_ids,
+            show_feedback=False,
+            skip_already_processed_today=False,
+        ),
         success=lambda result: _on_audit_workflow_finished(browser, workflow, config, result),
     )
     op.with_progress(label=f"Running workflow: {workflow.name}")
@@ -71,37 +77,32 @@ def _trigger_audit(browser: Browser) -> None:
 
 
 def _on_audit_workflow_finished(browser: Browser, workflow, config, result) -> None:
-    for deferred in result.deferred_audit_applications:
-        apply_audit_run_result(
-            deferred.result,
-            workflow=workflow,
-            config=config,
-            browser=browser,
-            show_feedback=False,
-        )
+    apply_results = []
+    try:
+        for deferred in result.deferred_audit_applications:
+            apply_results.append(
+                apply_audit_run_result(
+                    deferred.result,
+                    workflow=workflow,
+                    config=config,
+                    browser=browser,
+                    show_feedback=False,
+                )
+            )
+    except Exception as error:
+        showCritical(f"Applying audit results failed: {error}", parent=browser)
+        return
+
+    persisted_note_ids: list[int] = []
+    for item in apply_results:
+        persisted_note_ids.extend(item.persisted_success_note_ids)
+        persisted_note_ids.extend(item.persisted_failure_note_ids)
+    _refresh_open_browser_note(browser, changed_note_ids=persisted_note_ids)
     skipped_count = len(getattr(result.deferred_audit_applications[0].result, "skipped_before_run", [])) if result.deferred_audit_applications else 0
     show_tooltip(
         f"{result.workflow_name}: {result.updated_requests} audited, {len(result.failures)} failed, {skipped_count} skipped.",
         parent=browser,
     )
-
-    report_lines: list[str] = []
-    if result.updated_requests == 0 and skipped_count:
-        report_lines.append("No selected notes were audited.")
-    if result.deferred_audit_applications:
-        skipped_before_run = result.deferred_audit_applications[0].result.skipped_before_run
-        if skipped_before_run:
-            if report_lines:
-                report_lines.append("")
-            report_lines.append("Skipped before audit:")
-            report_lines.extend(f"- {line}" for line in skipped_before_run[:20])
-    if result.failures:
-        if report_lines:
-            report_lines.append("")
-        report_lines.append("Audit workflow failures:")
-        report_lines.extend(result.failures[:20])
-    if report_lines:
-        showInfo("\n".join(report_lines), parent=browser)
 
 
 def _selected_note_ids(browser: Browser) -> list[int]:
@@ -142,3 +143,26 @@ def _selected_note_ids(browser: Browser) -> list[int]:
                     seen_note_ids.add(note_id)
 
     return ordered_note_ids
+
+
+def _refresh_open_browser_note(browser: Browser, *, changed_note_ids: list[int]) -> None:
+    if not changed_note_ids:
+        return
+    editor = getattr(browser, "editor", None)
+    note = getattr(editor, "note", None)
+    if editor is None or note is None:
+        return
+    try:
+        current_note_id = int(getattr(note, "id", 0) or 0)
+    except Exception:
+        return
+    if current_note_id not in set(changed_note_ids):
+        return
+    try:
+        note.load()
+        if hasattr(editor, "loadNoteKeepingFocus"):
+            editor.loadNoteKeepingFocus()
+        else:
+            editor.set_note(note, hide=False)
+    except Exception:
+        return

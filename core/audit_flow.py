@@ -176,6 +176,15 @@ class AuditFieldSyncResult:
     missing_notes: int
 
 
+@dataclass(frozen=True)
+class AuditApplyResult:
+    persisted_success_note_ids: list[int]
+    persisted_failure_note_ids: list[int]
+    missing_note_ids: list[int]
+    verified_note_ids: list[int]
+    verification_failed: list[str]
+
+
 def run_browser_ai_audit(browser: Browser, note_ids: list[int]) -> None:
     # Browser entry point for the stage-1 audit pipeline. This is intentionally
     # diagnostic-only and does not rewrite learning content fields.
@@ -218,6 +227,7 @@ def _prepare_audit_candidates(
     relevant_fields: tuple[str, ...],
     note_type_filter: str | None,
     max_candidates: int | None = MAX_AUDIT_NOTES_PER_RUN,
+    skip_already_processed_today: bool = True,
 ) -> tuple[list[AuditCandidate], list[str]]:
     assert mw is not None and mw.col is not None
 
@@ -242,7 +252,7 @@ def _prepare_audit_candidates(
             continue
 
         entry = get_note_audit_entry(audit_log, note_id)
-        if entry and str(entry.get("processed_on", "")) == today:
+        if skip_already_processed_today and entry and str(entry.get("processed_on", "")) == today:
             skipped.append(f"Note {note_id}: already audited today.")
             continue
 
@@ -356,6 +366,7 @@ def execute_audit_workflow(
     note_ids: list[int],
     *,
     max_notes: int | None = MAX_AUDIT_NOTES_PER_RUN,
+    skip_already_processed_today: bool = True,
 ) -> AuditRunResult:
     if mw is None or mw.col is None:
         raise OpenAIClientError("Anki collection is not available.")
@@ -388,6 +399,7 @@ def execute_audit_workflow(
         relevant_fields=preset.relevant_fields,
         note_type_filter=workflow.note_type_filter or preset.note_type_name,
         max_candidates=max_notes,
+        skip_already_processed_today=skip_already_processed_today,
     )
     system_prompt = _audit_system_prompt(config, workflow, preset)
     user_prompt_template = _audit_user_prompt_template(config, workflow, preset)
@@ -549,7 +561,7 @@ def apply_audit_run_result(
     config: AddonConfig | None = None,
     browser: Browser | None = None,
     show_feedback: bool = True,
-) -> None:
+) -> AuditApplyResult:
     assert mw is not None and mw.col is not None
 
     audit_log = load_audit_log()
@@ -573,10 +585,16 @@ def apply_audit_run_result(
         removable_audit_tags.update(tags)
     removable_audit_tags.add(TAG_AI_MANUAL_REVIEW)
     removable_audit_tags.add(TAG_AI_AUDIT_FAILED)
+    persisted_success_note_ids: list[int] = []
+    persisted_failure_note_ids: list[int] = []
+    missing_note_ids: list[int] = []
+    verified_note_ids: list[int] = []
+    verification_failed: list[str] = []
 
     for success in result.successes:
         note = mw.col.get_note(success.note_id)
         if note is None:
+            missing_note_ids.append(success.note_id)
             continue
 
         _remove_named_tags(note, removable_audit_tags)
@@ -597,6 +615,7 @@ def apply_audit_run_result(
             include_raw_output=workflow.store_raw_output if workflow is not None else True,
         )
         changed_notes.append(note)
+        persisted_success_note_ids.append(success.note_id)
         set_note_audit_entry(
             audit_log,
             success.note_id,
@@ -631,12 +650,14 @@ def apply_audit_run_result(
     for failure in result.failures:
         note = mw.col.get_note(failure.note_id)
         if note is None:
+            missing_note_ids.append(failure.note_id)
             continue
 
         _remove_named_tags(note, removable_audit_tags)
         for tag in failure_tags:
             note.add_tag(tag)
         changed_notes.append(note)
+        persisted_failure_note_ids.append(failure.note_id)
         _write_failure_metadata_fields(
             note,
             failure,
@@ -660,18 +681,27 @@ def apply_audit_run_result(
         )
 
     if changed_notes:
-        if hasattr(mw.col, "update_notes"):
-            mw.col.update_notes(changed_notes)
-        else:
-            for note in changed_notes:
-                mw.col.update_note(note)
+        _persist_changed_notes(changed_notes)
+        verification_by_note_id = _verify_persisted_audit_notes(
+            result,
+            metadata_field_map=metadata_field_map,
+            success_tags=success_tags,
+            failure_tags=failure_tags,
+            status_tag_map=status_tag_map,
+            extra_status_tags=extra_status_tags,
+        )
+        for note_id, error in verification_by_note_id.items():
+            if error is None:
+                verified_note_ids.append(note_id)
+            else:
+                verification_failed.append(f"Note {note_id}: {error}")
 
     save_audit_log(audit_log)
     _record_audit_usage(result, config=active_config, workflow=workflow)
 
-    if browser is not None and hasattr(browser, "search"):
-        browser.search()
-    mw.reset()
+    # Avoid forcing a Browser/editor refresh here. In the Browser audit flow,
+    # an open editor note can still hold stale in-memory field values, and a
+    # forced refresh can immediately overwrite freshly persisted audit fields.
 
     if show_feedback:
         summary = (
@@ -695,6 +725,14 @@ def apply_audit_run_result(
             )
         if report_lines:
             showInfo("\n".join(report_lines), parent=browser)
+
+    return AuditApplyResult(
+        persisted_success_note_ids=persisted_success_note_ids,
+        persisted_failure_note_ids=persisted_failure_note_ids,
+        missing_note_ids=missing_note_ids,
+        verified_note_ids=verified_note_ids,
+        verification_failed=verification_failed,
+    )
 
 
 def sync_audit_fields_from_log(config: AddonConfig | None = None) -> AuditFieldSyncResult:
@@ -823,11 +861,7 @@ def sync_audit_fields_from_log(config: AddonConfig | None = None) -> AuditFieldS
             skipped_notes += 1
 
     if changed_notes:
-        if hasattr(mw.col, "update_notes"):
-            mw.col.update_notes(changed_notes)
-        else:
-            for note in changed_notes:
-                mw.col.update_note(note)
+        _persist_changed_notes(changed_notes)
         mw.reset()
 
     return AuditFieldSyncResult(
@@ -845,6 +879,85 @@ def _remove_status_tags(note: Any) -> None:
 def _remove_named_tags(note: Any, tags: set[str] | list[str] | tuple[str, ...]) -> None:
     for tag in tags:
         note.remove_tag(tag)
+
+
+def _persist_changed_notes(changed_notes: list[Any]) -> None:
+    assert mw is not None and mw.col is not None
+    if hasattr(mw.col, "update_notes"):
+        mw.col.update_notes(changed_notes)
+        return
+    for note in changed_notes:
+        if hasattr(mw.col, "update_note"):
+            mw.col.update_note(note)
+        elif hasattr(note, "flush"):
+            note.flush()
+
+
+def _verify_persisted_audit_notes(
+    result: AuditRunResult,
+    *,
+    metadata_field_map: dict[str, str],
+    success_tags: list[str],
+    failure_tags: list[str],
+    status_tag_map: dict[str, str],
+    extra_status_tags: dict[str, list[str]],
+) -> dict[int, str | None]:
+    assert mw is not None and mw.col is not None
+    verification: dict[int, str | None] = {}
+
+    for success in result.successes:
+        note = mw.col.get_note(success.note_id)
+        if note is None:
+            verification[success.note_id] = "note could not be reloaded after write"
+            continue
+        expected_tags = set(success_tags)
+        mapped_status_tag = status_tag_map.get(success.result.status.value)
+        if mapped_status_tag:
+            expected_tags.add(mapped_status_tag)
+        expected_tags.update(extra_status_tags.get(success.result.status.value, []))
+        missing_tags = sorted(tag for tag in expected_tags if not _note_has_tag(note, tag))
+        if missing_tags:
+            verification[success.note_id] = f"missing tags after write: {', '.join(missing_tags)}"
+            continue
+        status_field = metadata_field_map.get("status")
+        if status_field and status_field in note and str(note[status_field]).strip() != success.result.status.value:
+            verification[success.note_id] = f"field '{status_field}' did not persist expected status"
+            continue
+        summary_field = metadata_field_map.get("summary")
+        if summary_field and summary_field in note and not str(note[summary_field]).strip():
+            verification[success.note_id] = f"field '{summary_field}' is still empty after write"
+            continue
+        verification[success.note_id] = None
+
+    for failure in result.failures:
+        note = mw.col.get_note(failure.note_id)
+        if note is None:
+            verification[failure.note_id] = "note could not be reloaded after write"
+            continue
+        missing_tags = sorted(tag for tag in failure_tags if not _note_has_tag(note, tag))
+        if missing_tags:
+            verification[failure.note_id] = f"missing tags after write: {', '.join(missing_tags)}"
+            continue
+        verification[failure.note_id] = None
+
+    return verification
+
+
+def _note_has_tag(note: Any, tag: str) -> bool:
+    normalized = str(tag).strip()
+    if not normalized:
+        return False
+    if hasattr(note, "has_tag"):
+        try:
+            return bool(note.has_tag(normalized))
+        except Exception:
+            pass
+    raw_tags = getattr(note, "tags", [])
+    if isinstance(raw_tags, str):
+        return normalized in {item.strip() for item in raw_tags.split() if item.strip()}
+    if isinstance(raw_tags, list):
+        return normalized in {str(item).strip() for item in raw_tags if str(item).strip()}
+    return False
 
 
 def _write_audit_metadata_fields(
