@@ -168,6 +168,13 @@ class AuditRunResult:
     skipped_before_run: list[str]
 
 
+@dataclass(frozen=True)
+class AuditFieldSyncResult:
+    updated_notes: int
+    skipped_notes: int
+    missing_notes: int
+
+
 def run_browser_ai_audit(browser: Browser, note_ids: list[int]) -> None:
     # Browser entry point for the stage-1 audit pipeline. This is intentionally
     # diagnostic-only and does not rewrite learning content fields.
@@ -678,6 +685,146 @@ def apply_audit_run_result(
             )
         if report_lines:
             showInfo("\n".join(report_lines), parent=browser)
+
+
+def sync_audit_fields_from_log(config: AddonConfig | None = None) -> AuditFieldSyncResult:
+    """Backfill optional AI Audit note fields from the persisted audit log.
+
+    This is useful after adding audit metadata fields to a note type after notes
+    have already been audited, because the historic results already exist in
+    `user_data/audit_log.json`.
+    """
+    assert mw is not None and mw.col is not None
+
+    active_config = config
+    if active_config is None:
+        active_config = load_config()
+    workflow_lookup = {workflow.workflow_id: workflow for workflow in active_config.workflows}
+    audit_log = load_audit_log()
+    note_entries = audit_log.get("notes")
+    if not isinstance(note_entries, dict):
+        return AuditFieldSyncResult(updated_notes=0, skipped_notes=0, missing_notes=0)
+
+    changed_notes: list[Any] = []
+    updated_notes = 0
+    skipped_notes = 0
+    missing_notes = 0
+
+    for note_id_text, entry in note_entries.items():
+        if not isinstance(entry, dict):
+            skipped_notes += 1
+            continue
+        try:
+            note_id = int(note_id_text)
+        except (TypeError, ValueError):
+            skipped_notes += 1
+            continue
+
+        note = mw.col.get_note(note_id)
+        if note is None:
+            missing_notes += 1
+            continue
+
+        workflow_id = entry.get("workflow_id")
+        workflow = workflow_lookup.get(workflow_id) if isinstance(workflow_id, str) else None
+        metadata_field_map = (
+            dict(workflow.metadata_field_map)
+            if workflow is not None and workflow.metadata_field_map
+            else _default_metadata_field_map()
+        )
+        include_raw_output = workflow.store_raw_output if workflow is not None else True
+        before = {field_name: note[field_name] for field_name in note.keys()}
+
+        if entry.get("audit_failed"):
+            failure = AuditFailure(
+                note_id=note_id,
+                note_type_name=str(entry.get("note_type_name", "Unknown")),
+                reason=str(entry.get("error", "Unknown audit failure.")),
+                checked_at=str(entry.get("last_checked") or "") or None,
+                raw_output=str(entry.get("raw_output") or "") or None,
+                usage=None,
+                estimated_cost_usd=None,
+            )
+            _write_failure_metadata_fields(
+                note,
+                failure,
+                metadata_field_map=metadata_field_map,
+                include_raw_output=include_raw_output,
+            )
+        else:
+            status_text = entry.get("status")
+            try:
+                status = AuditStatus(str(status_text))
+            except Exception:
+                skipped_notes += 1
+                continue
+            issues: list[AuditIssue] = []
+            for issue_entry in entry.get("issues", []):
+                if not isinstance(issue_entry, dict):
+                    continue
+                try:
+                    issues.append(
+                        AuditIssue(
+                            severity=AuditSeverity(str(issue_entry.get("severity"))),
+                            field=AuditField(str(issue_entry.get("field"))),
+                            issue=str(issue_entry.get("issue", "")).strip(),
+                        )
+                    )
+                except Exception:
+                    continue
+            success = AuditSuccess(
+                note_id=note_id,
+                note_type_name=str(entry.get("note_type_name", "Unknown")),
+                result=AuditResult(
+                    status=status,
+                    confidence=float(entry.get("confidence", 0.0) or 0.0),
+                    is_learnworthy=bool(entry.get("is_learnworthy", False)),
+                    auto_fix_allowed=bool(entry.get("auto_fix_allowed", False)),
+                    summary=str(entry.get("summary", "")).strip(),
+                    issues=issues,
+                    fields_to_update=[
+                        str(field_name)
+                        for field_name in entry.get("fields_to_update", [])
+                        if isinstance(field_name, str)
+                    ],
+                    recommended_tags=[
+                        str(tag)
+                        for tag in entry.get("recommended_tags", [])
+                        if isinstance(tag, str)
+                    ],
+                ),
+                usage=TokenUsage(0, 0, 0, 0, 0),
+                estimated_cost_usd=None,
+                checked_at=str(entry.get("last_checked") or _timestamp_now()),
+                raw_output=str(entry.get("raw_output") or ""),
+            )
+            _write_audit_metadata_fields(
+                note,
+                success,
+                metadata_field_map=metadata_field_map,
+                include_raw_output=include_raw_output,
+            )
+
+        after = {field_name: note[field_name] for field_name in note.keys()}
+        if before != after:
+            changed_notes.append(note)
+            updated_notes += 1
+        else:
+            skipped_notes += 1
+
+    if changed_notes:
+        if hasattr(mw.col, "update_notes"):
+            mw.col.update_notes(changed_notes)
+        else:
+            for note in changed_notes:
+                mw.col.update_note(note)
+        mw.reset()
+
+    return AuditFieldSyncResult(
+        updated_notes=updated_notes,
+        skipped_notes=skipped_notes,
+        missing_notes=missing_notes,
+    )
 
 
 def _remove_status_tags(note: Any) -> None:

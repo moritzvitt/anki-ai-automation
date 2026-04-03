@@ -17,6 +17,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Typed workflows with first-class `field_update` and `audit` workflow types.
 - A real visible `mlr-audit` workflow that can be edited, listed, and referenced by pipelines like any other workflow.
 - Per-row `Enabled` checkboxes in the workflow manager so workflows can be toggled without opening the editor.
+- A Tools action to backfill the optional `AI Audit ...` note fields from the stored audit log after those fields are added to a note type.
 
 ### Changed
 
@@ -25,6 +26,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Workflows now expose reusable execution hooks so pipelines can orchestrate atomic workflow runs without duplicating prompt/update logic, and pipelines now dispatch workflows uniformly by workflow ID instead of using a special audit-only execution path.
 - The config docs now document `pipelines` and note that workflow and pipeline queries can use `limit:x` when the separate `limit-search-results` add-on is installed.
 - Workflow config loading is now more tolerant of older saved key names and correctly allows empty `target_field` values for audit workflows.
+- Audit workflow side effects now apply on the main thread after background execution, which makes Browser audits and pipeline audits more stable and avoids mutating notes from the worker thread.
 
 ## 1.1.0 - 2026-04-03
 
