@@ -49,6 +49,7 @@ graph TD
 Related files:
 
 - [`prompt_library/README.md`](../../prompt_library/README.md)
+- [`audit-prompt-construction.md`](./audit-prompt-construction.md)
 - [`core/audit_prompts.py`](../../core/audit_prompts.py)
 - [`core/config.py`](../../core/config.py)
 - [`core/audit_flow.py`](../../core/audit_flow.py)

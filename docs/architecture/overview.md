@@ -40,6 +40,12 @@ AI Automation is an Anki add-on that can process notes in three complementary wa
 - [`pricing.py`](../../services/pricing.py): pricing lookup and cost estimation
 - [`usage_stats.py`](../../core/usage_stats.py): local usage persistence for the Tools menu monitor
 
+## Related Notes
+
+- [`workflows-groups-pipelines.md`](./workflows-groups-pipelines.md)
+- [`audit-prompt-construction.md`](./audit-prompt-construction.md)
+- [`sample-user-audit-pipeline.md`](./sample-user-audit-pipeline.md)
+
 ## Safety
 
 - The action only appears when the Browser has selected notes.
