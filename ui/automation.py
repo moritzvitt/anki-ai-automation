@@ -25,6 +25,7 @@ from aqt.utils import showCritical
 
 from ..core.config import (
     ConfigError,
+    DEFAULT_PROMPTS_DIR,
     ProcessingPreset,
     SavedPrompt,
     SavedSystemPrompt,
@@ -428,11 +429,39 @@ class TransformWithAIDialog(QDialog):
         self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
         self.system_prompt_preview.blockSignals(False)
 
+    def _is_default_prompt(self, prompt_id: str) -> bool:
+        return (DEFAULT_PROMPTS_DIR / f"{prompt_id}.md").exists()
+
+    def _forked_prompt_name(self, base_name: str) -> str:
+        existing_names = {prompt.name for prompt in self._prompts}
+        suffix = new_object_id("prompt").split("-", 1)[-1]
+        candidate = f"{base_name} ({suffix})"
+        counter = 2
+        while candidate in existing_names:
+            candidate = f"{base_name} ({suffix}-{counter})"
+            counter += 1
+        return candidate
+
     def _sync_prompt_from_editor(self) -> None:
         prompt = self._selected_prompt()
         if prompt is None:
             return
         updated_text = self.prompt_preview.toPlainText().strip()
+        if self._is_default_prompt(prompt.prompt_id) and updated_text != prompt.prompt_text:
+            replacement = PromptChoice(
+                prompt_id=new_object_id("prompt"),
+                name=self._forked_prompt_name(prompt.name),
+                prompt_text=updated_text,
+            )
+            self._prompts.append(replacement)
+            self._save_prompts()
+            self._populate_prompt_combo()
+            index = self.prompt_combo.findData(replacement.prompt_id)
+            if index >= 0:
+                self.prompt_combo.setCurrentIndex(index)
+            self._refresh_prompt_preview()
+            show_tooltip(f"Saved as new user prompt '{replacement.name}'.", parent=self)
+            return
         for index, current in enumerate(self._prompts):
             if current.prompt_id == prompt.prompt_id:
                 self._prompts[index] = PromptChoice(
@@ -731,14 +760,23 @@ class TransformWithAIDialog(QDialog):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
+        replacement = dialog.prompt_choice(
+            existing_id=None if self._is_default_prompt(prompt.prompt_id) else prompt.prompt_id
+        )
         if replacement is None:
             return
-
-        for index, current in enumerate(self._prompts):
-            if current.prompt_id == prompt.prompt_id:
-                self._prompts[index] = replacement
-                break
+        if self._is_default_prompt(prompt.prompt_id):
+            replacement = PromptChoice(
+                prompt_id=replacement.prompt_id,
+                name=self._forked_prompt_name(prompt.name),
+                prompt_text=replacement.prompt_text,
+            )
+            self._prompts.append(replacement)
+        else:
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
 
         self._save_prompts()
         self._populate_prompt_combo()

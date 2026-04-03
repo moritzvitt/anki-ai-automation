@@ -12,4 +12,9 @@ Task:
 2. Avoid ambiguity (only one correct answer)
 3. Keep sentence natural and useful
 
-Only give me the cloze with your changes
+Output format:
+--Cloze--
+...
+
+--Subtitle--
+...

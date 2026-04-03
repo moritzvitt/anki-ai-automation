@@ -27,8 +27,6 @@ Important rules:
 Card fields:
 Cloze: {{Cloze}}
 Lemma: {{Lemma}}
-Subtitle: {{Subtitle}}
-Word Definition: {{Word Definition}}
 Japanese Notes: {{Japanese Notes}}
 Notes: {{Notes}}
 Grammar: {{Grammar}}

@@ -588,11 +588,12 @@ class WorkflowDialog(QDialog):
 
     def _forked_prompt_name(self, base_name: str) -> str:
         existing_names = {prompt.name for prompt in self._prompts}
-        candidate = f"{base_name} (User)"
-        suffix = 2
+        suffix = new_object_id("prompt").split("-", 1)[-1]
+        candidate = f"{base_name} ({suffix})"
+        counter = 2
         while candidate in existing_names:
-            candidate = f"{base_name} (User {suffix})"
-            suffix += 1
+            candidate = f"{base_name} ({suffix}-{counter})"
+            counter += 1
         return candidate
 
     def _refresh_system_prompt_preview(self) -> None:
@@ -1005,13 +1006,23 @@ class WorkflowDialog(QDialog):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
+        replacement = dialog.prompt_choice(
+            existing_id=None if self._is_default_prompt(prompt.prompt_id) else prompt.prompt_id
+        )
         if replacement is None:
             return
-        for index, current in enumerate(self._prompts):
-            if current.prompt_id == prompt.prompt_id:
-                self._prompts[index] = replacement
-                break
+        if self._is_default_prompt(prompt.prompt_id):
+            replacement = PromptChoice(
+                prompt_id=replacement.prompt_id,
+                name=self._forked_prompt_name(prompt.name),
+                prompt_text=replacement.prompt_text,
+            )
+            self._prompts.append(replacement)
+        else:
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
         self._save_prompts()
         self._populate_prompt_combo()
         index = self.prompt_combo.findData(replacement.prompt_id)

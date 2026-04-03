@@ -1,4 +1,4 @@
-# MLR Audit
+# MLR Audit Moritz
 
 Review this Japanese Anki card for study quality.
 
@@ -15,7 +15,7 @@ Classify the card into exactly one category:
 Evaluation criteria:
 1. Clear and testable learning focus (single word/structure/point)
 2. Natural, correct, and comprehensible Japanese
-3. Effective cloze design (unambiguous, not trivial, not overly broad)
+3. Effective cloze design: Sentence with a hidden japanese words and a hint in german or english (unambiguous, not trivial, not overly broad)
 4. Accurate and useful meaning/explanations
 5. Appropriate information density (no overload or missing essentials)
 6. No critical errors or misleading content
@@ -25,8 +25,8 @@ Decision rules:
   Fully study-ready. No meaningful issues.
 
 - FIXABLE_MINOR:
-  Core card (Cloze + Subtitle) is valid.
-  Only supporting fields (Japanese Notes, Notes, Word Definition, Grammar) need small corrections, clarifications, or additions.
+  Core card (Cloze) is valid.
+  Only supporting fields (Japanese Notes, Notes, Grammar) need small corrections, clarifications, or additions.
 
 - FIXABLE_MAJOR:
   Issues affect core learning quality (e.g. unclear cloze, awkward/unreliable sentence, missing key context).
@@ -40,13 +40,9 @@ Decision rules:
 
 Field update constraints:
 - Only include fields in `fields_to_update` if classification is FIXABLE_MINOR.
-- Allowed fields: Japanese Notes, Notes, Word Definition, Grammar.
+- Allowed fields: Japanese Notes, Notes, Grammar.
 - Do NOT include Cloze, Lemma, or Subtitle.
 - Prefer minimal intervention.
-
-Output requirements:
-- Return JSON only (no prose, no explanations outside JSON).
-- Be deterministic and consistent across similar inputs.
 
 Card fields:
 Cloze: {{Cloze}}
