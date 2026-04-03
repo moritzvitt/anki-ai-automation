@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import aqt
 from aqt import mw
+from aqt.addons import ConfigEditor
 from aqt.operations import QueryOp
 from aqt.qt import (
     QCheckBox,
@@ -15,7 +17,6 @@ from aqt.qt import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QPlainTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -53,7 +54,6 @@ class ConfigDialog(QDialog):
 
         self._addon_manager = mw.addonManager if mw is not None else None
         self._config = self._load_config()
-        self._current_prompt = str(self._config.get("prompt_template", ""))
 
         self.enabled_checkbox = QCheckBox("Enable AI Automation")
         self.show_tooltips_checkbox = QCheckBox("Show tooltips and hover help")
@@ -63,11 +63,10 @@ class ConfigDialog(QDialog):
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(320)
         self.model_status_label = QLabel()
-        self.system_prompt_edit = QPlainTextEdit()
-        self.prompt_edit = QPlainTextEdit()
         self.refresh_models_button = QPushButton("Refresh Models")
         self.open_workflows_button = QPushButton("Open Workflow Settings")
         self.open_browser_settings_button = QPushButton("Open Browser Settings")
+        self.open_live_config_button = QPushButton("Open Live Config")
 
         self._build_ui()
         self._populate_fields()
@@ -76,9 +75,13 @@ class ConfigDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
+        title = QLabel("AI Automation")
+        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        layout.addWidget(title)
+
         intro = QLabel(
-            "Manage the core AI Automation settings here. "
-            "Workflow management and Browser AI settings are available through the buttons below."
+            "AI Automation uses OpenAI to update Anki notes from Browser selections or reusable query-based workflows.\n\n"
+            "Manage the core add-on settings here. Workflow management, Browser AI settings, and the raw JSON config editor are available through the buttons below."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -95,9 +98,6 @@ class ConfigDialog(QDialog):
         form = QFormLayout(group)
 
         self.api_key_edit.setPlaceholderText("sk-...")
-        self.system_prompt_edit.setPlaceholderText("System prompt sent with every request")
-        self.prompt_edit.setPlaceholderText("Use placeholders like {{Front}}, {{Back}}, {{NoteType}}")
-        self.prompt_edit.setMinimumHeight(180)
         self.model_status_label.setWordWrap(True)
         self.refresh_models_button.clicked.connect(self._refresh_model_options)
         help_enabled = bool(self._config.get("show_tooltips", True))
@@ -115,8 +115,6 @@ class ConfigDialog(QDialog):
         set_hover_help(self.api_key_edit, "OpenAI API key used for live model loading and AI requests.", enabled=help_enabled)
         set_hover_help(self.model_combo, "Default model used unless a Browser run or workflow overrides it.", enabled=help_enabled)
         set_hover_help(self.refresh_models_button, "Fetch the latest recommended model shortlist from OpenAI.", enabled=help_enabled)
-        set_hover_help(self.system_prompt_edit, "System instructions sent with every request unless overridden elsewhere.", enabled=help_enabled)
-        set_hover_help(self.prompt_edit, "Default user prompt template. Use {{FieldName}} placeholders to pull note content.", enabled=help_enabled)
 
         model_row = QWidget()
         model_layout = QVBoxLayout(model_row)
@@ -132,9 +130,7 @@ class ConfigDialog(QDialog):
         form.addRow(self.show_tooltips_checkbox)
         form.addRow(self.use_chat_completions_checkbox)
         form.addRow("API key", self.api_key_edit)
-        form.addRow("Model", model_row)
-        form.addRow("System prompt", self.system_prompt_edit)
-        form.addRow("Prompt template", self.prompt_edit)
+        form.addRow("Default model", model_row)
         return group
 
     def _build_navigation_group(self) -> QGroupBox:
@@ -142,7 +138,7 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout(group)
 
         help_text = QLabel(
-            "Open the dedicated dialogs for reusable workflows and Browser AI run settings."
+            "Open the dedicated dialogs for reusable workflows and Browser AI run settings, or open the live stored config file."
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
@@ -150,6 +146,7 @@ class ConfigDialog(QDialog):
         buttons_row = QHBoxLayout()
         self.open_workflows_button.clicked.connect(self._open_workflow_settings)
         self.open_browser_settings_button.clicked.connect(self._open_browser_settings)
+        self.open_live_config_button.clicked.connect(self._open_live_config)
         set_hover_help(
             self.open_workflows_button,
             "Open the workflow manager to create, edit, group, and trigger reusable query-based runs.",
@@ -160,8 +157,14 @@ class ConfigDialog(QDialog):
             "Open the Browser AI settings dialog for saved prompts, presets, write modes, and Browser defaults.",
             enabled=bool(self._config.get("show_tooltips", True)),
         )
+        set_hover_help(
+            self.open_live_config_button,
+            "Open Anki's built-in raw JSON config editor for this add-on.",
+            enabled=bool(self._config.get("show_tooltips", True)),
+        )
         buttons_row.addWidget(self.open_workflows_button)
         buttons_row.addWidget(self.open_browser_settings_button)
+        buttons_row.addWidget(self.open_live_config_button)
         layout.addLayout(buttons_row)
         return group
 
@@ -170,8 +173,6 @@ class ConfigDialog(QDialog):
         self.show_tooltips_checkbox.setChecked(bool(self._config.get("show_tooltips", True)))
         self.use_chat_completions_checkbox.setChecked(bool(self._config.get("use_chat_completions_api", True)))
         self.api_key_edit.setText(str(self._config.get("openai_api_key", "")))
-        self.system_prompt_edit.setPlainText(str(self._config.get("system_prompt", "")))
-        self.prompt_edit.setPlainText(self._current_prompt)
 
         self._set_model_options(
             fallback_model_options(
@@ -185,13 +186,6 @@ class ConfigDialog(QDialog):
         )
 
     def _save(self) -> None:
-        new_prompt = self.prompt_edit.toPlainText().strip()
-        if not new_prompt:
-            showCritical("Prompt template must not be empty.", parent=self)
-            return
-
-        prompt_history = self._build_prompt_history(new_prompt)
-
         self._config.update(
             {
                 "enabled": self.enabled_checkbox.isChecked(),
@@ -199,11 +193,8 @@ class ConfigDialog(QDialog):
                 "use_chat_completions_api": self.use_chat_completions_checkbox.isChecked(),
                 "openai_api_key": self.api_key_edit.text().strip(),
                 "model": self.model_combo.currentData() or self.model_combo.currentText().strip(),
-                "system_prompt": self.system_prompt_edit.toPlainText().strip(),
-                "prompt_template": new_prompt,
                 "show_estimate_before_sending": False,
                 "field_mappings": list(self._config.get("field_mappings", [])),
-                "prompt_history": prompt_history,
             }
         )
 
@@ -217,6 +208,28 @@ class ConfigDialog(QDialog):
 
     def _open_browser_settings(self) -> None:
         open_browser_settings_dialog(self)
+
+    def _open_live_config(self) -> None:
+        self._open_builtin_config_editor()
+
+    def _open_builtin_config_editor(self) -> None:
+        if self._addon_manager is None:
+            showCritical("Could not open the built-in config editor.", parent=self)
+            return
+
+        addon_id = self._addon_manager.addonFromModule(__name__)
+        try:
+            config = self._addon_manager.getConfig(ADDON_NAME)
+            addons_dialog = aqt.dialogs.open("AddonsDialog", mw)
+            addons_dialog.activateWindow()
+            addons_dialog.raise_()
+            self._raw_config_editor = ConfigEditor(  # type: ignore[attr-defined]
+                addons_dialog,
+                addon_id,
+                config if isinstance(config, dict) else {},
+            )
+        except Exception as error:
+            showCritical(f"Could not open the built-in config editor: {error}", parent=self)
 
     def _refresh_model_options(self) -> None:
         self.refresh_models_button.setEnabled(False)
@@ -232,22 +245,6 @@ class ConfigDialog(QDialog):
         )
         op.with_progress(label="Loading OpenAI models...")
         op.run_in_background()
-
-    def _build_prompt_history(self, new_prompt: str) -> list[str]:
-        history: list[str] = []
-        old_prompt = self._current_prompt.strip()
-        if old_prompt and old_prompt != new_prompt:
-            history.append(old_prompt)
-
-        existing_history = self._config.get("prompt_history", [])
-        if isinstance(existing_history, list):
-            for entry in existing_history:
-                if isinstance(entry, str):
-                    stripped = entry.strip()
-                    if stripped and stripped != new_prompt and stripped not in history:
-                        history.append(stripped)
-
-        return history[:50]
 
     def _load_config(self) -> dict[str, Any]:
         if self._addon_manager is None:

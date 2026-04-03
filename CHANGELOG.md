@@ -6,6 +6,10 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ## Unreleased
 
+### Changed
+
+- Simplified the core settings dialog by removing prompt fields, adding a clearer add-on summary, renaming the model selector to `Default model`, and adding a button that opens Anki's built-in raw JSON config editor.
+
 ## 1.1.0 - 2026-04-03
 
 ### Added
