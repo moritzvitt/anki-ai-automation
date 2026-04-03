@@ -32,6 +32,8 @@ USER_PIPELINES_DIR = Path(__file__).resolve().parent.parent / "user_data" / "pip
 WORKFLOW_GROUP_ORDER_KEY = "workflow_group_order"
 WORKFLOW_ORDER_KEY = "workflow_order"
 PIPELINE_ORDER_KEY = "pipeline_order"
+DEFAULT_SYSTEM_PROMPT_ID = "default-system-prompt"
+DEFAULT_AUDIT_SYSTEM_PROMPT_ID = "mlr-audit-system"
 
 
 class ConfigError(RuntimeError):
@@ -120,6 +122,39 @@ class Workflow:
 class PipelineNoteSelector:
     query: str
     limit: int | None = None
+
+
+def _resolved_system_prompt_id(
+    system_prompt_id: str | None,
+    *,
+    allowed_system_prompt_ids: set[str],
+    workflow_type: str | None = None,
+) -> str | None:
+    if system_prompt_id is None:
+        if workflow_type == "audit":
+            return (
+                DEFAULT_AUDIT_SYSTEM_PROMPT_ID
+                if DEFAULT_AUDIT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
+                else None
+            )
+        return (
+            DEFAULT_SYSTEM_PROMPT_ID
+            if DEFAULT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
+            else None
+        )
+    if system_prompt_id in allowed_system_prompt_ids:
+        return system_prompt_id
+    if workflow_type == "audit":
+        return (
+            DEFAULT_AUDIT_SYSTEM_PROMPT_ID
+            if DEFAULT_AUDIT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
+            else None
+        )
+    return (
+        DEFAULT_SYSTEM_PROMPT_ID
+        if DEFAULT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
+        else None
+    )
 
 
 @dataclass(frozen=True)
@@ -599,11 +634,10 @@ def _read_processing_presets(
                 f"saved_processing_presets[{index}] references unknown prompt_id '{prompt_id}'."
             )
 
-        system_prompt_id = _read_optional_string(item, "system_prompt_id")
-        if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
-            raise ConfigError(
-                f"saved_processing_presets[{index}] references unknown system_prompt_id '{system_prompt_id}'."
-            )
+        system_prompt_id = _resolved_system_prompt_id(
+            _read_optional_string(item, "system_prompt_id"),
+            allowed_system_prompt_ids=allowed_system_prompt_ids,
+        )
 
         mode = _read_string(item, "mode", default="overwrite")
         if mode not in allowed_modes:
@@ -749,11 +783,11 @@ def _parse_workflow_entry(
         minimum=0.0,
         maximum=2.0,
     )
-    system_prompt_id = _read_optional_string(item, "system_prompt_id")
-    if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
-        raise ConfigError(
-            f"workflows[{index}] references unknown system_prompt_id '{system_prompt_id}'."
-        )
+    system_prompt_id = _resolved_system_prompt_id(
+        _read_optional_string(item, "system_prompt_id"),
+        allowed_system_prompt_ids=allowed_system_prompt_ids,
+        workflow_type=workflow_type,
+    )
     multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
     response_delimiter = _read_optional_string(item, "response_delimiter")
     if multiple_target_fields and not response_delimiter:

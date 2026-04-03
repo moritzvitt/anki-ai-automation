@@ -79,15 +79,29 @@ def _on_audit_workflow_finished(browser: Browser, workflow, config, result) -> N
             browser=browser,
             show_feedback=False,
         )
+    skipped_count = len(getattr(result.deferred_audit_applications[0].result, "skipped_before_run", [])) if result.deferred_audit_applications else 0
     show_tooltip(
-        f"{result.workflow_name} checked {result.updated_requests} note(s).",
+        f"{result.workflow_name}: {result.updated_requests} audited, {len(result.failures)} failed, {skipped_count} skipped.",
         parent=browser,
     )
+
+    report_lines: list[str] = []
+    if result.updated_requests == 0 and skipped_count:
+        report_lines.append("No selected notes were audited.")
+    if result.deferred_audit_applications:
+        skipped_before_run = result.deferred_audit_applications[0].result.skipped_before_run
+        if skipped_before_run:
+            if report_lines:
+                report_lines.append("")
+            report_lines.append("Skipped before audit:")
+            report_lines.extend(f"- {line}" for line in skipped_before_run[:20])
     if result.failures:
-        showInfo(
-            "\n".join(["Audit workflow failures:"] + result.failures[:20]),
-            parent=browser,
-        )
+        if report_lines:
+            report_lines.append("")
+        report_lines.append("Audit workflow failures:")
+        report_lines.extend(result.failures[:20])
+    if report_lines:
+        showInfo("\n".join(report_lines), parent=browser)
 
 
 def _selected_note_ids(browser: Browser) -> list[int]:
