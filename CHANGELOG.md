@@ -48,6 +48,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - The MLR audit follow-up workflows are now modeled consistently: the four field-specific follow-up workflows use single-target output mode, and a separate combined-support-fields workflow is available in its own group for one-shot follow-up runs.
 - Workflows, groups, and pipelines are no longer stored as large embedded JSON arrays in `config.json` / `meta.json`; the JSON config now keeps only ordering metadata while live automation definitions are loaded from per-file YAML storage.
 - Shipped default prompts used by the Browser prompt picker now all follow the normal markdown `# Heading` prompt-file format, so runtime-only defaults do not break the saved-prompt loader.
+- Split the bulky workflow/config implementation into smaller helper modules so automation file storage, prompt file handling, YAML parsing, and the workflow editor dialog are easier to maintain, and fixed the per-file automation loader so workflow triggers can parse YAML-backed groups/workflows at startup again.
 
 ## 1.1.0 - 2026-04-03
 

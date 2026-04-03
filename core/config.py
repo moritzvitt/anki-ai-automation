@@ -7,6 +7,13 @@ from typing import Any
 
 from aqt import mw
 
+from .automation_files import (
+    import_legacy_automation_to_files,
+    load_automation_files,
+    ordered_automation_values,
+    save_automation_items,
+)
+from .prompt_files import read_prompt_markdown, read_prompt_order, write_prompt_markdown
 from ..services.pricing import ModelPricing
 
 
@@ -473,7 +480,7 @@ def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template:
             )
         ]
 
-    configured_order = _read_prompt_order(config_scope.get(SAVED_PROMPT_ORDER_KEY))
+    configured_order = read_prompt_order(config_scope.get(SAVED_PROMPT_ORDER_KEY))
     ordered_ids = configured_order or file_order
     prompts: list[SavedPrompt] = []
     seen_ids: set[str] = set()
@@ -494,27 +501,30 @@ def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template:
 
 def _read_workflow_groups(raw_config: dict[str, Any]) -> list[WorkflowGroup]:
     config_scope = _prompt_config_scope(raw_config)
-    file_groups, file_order = _load_automation_files(
+    file_groups, file_order = load_automation_files(
         DEFAULT_GROUPS_DIR,
         USER_GROUPS_DIR,
         parser=_parse_workflow_group_entry,
+        item_id_getter=lambda group: group.group_id,
     )
     legacy_groups = _read_legacy_workflow_groups(config_scope.get("workflow_groups", []))
     if legacy_groups:
-        if _import_legacy_automation_to_files(
+        if import_legacy_automation_to_files(
             USER_GROUPS_DIR,
             legacy_groups,
-            item_id_attr="group_id",
+            item_id_getter=lambda group: str(group.group_id),
+            item_to_dict=_automation_item_to_dict,
             default_dir=DEFAULT_GROUPS_DIR,
         ):
-            file_groups, file_order = _load_automation_files(
+            file_groups, file_order = load_automation_files(
                 DEFAULT_GROUPS_DIR,
                 USER_GROUPS_DIR,
                 parser=_parse_workflow_group_entry,
+                item_id_getter=lambda group: group.group_id,
             )
         config_scope["workflow_groups"] = []
         save_raw_config(raw_config)
-    return _ordered_automation_values(
+    return ordered_automation_values(
         file_groups,
         config_scope.get(WORKFLOW_GROUP_ORDER_KEY),
         file_order,
@@ -665,27 +675,30 @@ def _read_workflows(
         allowed_workflow_types=allowed_workflow_types,
         allowed_api_modes=allowed_api_modes,
     )
-    file_workflows, file_order = _load_automation_files(
+    file_workflows, file_order = load_automation_files(
         DEFAULT_WORKFLOWS_DIR,
         USER_WORKFLOWS_DIR,
         parser=parser,
+        item_id_getter=lambda workflow: workflow.workflow_id,
     )
     legacy_workflows = _read_legacy_workflow_entries(config_scope.get("workflows", []))
     if legacy_workflows:
-        if _import_legacy_automation_to_files(
+        if import_legacy_automation_to_files(
             USER_WORKFLOWS_DIR,
             legacy_workflows,
-            item_id_attr="workflow_id",
+            item_id_getter=lambda workflow: str(workflow.get("id", "")),
+            item_to_dict=_automation_item_to_dict,
             default_dir=DEFAULT_WORKFLOWS_DIR,
         ):
-            file_workflows, file_order = _load_automation_files(
+            file_workflows, file_order = load_automation_files(
                 DEFAULT_WORKFLOWS_DIR,
                 USER_WORKFLOWS_DIR,
                 parser=parser,
+                item_id_getter=lambda workflow: workflow.workflow_id,
             )
         config_scope["workflows"] = []
         save_raw_config(raw_config)
-    return _ordered_automation_values(
+    return ordered_automation_values(
         file_workflows,
         config_scope.get(WORKFLOW_ORDER_KEY),
         file_order,
@@ -844,27 +857,30 @@ def _read_pipelines(
         allowed_workflow_ids=allowed_workflow_ids,
         allowed_group_ids=allowed_group_ids,
     )
-    file_pipelines, file_order = _load_automation_files(
+    file_pipelines, file_order = load_automation_files(
         DEFAULT_PIPELINES_DIR,
         USER_PIPELINES_DIR,
         parser=parser,
+        item_id_getter=lambda pipeline: pipeline.pipeline_id,
     )
     legacy_pipelines = _read_legacy_pipeline_entries(config_scope.get("pipelines", []))
     if legacy_pipelines:
-        if _import_legacy_automation_to_files(
+        if import_legacy_automation_to_files(
             USER_PIPELINES_DIR,
             legacy_pipelines,
-            item_id_attr="pipeline_id",
+            item_id_getter=lambda pipeline: str(pipeline.get("id", "")),
+            item_to_dict=_automation_item_to_dict,
             default_dir=DEFAULT_PIPELINES_DIR,
         ):
-            file_pipelines, file_order = _load_automation_files(
+            file_pipelines, file_order = load_automation_files(
                 DEFAULT_PIPELINES_DIR,
                 USER_PIPELINES_DIR,
                 parser=parser,
+                item_id_getter=lambda pipeline: pipeline.pipeline_id,
             )
         config_scope["pipelines"] = []
         save_raw_config(raw_config)
-    return _ordered_automation_values(
+    return ordered_automation_values(
         file_pipelines,
         config_scope.get(PIPELINE_ORDER_KEY),
         file_order,
@@ -1042,7 +1058,7 @@ def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
         prompt_text = str(getattr(prompt, "prompt_text", "")).strip()
         if not prompt_id or not name or not prompt_text:
             continue
-        _write_prompt_markdown(_target_prompt_path(prompt_id), name, prompt_text)
+        write_prompt_markdown(_target_prompt_path(prompt_id), name, prompt_text)
         if prompt_id not in seen_ids:
             ordered_ids.append(prompt_id)
             seen_ids.add(prompt_id)
@@ -1059,17 +1075,19 @@ def save_workflow_state(
     workflows: list[Workflow],
 ) -> None:
     config_scope = _prompt_config_scope(raw_config)
-    group_ids = _save_automation_items(
+    group_ids = save_automation_items(
         workflow_groups,
         default_dir=DEFAULT_GROUPS_DIR,
         user_dir=USER_GROUPS_DIR,
-        item_id_attr="group_id",
+        item_id_getter=lambda group: group.group_id,
+        item_to_dict=_automation_item_to_dict,
     )
-    workflow_ids = _save_automation_items(
+    workflow_ids = save_automation_items(
         workflows,
         default_dir=DEFAULT_WORKFLOWS_DIR,
         user_dir=USER_WORKFLOWS_DIR,
-        item_id_attr="workflow_id",
+        item_id_getter=lambda workflow: workflow.workflow_id,
+        item_to_dict=_automation_item_to_dict,
     )
     config_scope["workflow_groups"] = []
     config_scope["workflows"] = []
@@ -1131,7 +1149,7 @@ def _load_prompt_files() -> tuple[dict[str, SavedPrompt], list[str]]:
             continue
         for path in sorted(directory.glob("*.md")):
             prompt_id = path.stem
-            name, prompt_text = _read_prompt_markdown(path)
+            name, prompt_text = read_prompt_markdown(path)
             merged[prompt_id] = SavedPrompt(
                 prompt_id=prompt_id,
                 name=name,
@@ -1152,30 +1170,9 @@ def _import_legacy_prompts_to_files(
         current = file_prompts.get(prompt.prompt_id)
         if current is not None and current.name == prompt.name and current.prompt_text == prompt.prompt_text:
             continue
-        _write_prompt_markdown(USER_PROMPTS_DIR / f"{prompt.prompt_id}.md", prompt.name, prompt.prompt_text)
+        write_prompt_markdown(USER_PROMPTS_DIR / f"{prompt.prompt_id}.md", prompt.name, prompt.prompt_text)
         imported = True
     return imported
-
-
-def _read_prompt_markdown(path: Path) -> tuple[str, str]:
-    text = path.read_text(encoding="utf-8").strip()
-    lines = text.splitlines()
-    if not lines or not lines[0].startswith("# "):
-        raise ConfigError(f"Prompt file '{path}' must start with a '# Name' heading.")
-    name = lines[0][2:].strip()
-    body_lines = lines[1:]
-    while body_lines and not body_lines[0].strip():
-        body_lines = body_lines[1:]
-    prompt_text = "\n".join(body_lines).strip()
-    if not prompt_text:
-        raise ConfigError(f"Prompt file '{path}' has no prompt body.")
-    return name, prompt_text
-
-
-def _write_prompt_markdown(path: Path, name: str, prompt_text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    content = f"# {name.strip()}\n\n{prompt_text.strip()}\n"
-    path.write_text(content, encoding="utf-8")
 
 
 def _target_prompt_path(prompt_id: str) -> Path:
@@ -1191,23 +1188,6 @@ def _prune_removed_user_prompt_files(active_prompt_ids: set[str]) -> None:
     for path in USER_PROMPTS_DIR.glob("*.md"):
         if path.stem not in active_prompt_ids:
             path.unlink()
-
-
-def _read_prompt_order(value: Any) -> list[str]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list):
-        return []
-    order: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        prompt_id = item.strip()
-        if prompt_id and prompt_id not in seen:
-            order.append(prompt_id)
-            seen.add(prompt_id)
-    return order
 
 
 def _prompt_config_scope(raw_config: dict[str, Any]) -> dict[str, Any]:
@@ -1276,116 +1256,6 @@ def _read_legacy_pipeline_entries(value: Any) -> list[dict[str, Any]]:
         seen_ids.add(pipeline_id)
         entries.append(dict(item))
     return entries
-
-
-def _ordered_automation_values(
-    items_by_id: dict[str, Any],
-    configured_order_value: Any,
-    file_order: list[str],
-) -> list[Any]:
-    configured_order = _read_prompt_order(configured_order_value)
-    ordered_ids = configured_order or file_order
-    items: list[T] = []
-    seen_ids: set[str] = set()
-    for item_id in ordered_ids:
-        item = items_by_id.get(item_id)
-        if item is None or item_id in seen_ids:
-            continue
-        items.append(item)
-        seen_ids.add(item_id)
-    for item_id in file_order:
-        if item_id in seen_ids:
-            continue
-        item = items_by_id[item_id]
-        items.append(item)
-        seen_ids.add(item_id)
-    return items
-
-
-def _load_automation_files(
-    default_dir: Path,
-    user_dir: Path,
-    *,
-    parser: Any,
-) -> tuple[dict[str, Any], list[str]]:
-    merged: dict[str, Any] = {}
-    order: list[str] = []
-    index = 0
-    for directory in (default_dir, user_dir):
-        if not directory.exists():
-            continue
-        for path in sorted(directory.glob("*.yaml")):
-            item = parser(_read_yamlish_file(path), index=index)
-            index += 1
-            item_id = _automation_item_id(item)
-            merged[item_id] = item
-            if item_id in order:
-                order.remove(item_id)
-            order.append(item_id)
-    return merged, order
-
-
-def _import_legacy_automation_to_files(
-    target_dir: Path,
-    legacy_items: list[Any],
-    *,
-    item_id_attr: str,
-    default_dir: Path | None = None,
-) -> bool:
-    imported = False
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for item in legacy_items:
-        item_id = str(getattr(item, item_id_attr, None) or item.get("id") if isinstance(item, dict) else "").strip()
-        if not item_id:
-            continue
-        item_dict = _automation_item_to_dict(item)
-        path = target_dir / f"{item_id}.yaml"
-        if default_dir is not None:
-            default_path = default_dir / f"{item_id}.yaml"
-            if default_path.exists() and _read_yamlish_file(default_path) == item_dict:
-                if path.exists():
-                    path.unlink()
-                continue
-        _write_yamlish_file(path, item_dict)
-        imported = True
-    return imported
-
-
-def _save_automation_items(
-    items: list[Any],
-    *,
-    default_dir: Path,
-    user_dir: Path,
-    item_id_attr: str,
-) -> list[str]:
-    ordered_ids: list[str] = []
-    seen_ids: set[str] = set()
-    user_dir.mkdir(parents=True, exist_ok=True)
-    for item in items:
-        item_id = str(getattr(item, item_id_attr, "")).strip()
-        if not item_id:
-            continue
-        item_dict = _automation_item_to_dict(item)
-        default_path = default_dir / f"{item_id}.yaml"
-        user_path = user_dir / f"{item_id}.yaml"
-        if default_path.exists() and _read_yamlish_file(default_path) == item_dict:
-            if user_path.exists():
-                user_path.unlink()
-        else:
-            _write_yamlish_file(user_path, item_dict)
-        if item_id not in seen_ids:
-            ordered_ids.append(item_id)
-            seen_ids.add(item_id)
-    _prune_removed_user_automation_files(user_dir, active_ids=seen_ids)
-    return ordered_ids
-
-
-def _prune_removed_user_automation_files(user_dir: Path, *, active_ids: set[str]) -> None:
-    if not user_dir.exists():
-        return
-    for path in user_dir.glob("*.yaml"):
-        if path.stem not in active_ids:
-            path.unlink()
 
 
 def _automation_item_id(item: Any) -> str:
@@ -1460,159 +1330,3 @@ def _automation_item_to_dict(item: Any) -> dict[str, Any]:
     if isinstance(item, dict):
         return item
     raise TypeError(f"Unsupported automation item type: {type(item)!r}")
-
-
-def _read_yamlish_file(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    try:
-        value, _ = _parse_yamlish_block(_yamlish_lines(text), 0, 0)
-    except Exception as error:
-        raise ConfigError(f"Could not parse automation file '{path}': {error}") from error
-    if not isinstance(value, dict):
-        raise ConfigError(f"Automation file '{path}' must contain a top-level mapping.")
-    return value
-
-
-def _write_yamlish_file(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_dump_yamlish(value), encoding="utf-8")
-
-
-def _yamlish_lines(text: str) -> list[tuple[int, str]]:
-    lines: list[tuple[int, str]] = []
-    for raw_line in text.splitlines():
-        stripped = raw_line.strip()
-        if not stripped:
-            continue
-        indent = len(raw_line) - len(raw_line.lstrip(" "))
-        lines.append((indent, raw_line[indent:]))
-    return lines
-
-
-def _parse_yamlish_block(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[Any, int]:
-    if index >= len(lines):
-        return {}, index
-    current_indent, current_text = lines[index]
-    if current_indent != indent:
-        raise ValueError(f"Unexpected indent at '{current_text}'.")
-    if current_text.startswith("-"):
-        return _parse_yamlish_list(lines, index, indent)
-    return _parse_yamlish_mapping(lines, index, indent)
-
-
-def _parse_yamlish_list(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[list[Any], int]:
-    items: list[Any] = []
-    while index < len(lines):
-        current_indent, current_text = lines[index]
-        if current_indent < indent:
-            break
-        if current_indent != indent or not current_text.startswith("-"):
-            break
-        remainder = current_text[1:].strip()
-        if remainder:
-            items.append(_parse_yamlish_scalar(remainder))
-            index += 1
-            continue
-        index += 1
-        value, index = _parse_yamlish_block(lines, index, indent + 2)
-        items.append(value)
-    return items, index
-
-
-def _parse_yamlish_mapping(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[dict[str, Any], int]:
-    mapping: dict[str, Any] = {}
-    while index < len(lines):
-        current_indent, current_text = lines[index]
-        if current_indent < indent:
-            break
-        if current_indent != indent:
-            raise ValueError(f"Unexpected nested indent at '{current_text}'.")
-        if current_text.startswith("-"):
-            break
-        if ":" not in current_text:
-            raise ValueError(f"Expected key/value pair at '{current_text}'.")
-        key, remainder = current_text.split(":", 1)
-        key = key.strip()
-        remainder = remainder.strip()
-        if remainder:
-            mapping[key] = _parse_yamlish_scalar(remainder)
-            index += 1
-            continue
-        index += 1
-        if index >= len(lines) or lines[index][0] <= indent:
-            mapping[key] = {}
-            continue
-        value, index = _parse_yamlish_block(lines, index, indent + 2)
-        mapping[key] = value
-    return mapping, index
-
-
-def _parse_yamlish_scalar(text: str) -> Any:
-    if text == "null":
-        return None
-    if text == "true":
-        return True
-    if text == "false":
-        return False
-    if text == "[]":
-        return []
-    if text == "{}":
-        return {}
-    if text.startswith('"'):
-        import json
-        return json.loads(text)
-    try:
-        if any(char in text for char in (".", "e", "E")):
-            return float(text)
-        return int(text)
-    except ValueError:
-        return text
-
-
-def _dump_yamlish(value: Any, indent: int = 0) -> str:
-    lines = _dump_yamlish_lines(value, indent)
-    return "\n".join(lines) + "\n"
-
-
-def _dump_yamlish_lines(value: Any, indent: int) -> list[str]:
-    prefix = " " * indent
-    if isinstance(value, dict):
-        lines: list[str] = []
-        for key, item in value.items():
-            if item is None:
-                lines.append(f"{prefix}{key}: null")
-            elif isinstance(item, (dict, list)):
-                if not item:
-                    empty = "{}" if isinstance(item, dict) else "[]"
-                    lines.append(f"{prefix}{key}: {empty}")
-                else:
-                    lines.append(f"{prefix}{key}:")
-                    lines.extend(_dump_yamlish_lines(item, indent + 2))
-            else:
-                lines.append(f"{prefix}{key}: {_format_yamlish_scalar(item)}")
-        return lines
-    if isinstance(value, list):
-        lines = []
-        for item in value:
-            if isinstance(item, (dict, list)):
-                if not item:
-                    empty = "{}" if isinstance(item, dict) else "[]"
-                    lines.append(f"{prefix}- {empty}")
-                else:
-                    lines.append(f"{prefix}-")
-                    lines.extend(_dump_yamlish_lines(item, indent + 2))
-            else:
-                lines.append(f"{prefix}- {_format_yamlish_scalar(item)}")
-        return lines
-    return [f"{prefix}{_format_yamlish_scalar(value)}"]
-
-
-def _format_yamlish_scalar(value: Any) -> str:
-    import json
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return json.dumps(str(value), ensure_ascii=False)
