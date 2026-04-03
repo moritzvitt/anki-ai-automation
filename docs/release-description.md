@@ -1,21 +1,23 @@
 # AI Automation
 
-AI Automation brings OpenAI-powered note rewriting directly into the Anki Browser.
+AI Automation brings OpenAI-powered note updates to Anki through both Browser actions and reusable workflows.
 
-Select one or many Browser rows, right-click, and choose `Transform with AI`. The add-on resolves cards to notes, lets you choose a shared target field plus a saved prompt, sends the rendered prompt to the OpenAI API, and writes structured results back into the selected note field.
+Select notes in the Browser and choose `Transform with AI`, or create saved workflows that run against Anki queries, workflow groups, and optional startup/query-count triggers. Prompts can use note fields like `{{Front}}` and `{{Back}}`, and the add-on can write results back to a single field or split them across multiple fields.
 
 ## Main Features
 
-- Browser context-menu integration for selected notes
-- Configurable prompt templates using placeholders like `{{Front}}` and `{{Back}}`
-- Per-note-type field mapping so different note models can be processed differently
-- Official OpenAI Python client integration with retries and timeout controls
-- Safe overwrite confirmation before existing field values are replaced
+- Browser context-menu processing for selected notes or cards
+- Reusable workflows with saved queries, groups, and optional triggers
+- Saved prompts, system prompts, and processing presets
+- `append`, `overwrite`, and `skip if target field not empty` write modes
+- Chat Completions and Responses API support
+- Batch processing with retries, timeouts, incremental Browser updates, and optional cost estimates
+- Local usage tracking and OpenAI spend lookup when the API key supports it
 
 ## Configuration
 
-Set your API key, model, prompt template, and field mappings in the add-on config. The add-on expects JSON output from the model so field updates stay predictable.
+The add-on includes a structured config dialog for core settings, plus dedicated Browser settings and workflow settings windows. Set your API key, model, prompts, presets, batching behavior, and note-type rules there instead of editing raw JSON by hand.
 
 ## Compatibility
 
-Built for current Anki releases using modern `aqt.gui_hooks` Browser integration.
+Built for current Anki releases using modern `aqt.gui_hooks` integration.

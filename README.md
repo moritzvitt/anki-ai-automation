@@ -1,22 +1,22 @@
 # AI Automation
 
-AI Automation is an Anki add-on that sends Browser-selected notes to the OpenAI API and writes the model response back into note fields.
+AI Automation is an Anki add-on for running OpenAI-powered note updates from the Browser or from saved query-based workflows.
 
-Users can select one or many rows in the Anki Browser, right-click, and choose `Transform with AI`. The add-on resolves selected cards to notes, lets the user choose a shared target field plus a saved prompt, calls the official OpenAI Python client, and updates note fields after a confirmation step when existing content would be overwritten.
+You can select Browser rows and choose `Transform with AI`, or build reusable workflows that run against Anki searches, workflow groups, and startup/query triggers. The add-on renders prompts from note fields, sends them to OpenAI, and writes the result back into one or more note fields with configurable safety checks.
 
 ## Features
 
-- Browser right-click action that works with selected notes or cards
-- Saved prompt library with prompt names plus editable prompt text
-- Tools menu workflow manager for query-based AI processing
-- Browser transform dialog with target-field selection and append/overwrite modes
-- Config-driven field mapping by note type
-- Configurable prompt template and system prompt
-- Structured JSON response handling for predictable field updates
-- Bounded parallel note processing with retries and timeout controls
-- Safe overwrite confirmation before existing fields are replaced
-- Pre-flight token and cost estimate before requests are sent
-- Tools menu usage monitor for tracked token totals and estimated spend
+- Browser right-click action for selected notes or cards
+- Workflow manager for saved query-based runs and workflow groups
+- Optional workflow triggers on startup or when query counts reach a threshold
+- Saved prompt, system prompt, and processing preset libraries
+- Browser and workflow settings dialogs for managing prompts, presets, and defaults outside active runs
+- Single-field or multi-field output modes
+- `append`, `overwrite`, and `skip if target field not empty` write modes
+- Chat Completions or Responses API support
+- Batching, bounded concurrency, retries, timeout controls, and incremental note updates during Browser runs
+- Optional token/cost estimate before sending
+- Local usage tracking plus an OpenAI spend lookup view when the API key has access
 
 ## File Structure
 
@@ -52,7 +52,7 @@ ai-automation/
 
 1. Install the add-on folder into Anki's add-ons directory.
 2. Install the official OpenAI client into Anki's Python environment.
-3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, choose a model from the live dropdown, edit prompts, and manage note type rules.
+3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, choose a model, and open the dedicated Browser and workflow settings dialogs.
 
 To run reusable query-based rules, open `Tools -> Process specific cards with AI`.
 
@@ -64,9 +64,9 @@ If you need to install the dependency manually, use Anki's bundled Python. The e
 
 ## Configuration
 
-The add-on is configured through [`config.json`](./config.json) or Anki's built-in add-on config editor.
+The add-on is configured through [`config.json`](./config.json) or Anki's built-in add-on config storage.
 
-In Anki itself, the add-on now registers a custom config window, so clicking `Config` from the add-on manager opens a structured settings dialog instead of raw JSON. Anki still persists the values in its normal add-on config storage for the profile.
+In Anki itself, clicking `Config` opens a structured core settings dialog instead of raw JSON. From there, you can jump into the dedicated Browser settings and workflow settings windows.
 
 The model selector in that dialog loads a curated flashcard-writing shortlist from OpenAI's `GET /v1/models` endpoint using your API key and labels models with rough cost tiers such as `Very cheap`, `Cheap`, `Moderate`, `Expensive`, and `Very expensive`.
 The note type rules are edited in a small dedicated UI instead of a raw `field_mappings` JSON block.
@@ -75,16 +75,19 @@ Important keys:
 
 - `openai_api_key`: your OpenAI API key
 - `use_chat_completions_api`: toggles Chat Completions vs Responses API for generation
-- `model`: the model name sent to the OpenAI Responses API
+- `model`: the default model used for generation
 - `prompt_template`: the default user prompt with placeholders like `{{Front}}`
+- `system_prompt`: the default system prompt
 - `field_mappings`: per-note-type input and output field rules
 - `max_retries` and `request_timeout_seconds`: safety controls for batch processing
 - `batch_size`: how many notes are processed per outer batch
 - `max_parallel_requests`: limits how many note requests can run at the same time
+- `show_tooltips`: enables or disables hover help across the UI
 - `show_estimate_before_sending`: enables the confirmation popup with estimated tokens and cost
 - `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent
 - `model_pricing`: optional overrides for cost estimation when you use a model not covered by built-in pricing
-- `prompt_history`: automatically maintained list of previous prompt templates for quick restore in the config window
+- `saved_prompts`, `saved_system_prompts`, `processing_presets`: reusable building blocks for Browser runs and workflows
+- `workflows`, `workflow_groups`: reusable query-based automations
 
 Example mapping:
 
@@ -101,14 +104,14 @@ The prompt can reference any field that exists on the note, plus `{{NoteType}}`.
 
 1. Select cards or notes in the Anki Browser.
 2. Right-click and choose `Transform with AI`.
-3. The add-on resolves the selected rows to note IDs, then lets you choose a shared target field, a saved prompt, and append or overwrite mode.
+3. The add-on resolves the selected rows to note IDs, then lets you choose a target field or preset, prompt/system prompt, and write mode.
 4. A prompt is rendered from the note fields and sent to OpenAI.
-5. Returned JSON field values are written back to the chosen note field and saved to the collection.
+5. Returned content is written back to the chosen field or fields and saved to the collection.
 
 For rule-based runs:
 
 1. Open `Tools -> Process specific cards with AI`.
-2. Create workflows with a name, Anki query, saved prompt, target field, mode, and optional group.
+2. Create workflows with a name, Anki query, prompts, target field settings, optional presets, groups, and optional trigger conditions.
 3. Use `Refresh Count` while editing to preview how many notes the query currently matches.
 4. Run one workflow or an entire group in the stored execution order.
 
