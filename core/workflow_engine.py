@@ -12,6 +12,9 @@ from .audit_flow import (
 from .config import AddonConfig, SavedPrompt, Workflow
 from .processing import (
     ManualProcessingSpec,
+    NoteUpdate,
+    ProcessingResult,
+    apply_processing_result_updates,
     execute_prepared_manual_processing,
     prepare_manual_ai_processing,
 )
@@ -21,6 +24,21 @@ from .processing import (
 class DeferredAuditApplication:
     workflow_id: str
     result: AuditRunResult
+
+
+@dataclass(frozen=True)
+class DeferredFieldTagApplication:
+    workflow_id: str
+    success_note_ids: list[int]
+    failure_note_ids: list[int]
+    success_tags: list[str]
+    failure_tags: list[str]
+
+
+@dataclass(frozen=True)
+class DeferredFieldUpdateApplication:
+    workflow_id: str
+    result: ProcessingResult
 
 
 @dataclass(frozen=True)
@@ -36,6 +54,8 @@ class WorkflowExecutionResult:
     updated_requests: int
     artifacts_by_note_id: dict[int, dict[str, object]]
     deferred_audit_applications: list[DeferredAuditApplication]
+    deferred_field_tag_applications: list[DeferredFieldTagApplication]
+    deferred_field_update_applications: list[DeferredFieldUpdateApplication]
 
 
 def execute_workflow(
@@ -118,6 +138,25 @@ def _execute_field_update_workflow(
         updated_requests=len(result.updates),
         artifacts_by_note_id={},
         deferred_audit_applications=[],
+        deferred_field_tag_applications=[
+            DeferredFieldTagApplication(
+                workflow_id=workflow.workflow_id,
+                success_note_ids=succeeded_note_ids,
+                failure_note_ids=sorted(failed_note_ids),
+                success_tags=list(workflow.success_tags or []),
+                failure_tags=list(workflow.failure_tags or []),
+            )
+        ]
+        if workflow.success_tags or workflow.failure_tags
+        else [],
+        deferred_field_update_applications=[
+            DeferredFieldUpdateApplication(
+                workflow_id=workflow.workflow_id,
+                result=result,
+            )
+        ]
+        if result.updates
+        else [],
     )
 
 
@@ -156,6 +195,8 @@ def _execute_audit_workflow(
         deferred_audit_applications=[
             DeferredAuditApplication(workflow_id=workflow.workflow_id, result=result)
         ],
+        deferred_field_tag_applications=[],
+        deferred_field_update_applications=[],
     )
 
 
@@ -185,3 +226,42 @@ def _workflow_run_config(config: AddonConfig, workflow: Workflow) -> AddonConfig
         model=workflow.model or config.model,
         temperature=workflow.temperature if workflow.temperature is not None else config.temperature,
     )
+
+
+def apply_field_tag_result(application: DeferredFieldTagApplication) -> None:
+    _apply_note_tags(application.success_note_ids, application.success_tags)
+    _apply_note_tags(application.failure_note_ids, application.failure_tags)
+
+
+def apply_field_update_result(application: DeferredFieldUpdateApplication) -> int:
+    return apply_processing_result_updates(application.result)
+
+
+def _apply_note_tags(note_ids: list[int], tags: list[str]) -> None:
+    if not note_ids or not tags:
+        return
+    if mw is None or mw.col is None:
+        raise RuntimeError("Anki collection is not available.")
+
+    changed_notes = []
+    for note_id in note_ids:
+        note = mw.col.get_note(note_id)
+        if note is None:
+            continue
+        changed = False
+        for tag in tags:
+            normalized = str(tag).strip()
+            if not normalized:
+                continue
+            if not note.has_tag(normalized):
+                note.add_tag(normalized)
+                changed = True
+        if changed:
+            changed_notes.append(note)
+
+    if changed_notes:
+        if hasattr(mw.col, "update_notes"):
+            mw.col.update_notes(changed_notes)
+        else:
+            for note in changed_notes:
+                mw.col.update_note(note)

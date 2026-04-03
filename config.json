@@ -455,8 +455,14 @@
       "clear_status_tags": null,
       "status_tag_map": null,
       "extra_status_tags": null,
-      "success_tags": null,
-      "failure_tags": null,
+      "success_tags": [
+        "ai_fixed_minor",
+        "ai_fixed_japanese_notes"
+      ],
+      "failure_tags": [
+        "ai_fix_failed",
+        "ai_fix_failed_japanese_notes"
+      ],
       "metadata_field_map": null,
       "store_raw_output": true
     },
@@ -490,8 +496,14 @@
       "clear_status_tags": null,
       "status_tag_map": null,
       "extra_status_tags": null,
-      "success_tags": null,
-      "failure_tags": null,
+      "success_tags": [
+        "ai_fixed_minor",
+        "ai_fixed_notes"
+      ],
+      "failure_tags": [
+        "ai_fix_failed",
+        "ai_fix_failed_notes"
+      ],
       "metadata_field_map": null,
       "store_raw_output": true
     },
@@ -525,8 +537,14 @@
       "clear_status_tags": null,
       "status_tag_map": null,
       "extra_status_tags": null,
-      "success_tags": null,
-      "failure_tags": null,
+      "success_tags": [
+        "ai_fixed_minor",
+        "ai_fixed_word_definition"
+      ],
+      "failure_tags": [
+        "ai_fix_failed",
+        "ai_fix_failed_word_definition"
+      ],
       "metadata_field_map": null,
       "store_raw_output": true
     },
@@ -619,8 +637,14 @@
       "clear_status_tags": null,
       "status_tag_map": null,
       "extra_status_tags": null,
-      "success_tags": null,
-      "failure_tags": null,
+      "success_tags": [
+        "ai_fixed_minor",
+        "ai_fixed_grammar"
+      ],
+      "failure_tags": [
+        "ai_fix_failed",
+        "ai_fix_failed_grammar"
+      ],
       "metadata_field_map": null,
       "store_raw_output": true,
       "name": "MLR Fix Minor -> Grammar",
@@ -654,8 +678,14 @@
       "clear_status_tags": null,
       "status_tag_map": null,
       "extra_status_tags": null,
-      "success_tags": null,
-      "failure_tags": null,
+      "success_tags": [
+        "ai_fixed_minor",
+        "ai_fixed_combined"
+      ],
+      "failure_tags": [
+        "ai_fix_failed",
+        "ai_fix_failed_combined"
+      ],
       "metadata_field_map": null,
       "store_raw_output": true,
       "trigger_on_startup": false,

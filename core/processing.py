@@ -294,14 +294,14 @@ def execute_prepared_manual_processing(
 ) -> ProcessingResult:
     """Synchronous workflow execution hook used by higher-level pipeline orchestration.
 
-    This runs the prepared snapshots, applies note updates, and records usage,
-    but does not show UI feedback or refresh a Browser instance.
+    This runs the prepared snapshots and records usage, but does not apply note
+    updates or refresh UI state. Callers that run this in a background worker
+    must apply the returned updates on the main thread.
     """
     if mw is None or mw.col is None:
         raise OpenAIClientError("Anki collection is not available.")
 
     result = _process_snapshots(config, prepared.snapshots, prepared.failures)
-    _apply_note_updates(result.updates)
 
     usage_totals = _aggregate_usage(result.updates)
     if usage_totals["request_count"]:
@@ -318,8 +318,15 @@ def execute_prepared_manual_processing(
             history_limit=config.usage_history_limit,
         )
 
-    mw.reset()
     return result
+
+
+def apply_processing_result_updates(result: ProcessingResult) -> int:
+    """Apply field-update workflow note changes on the main thread."""
+    applied = _apply_note_updates(result.updates)
+    if mw is not None:
+        mw.reset()
+    return applied
 
 
 def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[NoteSnapshot], list[NoteFailure]]:
@@ -853,13 +860,6 @@ def _process_single_snapshot(
                     reason=" ".join(warning_lines),
                 ),
             )
-        failure = None
-        if warning_lines:
-            failure = NoteFailure(
-                note_id=snapshot.note_id,
-                note_type_name=snapshot.note_type_name,
-                reason=" ".join(warning_lines),
-            )
         return (
             NoteUpdate(
                 note_id=snapshot.note_id,
@@ -874,7 +874,7 @@ def _process_single_snapshot(
                 write_mode=snapshot.write_mode,
                 convert_markdown_to_html=snapshot.convert_markdown_to_html,
             ),
-            failure,
+            None,
         )
     except OpenAIClientError as error:
         return (
@@ -1167,10 +1167,11 @@ def _parse_delimited_field_updates(
 
     for index, match in enumerate(matches):
         raw_field_name = match.group("field").strip()
+        normalized_field_name = _normalize_delimited_field_name(raw_field_name)
         section_start = match.end()
         section_end = matches[index + 1].start() if index + 1 < len(matches) else len(response_text)
         section_value = response_text[section_start:section_end].strip()
-        canonical_name = field_lookup.get(raw_field_name.casefold())
+        canonical_name = field_lookup.get(normalized_field_name.casefold())
         if canonical_name is None:
             unknown_fields.append(raw_field_name)
             continue
@@ -1185,6 +1186,13 @@ def _parse_delimited_field_updates(
             "Ignored unknown field section(s): " + ", ".join(sorted(set(unknown_fields))) + "."
         )
     return parsed_updates, warnings
+
+
+def _normalize_delimited_field_name(value: str) -> str:
+    normalized = value.strip()
+    if normalized.startswith("{") and normalized.endswith("}") and len(normalized) >= 2:
+        return normalized[1:-1].strip()
+    return normalized
 
 
 def _split_field_delimiter(delimiter: str) -> tuple[str, str]:

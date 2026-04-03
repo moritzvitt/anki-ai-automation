@@ -61,7 +61,12 @@ from ..core.processing import (
     WRITE_MODE_OVERWRITE,
     WRITE_MODE_SKIP_NONEMPTY,
 )
-from ..core.workflow_engine import WorkflowExecutionResult, execute_workflow
+from ..core.workflow_engine import (
+    WorkflowExecutionResult,
+    apply_field_tag_result,
+    apply_field_update_result,
+    execute_workflow,
+)
 from .tooltips import set_hover_help, show_tooltip
 
 
@@ -82,6 +87,8 @@ class WorkflowDraft:
     convert_markdown_to_html: bool
     response_delimiter: str | None
     schema_preset: str | None
+    success_tags: list[str] | None
+    failure_tags: list[str] | None
     trigger_on_startup: bool
     trigger_on_periodic: bool
     trigger_min_matches: int
@@ -456,6 +463,8 @@ class WorkflowManagerDialog(QDialog):
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
             schema_preset=draft.schema_preset,
+            success_tags=draft.success_tags,
+            failure_tags=draft.failure_tags,
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
@@ -504,6 +513,8 @@ class WorkflowManagerDialog(QDialog):
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
             schema_preset=draft.schema_preset,
+            success_tags=draft.success_tags,
+            failure_tags=draft.failure_tags,
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
@@ -745,6 +756,10 @@ class WorkflowManagerDialog(QDialog):
         show_summary_dialog: bool,
         on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
+        for application in result.deferred_field_update_applications:
+            apply_field_update_result(application)
+        for application in result.deferred_field_tag_applications:
+            apply_field_tag_result(application)
         for deferred in result.deferred_audit_applications:
             apply_audit_run_result(
                 deferred.result,
@@ -868,6 +883,8 @@ class WorkflowDialog(QDialog):
         self.use_global_temperature_check = QCheckBox("Use global temperature")
         self.temperature_spin = QDoubleSpinBox()
         self.preset_combo = QComboBox()
+        self.success_tags_edit = QLineEdit()
+        self.failure_tags_edit = QLineEdit()
         self.prompt_combo = QComboBox()
         self.system_prompt_combo = QComboBox()
         self.prompt_preview = QPlainTextEdit()
@@ -1033,6 +1050,8 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
+        set_hover_help(self.success_tags_edit, "Comma-separated note tags to add when this field-update workflow succeeds for a note.", enabled=self._show_tooltips)
+        set_hover_help(self.failure_tags_edit, "Comma-separated note tags to add when this field-update workflow fails for a note.", enabled=self._show_tooltips)
         set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
         set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
@@ -1058,6 +1077,8 @@ class WorkflowDialog(QDialog):
         preset_form.addRow("Response delimiter", self.delimiter_edit)
         preset_form.addRow("Target field", self.target_field_combo)
         preset_form.addRow("Mode", self.mode_combo)
+        preset_form.addRow("Success tags", self.success_tags_edit)
+        preset_form.addRow("Failure tags", self.failure_tags_edit)
         preset_form.addRow("Schema preset", self.schema_preset_combo)
         preset_form.addRow("", self.trigger_on_startup_check)
         preset_form.addRow("", self.trigger_on_periodic_check)
@@ -1199,6 +1220,8 @@ class WorkflowDialog(QDialog):
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
         self.group_edit.setText(", ".join(self._current_group_names))
+        self.success_tags_edit.setText(", ".join(workflow.success_tags or []))
+        self.failure_tags_edit.setText(", ".join(workflow.failure_tags or []))
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_workflow_type_ui()
@@ -1232,6 +1255,8 @@ class WorkflowDialog(QDialog):
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             response_delimiter=None if workflow_type == "audit" else (self.delimiter_edit.text().strip() or None),
             schema_preset=str(self.schema_preset_combo.currentData() or AUDIT_SCHEMA_PRESET_MLR) if workflow_type == "audit" else None,
+            success_tags=None if workflow_type == "audit" else _parse_tag_list(self.success_tags_edit.text()),
+            failure_tags=None if workflow_type == "audit" else _parse_tag_list(self.failure_tags_edit.text()),
             trigger_on_startup=self.trigger_on_startup_check.isChecked(),
             trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
             trigger_min_matches=int(self.trigger_min_matches_spin.value()),
@@ -1369,6 +1394,8 @@ class WorkflowDialog(QDialog):
         self._set_preset_form_row_visible(self.delimiter_edit, not is_audit)
         self._set_preset_form_row_visible(self.target_field_combo, not is_audit)
         self._set_preset_form_row_visible(self.mode_combo, not is_audit)
+        self._set_preset_form_row_visible(self.success_tags_edit, not is_audit)
+        self._set_preset_form_row_visible(self.failure_tags_edit, not is_audit)
         self._set_preset_form_row_visible(self.schema_preset_combo, is_audit)
         self._update_preset_group_title(is_audit=is_audit)
         self._refresh_target_mode_ui()
@@ -1915,6 +1942,21 @@ def _parse_group_names(value: str) -> list[str]:
         seen_names.add(key)
         parsed_names.append(normalized)
     return parsed_names
+
+
+def _parse_tag_list(value: str) -> list[str] | None:
+    parsed_tags: list[str] = []
+    seen_tags: set[str] = set()
+    for raw_tag in value.split(","):
+        normalized = raw_tag.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen_tags:
+            continue
+        seen_tags.add(key)
+        parsed_tags.append(normalized)
+    return parsed_tags or None
 
 
 def _trigger_summary(workflow: Workflow) -> str:

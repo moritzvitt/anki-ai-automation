@@ -6,7 +6,13 @@ from typing import Any
 from aqt import mw
 
 from .config import AddonConfig, Pipeline, PipelineStep, Workflow
-from .workflow_engine import DeferredAuditApplication, WorkflowExecutionResult, execute_workflow
+from .workflow_engine import (
+    DeferredAuditApplication,
+    DeferredFieldTagApplication,
+    DeferredFieldUpdateApplication,
+    WorkflowExecutionResult,
+    execute_workflow,
+)
 
 
 @dataclass
@@ -31,6 +37,24 @@ class PipelineStepReport:
     skipped_note_ids: list[int]
     details: list[str]
     deferred_audit_applications: list[DeferredAuditApplication]
+    deferred_field_update_applications: list[DeferredFieldUpdateApplication]
+    deferred_field_tag_applications: list[DeferredFieldTagApplication]
+    deferred_tag_updates: list[DeferredPipelineTagUpdate]
+    deferred_card_suspensions: list[DeferredPipelineCardSuspension]
+
+
+@dataclass(frozen=True)
+class DeferredPipelineTagUpdate:
+    step_id: str
+    note_ids: list[int]
+    add_tags: list[str]
+    remove_tags: list[str]
+
+
+@dataclass(frozen=True)
+class DeferredPipelineCardSuspension:
+    step_id: str
+    note_ids: list[int]
 
 
 @dataclass(frozen=True)
@@ -76,6 +100,10 @@ def execute_pipeline(config: AddonConfig, pipeline: Pipeline) -> PipelineRunResu
                     skipped_note_ids=[context.note_id for context in contexts if not context.stopped],
                     details=["No notes matched this step's condition."],
                     deferred_audit_applications=[],
+                    deferred_field_update_applications=[],
+                    deferred_field_tag_applications=[],
+                    deferred_tag_updates=[],
+                    deferred_card_suspensions=[],
                 )
             )
             continue
@@ -208,6 +236,19 @@ def _execute_workflow_step(
 ) -> PipelineStepReport:
     note_ids = [context.note_id for context in contexts]
     execution = execute_workflow(config, workflow, note_ids=note_ids, show_feedback=False)
+    updated_fields_by_note_id = {
+        update.note_id: dict(update.output_fields)
+        for application in execution.deferred_field_update_applications
+        for update in application.result.updates
+    }
+    for application in execution.deferred_field_tag_applications:
+        success_tags = set(application.success_tags)
+        failure_tags = set(application.failure_tags)
+        for context in contexts:
+            if context.note_id in application.success_note_ids:
+                context.current_tags.update(success_tags)
+            if context.note_id in application.failure_note_ids:
+                context.current_tags.update(failure_tags)
 
     for context in contexts:
         if context.note_id in execution.failed_note_ids:
@@ -219,11 +260,13 @@ def _execute_workflow_step(
             continue
         if context.note_id in execution.succeeded_note_ids:
             context.step_results[step.step_id] = "success"
+            for field_name, field_value in updated_fields_by_note_id.get(context.note_id, {}).items():
+                context.fields[field_name] = field_value
             for key, value in execution.artifacts_by_note_id.get(context.note_id, {}).items():
                 context.artifacts[key] = value
-        else:
+        elif context.note_id in execution.skipped_note_ids:
             context.step_results[step.step_id] = "skipped"
-        _refresh_context(context)
+            _refresh_context(context)
 
     return PipelineStepReport(
         step_id=step.step_id,
@@ -234,6 +277,10 @@ def _execute_workflow_step(
         skipped_note_ids=execution.skipped_note_ids,
         details=execution.failures[:20],
         deferred_audit_applications=list(execution.deferred_audit_applications),
+        deferred_field_update_applications=list(execution.deferred_field_update_applications),
+        deferred_field_tag_applications=list(execution.deferred_field_tag_applications),
+        deferred_tag_updates=[],
+        deferred_card_suspensions=[],
     )
 
 
@@ -257,12 +304,18 @@ def _execute_group_step(
             skipped_note_ids=[context.note_id for context in contexts],
             details=[f"Group '{step.group_id}' does not contain any workflows."],
             deferred_audit_applications=[],
+            deferred_field_update_applications=[],
+            deferred_field_tag_applications=[],
+            deferred_tag_updates=[],
+            deferred_card_suspensions=[],
         )
 
     all_succeeded: set[int] = set()
     all_failed: set[int] = set()
     details: list[str] = []
     deferred_audit_applications: list[DeferredAuditApplication] = []
+    deferred_field_update_applications: list[DeferredFieldUpdateApplication] = []
+    deferred_field_tag_applications: list[DeferredFieldTagApplication] = []
     for workflow in workflows:
         active_contexts = [context for context in contexts if not context.stopped]
         if not active_contexts:
@@ -272,6 +325,8 @@ def _execute_group_step(
         all_failed.update(nested_report.failed_note_ids)
         details.extend(f"{workflow.name}: {detail}" for detail in nested_report.details)
         deferred_audit_applications.extend(nested_report.deferred_audit_applications)
+        deferred_field_update_applications.extend(nested_report.deferred_field_update_applications)
+        deferred_field_tag_applications.extend(nested_report.deferred_field_tag_applications)
 
     for context in contexts:
         if context.note_id in all_failed:
@@ -294,41 +349,50 @@ def _execute_group_step(
         ],
         details=details,
         deferred_audit_applications=deferred_audit_applications,
+        deferred_field_update_applications=deferred_field_update_applications,
+        deferred_field_tag_applications=deferred_field_tag_applications,
+        deferred_tag_updates=[],
+        deferred_card_suspensions=[],
     )
 
 
 def _execute_tag_step(step: PipelineStep, contexts: list[PipelineNoteContext]) -> PipelineStepReport:
-    assert mw is not None and mw.col is not None
-    changed_notes = []
+    succeeded_note_ids: list[int] = []
+    failed_note_ids: list[int] = []
     for context in contexts:
-        note = mw.col.get_note(context.note_id)
-        if note is None:
+        if not step.add_tags and not step.remove_tags:
             context.step_results[step.step_id] = "failed"
-            context.failures.append("Note not found while applying tags.")
+            context.failures.append("No tags were configured for this pipeline tag step.")
+            failed_note_ids.append(context.note_id)
             continue
-        for tag in step.remove_tags or []:
-            note.remove_tag(tag)
-        for tag in step.add_tags or []:
-            note.add_tag(tag)
-        changed_notes.append(note)
         context.step_results[step.step_id] = "success"
-    if changed_notes:
-        if hasattr(mw.col, "update_notes"):
-            mw.col.update_notes(changed_notes)
-        else:
-            for note in changed_notes:
-                mw.col.update_note(note)
-    for context in contexts:
-        _refresh_context(context)
+        for tag in step.remove_tags or []:
+            context.current_tags.discard(tag)
+        for tag in step.add_tags or []:
+            context.current_tags.add(tag)
+        succeeded_note_ids.append(context.note_id)
     return PipelineStepReport(
         step_id=step.step_id,
         step_type=step.step_type,
         matched_note_ids=[context.note_id for context in contexts],
-        succeeded_note_ids=[context.note_id for context in contexts if context.step_results.get(step.step_id) == "success"],
-        failed_note_ids=[context.note_id for context in contexts if context.step_results.get(step.step_id) == "failed"],
+        succeeded_note_ids=succeeded_note_ids,
+        failed_note_ids=failed_note_ids,
         skipped_note_ids=[],
         details=[],
         deferred_audit_applications=[],
+        deferred_field_update_applications=[],
+        deferred_field_tag_applications=[],
+        deferred_tag_updates=[
+            DeferredPipelineTagUpdate(
+                step_id=step.step_id,
+                note_ids=succeeded_note_ids,
+                add_tags=list(step.add_tags or []),
+                remove_tags=list(step.remove_tags or []),
+            )
+        ]
+        if succeeded_note_ids
+        else [],
+        deferred_card_suspensions=[],
     )
 
 
@@ -345,12 +409,16 @@ def _execute_stop_step(step: PipelineStep, contexts: list[PipelineNoteContext]) 
         skipped_note_ids=[],
         details=["Stopped matched notes from continuing through the pipeline."],
         deferred_audit_applications=[],
+        deferred_field_update_applications=[],
+        deferred_field_tag_applications=[],
+        deferred_tag_updates=[],
+        deferred_card_suspensions=[],
     )
 
 
 def _execute_suspend_cards_step(step: PipelineStep, contexts: list[PipelineNoteContext]) -> PipelineStepReport:
     assert mw is not None and mw.col is not None
-    suspended_note_ids: list[int] = []
+    suspendable_note_ids: list[int] = []
     failed_note_ids: list[int] = []
     details: list[str] = []
 
@@ -369,28 +437,30 @@ def _execute_suspend_cards_step(step: PipelineStep, contexts: list[PipelineNoteC
             failed_note_ids.append(context.note_id)
             continue
 
-        sched = getattr(mw.col, "sched", None)
-        if sched is None or not hasattr(sched, "suspend_cards"):
-            context.step_results[step.step_id] = "failed"
-            context.failures.append("Anki scheduler does not support card suspension in this context.")
-            failed_note_ids.append(context.note_id)
-            continue
-
-        sched.suspend_cards(card_ids)
         context.step_results[step.step_id] = "success"
-        suspended_note_ids.append(context.note_id)
+        suspendable_note_ids.append(context.note_id)
         details.append(f"Suspended {len(card_ids)} card(s) for note {context.note_id}.")
-        _refresh_context(context)
 
     return PipelineStepReport(
         step_id=step.step_id,
         step_type=step.step_type,
         matched_note_ids=[context.note_id for context in contexts],
-        succeeded_note_ids=suspended_note_ids,
+        succeeded_note_ids=suspendable_note_ids,
         failed_note_ids=failed_note_ids,
         skipped_note_ids=[],
         details=details[:20],
         deferred_audit_applications=[],
+        deferred_field_update_applications=[],
+        deferred_field_tag_applications=[],
+        deferred_tag_updates=[],
+        deferred_card_suspensions=[
+            DeferredPipelineCardSuspension(
+                step_id=step.step_id,
+                note_ids=suspendable_note_ids,
+            )
+        ]
+        if suspendable_note_ids
+        else [],
     )
 
 
@@ -401,3 +471,49 @@ def _refresh_context(context: PipelineNoteContext) -> None:
         return
     context.current_tags = {str(tag) for tag in note.tags}
     context.fields = {field_name: note[field_name] for field_name in note.keys()}
+
+
+def apply_pipeline_tag_update(update: DeferredPipelineTagUpdate) -> None:
+    if mw is None or mw.col is None or not update.note_ids:
+        return
+    changed_notes = []
+    for note_id in update.note_ids:
+        note = mw.col.get_note(note_id)
+        if note is None:
+            continue
+        changed = False
+        for tag in update.remove_tags:
+            normalized = str(tag).strip()
+            if normalized and note.has_tag(normalized):
+                note.remove_tag(normalized)
+                changed = True
+        for tag in update.add_tags:
+            normalized = str(tag).strip()
+            if normalized and not note.has_tag(normalized):
+                note.add_tag(normalized)
+                changed = True
+        if changed:
+            changed_notes.append(note)
+    if changed_notes:
+        if hasattr(mw.col, "update_notes"):
+            mw.col.update_notes(changed_notes)
+        else:
+            for note in changed_notes:
+                mw.col.update_note(note)
+
+
+def apply_pipeline_card_suspension(suspension: DeferredPipelineCardSuspension) -> None:
+    if mw is None or mw.col is None or not suspension.note_ids:
+        return
+    sched = getattr(mw.col, "sched", None)
+    if sched is None or not hasattr(sched, "suspend_cards"):
+        raise RuntimeError("Anki scheduler does not support card suspension in this context.")
+
+    card_ids: list[int] = []
+    for note_id in suspension.note_ids:
+        note = mw.col.get_note(note_id)
+        if note is None:
+            continue
+        card_ids.extend(int(card_id) for card_id in note.card_ids())
+    if card_ids:
+        sched.suspend_cards(card_ids)

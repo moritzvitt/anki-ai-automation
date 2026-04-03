@@ -23,6 +23,11 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Field-update workflows can now add configurable success and failure tags, and the workflow editor exposes those tags directly for normal field-update workflows.
+- Field-update workflow note writes are now deferred and applied on the main thread, which makes manually run workflows and pipeline-driven field updates more stable on macOS.
+- Pipeline tag steps and card-suspension steps now defer their Anki mutations until the main thread, reducing crashes from background-thread UI/collection interactions.
+- Delimited multi-field parsing now accepts `{Field Name}` section headers and keeps valid partial field updates even when some requested sections are missing or malformed.
+- The seeded MLR follow-up workflows now add explicit success and failure tags so fixed and failed notes can be filtered more easily after audit-driven processing.
 - Simplified the core settings dialog by removing prompt fields, adding a clearer add-on summary, renaming the model selector to `Default model`, and adding a button that opens Anki's built-in raw JSON config editor.
 - Added a Responses API helper for strict JSON-schema audit requests, and preserved Browser selection order so the first 15 selected notes can be audited predictably.
 - Workflows now expose reusable execution hooks so pipelines can orchestrate atomic workflow runs without duplicating prompt/update logic, and pipelines now dispatch workflows uniformly by workflow ID instead of using a special audit-only execution path.

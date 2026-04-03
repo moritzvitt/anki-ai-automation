@@ -18,7 +18,14 @@ from aqt.utils import showCritical, showInfo
 
 from ..core.audit_flow import apply_audit_run_result
 from ..core.config import ConfigError, Pipeline, load_config
-from ..core.pipelines import PipelineRunResult, execute_pipeline_by_id
+from ..core.pipelines import (
+    PipelineRunResult,
+    apply_pipeline_card_suspension,
+    apply_pipeline_tag_update,
+    execute_pipeline_by_id,
+)
+from ..core.workflow_engine import apply_field_tag_result
+from ..core.workflow_engine import apply_field_update_result
 from .tooltips import set_hover_help, show_tooltip
 
 
@@ -141,6 +148,10 @@ class PipelineManagerDialog(QDialog):
         self.setEnabled(True)
         workflow_lookup = {workflow.workflow_id: workflow for workflow in self._config.workflows}
         for report in result.step_reports:
+            for application in report.deferred_field_update_applications:
+                apply_field_update_result(application)
+            for application in report.deferred_field_tag_applications:
+                apply_field_tag_result(application)
             for deferred in report.deferred_audit_applications:
                 apply_audit_run_result(
                     deferred.result,
@@ -148,6 +159,10 @@ class PipelineManagerDialog(QDialog):
                     config=self._config,
                     show_feedback=False,
                 )
+            for update in report.deferred_tag_updates:
+                apply_pipeline_tag_update(update)
+            for suspension in report.deferred_card_suspensions:
+                apply_pipeline_card_suspension(suspension)
         success_count = sum(1 for context in result.contexts if not context.failures)
         failure_count = sum(1 for context in result.contexts if context.failures)
         show_tooltip(
