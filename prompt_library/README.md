@@ -7,6 +7,7 @@ Rules:
 - Everything after the first blank line following the heading becomes the prompt text saved into `config.json`.
 - User prompts live in `user_prompts/`.
 - System prompts live in `system_prompts/`.
+- Some built-in workflow/audit presets also load their prompt text directly from this library, so these files are not only for rebuilding saved prompt entries.
 
 To rebuild the prompt sections in `config.json`, run:
 

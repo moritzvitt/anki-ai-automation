@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable
 
 
@@ -30,6 +32,7 @@ MLR_AUDIT_ALLOWED_STATUSES = (
 )
 MLR_AUDIT_ALLOWED_SEVERITIES = ("minor", "major")
 AUDIT_SCHEMA_PRESET_MLR = "mlr_audit"
+_PROMPT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "prompt_library"
 
 
 @dataclass(frozen=True)
@@ -47,44 +50,20 @@ class AuditSchemaPreset:
     schema_builder: Callable[[], dict[str, Any]]
 
 
-MLR_AUDIT_SYSTEM_PROMPT = (
-    "You are auditing Japanese Anki cards for study quality. "
-    "This stage is diagnostic only. "
-    "Do not rewrite any card fields. "
-    "Return only valid JSON that matches the requested schema."
-)
+@lru_cache(maxsize=16)
+def _load_prompt_library_text(relative_path: str) -> str:
+    path = _PROMPT_LIBRARY_ROOT / relative_path
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError as error:
+        raise RuntimeError(f"Missing bundled audit prompt file: {path}") from error
+    if not text:
+        raise RuntimeError(f"Bundled audit prompt file is empty: {path}")
+    return text
 
-MLR_AUDIT_USER_PROMPT_TEMPLATE = (
-    "Review this Japanese Anki card for study quality.\n\n"
-    "Your task is diagnostic and routing-only.\n"
-    "Do not rewrite any field content.\n"
-    "Evaluate whether the card is good as-is, fixable with limited support-field changes, "
-    "too risky for limited automatic fixing, unsuitable for study, or should be skipped.\n\n"
-    "Use these criteria:\n"
-    "1. Clear learning focus\n"
-    "2. Natural and comprehensible Japanese\n"
-    "3. Good cloze design\n"
-    "4. Correct and useful meaning/explanations\n"
-    "5. Appropriate amount of information\n"
-    "6. No misleading or major errors\n\n"
-    "Important rules:\n"
-    "- Use GOOD only if the card is already study-ready.\n"
-    "- Use FIXABLE_MINOR if only supporting fields need modest changes.\n"
-    "- Use FIXABLE_MAJOR if the card may be repairable, but not safely through limited automatic changes.\n"
-    "- Use REJECT if the card should not be learned in its current form.\n"
-    "- Use SKIP if the card cannot be classified cleanly in this workflow.\n"
-    "- fields_to_update may only include Japanese Notes, Notes, Word Definition, or Grammar.\n"
-    "- Prefer minimal intervention.\n"
-    "- Return JSON only.\n\n"
-    "Card fields:\n"
-    "Cloze: {{Cloze}}\n"
-    "Lemma: {{Lemma}}\n"
-    "Subtitle: {{Subtitle}}\n"
-    "Word Definition: {{Word Definition}}\n"
-    "Japanese Notes: {{Japanese Notes}}\n"
-    "Notes: {{Notes}}\n"
-    "Grammar: {{Grammar}}\n"
-)
+
+MLR_AUDIT_SYSTEM_PROMPT = _load_prompt_library_text("system_prompts/mlr-audit-system.md")
+MLR_AUDIT_USER_PROMPT_TEMPLATE = _load_prompt_library_text("user_prompts/mlr-audit.md")
 
 
 def mlr_audit_response_schema() -> dict[str, Any]:

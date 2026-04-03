@@ -1,0 +1,13 @@
+graph TD
+    A[Pipeline: MLR Audit First 15] --> B[Note selector<br/>note:'Moritz Language Reactor'<br/>-tag:ai_done_today<br/>limit:15]
+    B --> C[workflow_engine.py<br/>run workflow by ID]
+    C --> D[Workflow: mlr-audit<br/>workflow_type: audit]
+    D --> E[Load prompt text<br/>mlr-audit-system.md<br/>mlr-audit.md]
+    D --> F[Load audit preset<br/>mlr_audit schema preset]
+    E --> G[audit_flow.py<br/>Build prompt + call model]
+    F --> G
+    G --> H[Structured JSON validation]
+    H --> I[Apply audit tags]
+    H --> J[Persist audit metadata]
+    I --> K[Note updated with status tags<br/>ai_good / ai_fix_minor / ai_fix_major / ai_reject / ai_skip]
+    J --> L[audit_log.json and optional AI Audit fields]
