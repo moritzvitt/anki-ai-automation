@@ -31,6 +31,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Browser `Transform with AI` processing now runs in explicit batches with incremental note updates after each finished batch, making large runs feel more responsive and improving interrupt behavior.
 - Browser AI processing now reuses OpenAI clients, caches prompt template parsing, and uses tuned default batch/concurrency settings for steadier throughput.
 - Added internal notes documenting the current Browser performance gap versus `anki-smart-notes` and the highest-impact follow-up options.
+- Processing presets can now store editable descriptions, and the Browser/workflow preset menus now let you edit preset name and description directly. Unsupported temperature-value errors also fall back more gracefully by retrying without `temperature`.
 
 ## 0.1.0 - 2026-03-27
 

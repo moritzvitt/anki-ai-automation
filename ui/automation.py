@@ -56,6 +56,7 @@ class ProcessingPresetChoice:
     preset_id: str
     name: str
     prompt_id: str
+    description: str | None
     model: str | None
     temperature: float | None
     system_prompt_id: str | None
@@ -222,16 +223,20 @@ class TransformWithAIDialog(QDialog):
         preset_layout.setContentsMargins(0, 0, 0, 0)
         preset_layout.addWidget(self.preset_combo, stretch=1)
         save_preset_button = QPushButton("Save")
+        edit_preset_button = QPushButton("Edit")
         update_preset_button = QPushButton("Update")
         delete_preset_button = QPushButton("Delete")
         set_hover_help(self.preset_combo, "Load a saved Browser-processing preset.", enabled=self._config.show_tooltips)
         set_hover_help(save_preset_button, "Save the current run settings as a reusable preset.", enabled=self._config.show_tooltips)
+        set_hover_help(edit_preset_button, "Edit the selected preset name and description.", enabled=self._config.show_tooltips)
         set_hover_help(update_preset_button, "Overwrite the selected preset with the current run settings.", enabled=self._config.show_tooltips)
         set_hover_help(delete_preset_button, "Delete the selected preset.", enabled=self._config.show_tooltips)
         save_preset_button.clicked.connect(self._save_current_as_preset)
+        edit_preset_button.clicked.connect(self._edit_selected_preset_metadata)
         update_preset_button.clicked.connect(self._update_selected_preset)
         delete_preset_button.clicked.connect(self._delete_selected_preset)
         preset_layout.addWidget(save_preset_button)
+        preset_layout.addWidget(edit_preset_button)
         preset_layout.addWidget(update_preset_button)
         preset_layout.addWidget(delete_preset_button)
 
@@ -511,6 +516,7 @@ class TransformWithAIDialog(QDialog):
             preset_id=choice.prompt_id,
             name=choice.name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
+            description=choice.prompt_text or None,
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
             temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,
@@ -526,6 +532,57 @@ class TransformWithAIDialog(QDialog):
         index = self.preset_combo.findData(preset.preset_id)
         if index >= 0:
             self.preset_combo.setCurrentIndex(index)
+
+    def _edit_selected_preset_metadata(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            show_tooltip("Choose a preset to edit.", parent=self)
+            return
+
+        dialog = SavedPromptDialog(
+            parent=self,
+            prompt=PromptChoice(
+                prompt_id=preset.preset_id,
+                name=preset.name,
+                prompt_text=preset.description or "",
+            ),
+            window_title="Processing Preset",
+            prompt_label="Description",
+            placeholder_text="Optional notes about this preset",
+            help_text="Edit the selected preset name and description without changing its processing settings.",
+            id_prefix="processing-preset",
+            require_prompt_text=False,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.named_item(existing_id=preset.preset_id)
+        if choice is None:
+            return
+
+        for index, current in enumerate(self._presets):
+            if current.preset_id == preset.preset_id:
+                self._presets[index] = ProcessingPresetChoice(
+                    preset_id=current.preset_id,
+                    name=choice.name,
+                    description=choice.prompt_text or None,
+                    prompt_id=current.prompt_id,
+                    model=current.model,
+                    temperature=current.temperature,
+                    system_prompt_id=current.system_prompt_id,
+                    target_field=current.target_field,
+                    mode=current.mode,
+                    multiple_target_fields=current.multiple_target_fields,
+                    convert_markdown_to_html=current.convert_markdown_to_html,
+                    response_delimiter=current.response_delimiter,
+                )
+                break
+        self._save_processing_presets()
+        self._populate_preset_combo()
+        index = self.preset_combo.findData(preset.preset_id)
+        if index >= 0:
+            self.preset_combo.setCurrentIndex(index)
+        show_tooltip(f"Updated preset details for '{choice.name}'.", parent=self)
 
     def _update_selected_preset(self) -> None:
         preset = self._selected_preset()
@@ -571,6 +628,7 @@ class TransformWithAIDialog(QDialog):
             {
                 "id": preset.preset_id,
                 "name": preset.name,
+                "description": preset.description,
                 "prompt_id": preset.prompt_id,
                 "model": preset.model,
                 "temperature": preset.temperature,
@@ -587,9 +645,11 @@ class TransformWithAIDialog(QDialog):
 
     def _current_preset_choice(self, *, preset_id: str, name: str) -> ProcessingPresetChoice:
         target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
+        existing_preset = self._selected_preset()
         return ProcessingPresetChoice(
             preset_id=preset_id,
             name=name,
+            description=existing_preset.description if existing_preset is not None and existing_preset.preset_id == preset_id else None,
             prompt_id=str(self.prompt_combo.currentData() or ""),
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
             temperature=self._selected_temperature(),
@@ -869,6 +929,7 @@ def _preset_choices_from_saved_processing_presets(
         ProcessingPresetChoice(
             preset_id=preset.preset_id,
             name=preset.name,
+            description=preset.description,
             prompt_id=preset.prompt_id,
             model=preset.model,
             temperature=preset.temperature,

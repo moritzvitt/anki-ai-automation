@@ -43,6 +43,7 @@ class ProcessingPreset:
     preset_id: str
     name: str
     prompt_id: str
+    description: str | None = None
     model: str | None = None
     temperature: float | None = None
     system_prompt_id: str | None = None
@@ -479,6 +480,7 @@ def _read_processing_presets(
                 preset_id=preset_id,
                 name=_read_string(item, "name"),
                 prompt_id=prompt_id,
+                description=_read_optional_string(item, "description"),
                 model=_read_optional_string(item, "model"),
                 temperature=_read_optional_float(
                     item,

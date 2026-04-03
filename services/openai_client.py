@@ -413,6 +413,10 @@ def _parse_chat_usage(usage: Any) -> TokenUsage:
 def _is_unsupported_parameter_error(error: Exception, parameter_name: str) -> bool:
     message = str(error).lower()
     return (
-        "unsupported parameter" in message
-        and f"'{parameter_name.lower()}'" in message
+        (
+            "unsupported parameter" in message
+            or "unsupported value" in message
+            or "does not support" in message
+        )
+        and parameter_name.lower() in message
     )
