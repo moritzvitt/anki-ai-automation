@@ -113,6 +113,59 @@ Each mapping supports:
 - `prompt_template`: optional prompt override for this note type
 - `system_prompt`: optional system prompt override for this note type
 
+### `workflows`
+
+Atomic executable units. Each workflow performs one action and remains independently runnable and editable in the workflow UI.
+
+Workflows should stay focused on one task, such as running one prompt against one target field or one delimited multi-field output mode.
+
+If you also use the `limit-search-results` add-on, workflow queries can include `limit:x` to cap the matched notes directly in the Anki search string, for example `note:"Moritz Language Reactor" tag:ai_fix_minor limit:15`.
+
+### `workflow_groups`
+
+Organizational collections of workflows used for categorization, filtering, and manual bulk execution.
+
+Groups do not contain branching or orchestration logic.
+
+### `pipelines`
+
+Declarative orchestration layer above workflows and groups.
+
+Pipelines are config-only for now and support:
+
+- selecting notes with a query and optional limit
+- running an atomic workflow
+- running all workflows in a group
+- running the dedicated MLR audit step
+- adding/removing tags
+- stopping matched notes from continuing
+- per-note branching through declarative `when` conditions
+
+Pipeline note-selector queries can also use `limit:x` when the separate `limit-search-results` add-on is installed, although pipelines also support their own dedicated `limit` field.
+
+Supported step types:
+
+- `run_workflow`
+- `run_group`
+- `run_mlr_audit`
+- `tag`
+- `stop`
+
+Supported condition operators include:
+
+- `all`
+- `any`
+- `not`
+- `artifact_equals`
+- `artifact_in`
+- `tag_present`
+- `tag_absent`
+- `field_empty`
+- `field_not_empty`
+- `note_type_is`
+- `previous_step_succeeded`
+- `previous_step_failed`
+
 ## Example
 
 ```json

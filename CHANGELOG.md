@@ -11,11 +11,16 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
 - A structured stage-1 audit pipeline with strict JSON validation, status-based tagging, and local audit metadata persistence in `user_data/audit_log.json`.
 - Dedicated audit prompt/schema and storage modules so a later auto-fix stage can reuse the validated audit output cleanly.
+- A separate pipeline orchestration layer above workflows and groups, with config-defined note selection, declarative conditions, and per-note branching support.
+- A new `Run AI Pipeline` Tools menu action for launching enabled pipelines from inside Anki.
+- A first seeded `MLR Audit First 15` pipeline plus follow-up MLR audit workflows in both the shipped config template and the live profile config.
 
 ### Changed
 
 - Simplified the core settings dialog by removing prompt fields, adding a clearer add-on summary, renaming the model selector to `Default model`, and adding a button that opens Anki's built-in raw JSON config editor.
 - Added a Responses API helper for strict JSON-schema audit requests, and preserved Browser selection order so the first 15 selected notes can be audited predictably.
+- Workflows now expose reusable execution hooks so pipelines can orchestrate atomic workflow runs without duplicating prompt/update logic.
+- The config docs now document `pipelines` and note that workflow and pipeline queries can use `limit:x` when the separate `limit-search-results` add-on is installed.
 
 ## 1.1.0 - 2026-04-03
 

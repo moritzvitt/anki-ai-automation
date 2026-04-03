@@ -288,6 +288,40 @@ def start_prepared_manual_processing(
     op.run_in_background()
 
 
+def execute_prepared_manual_processing(
+    config: AddonConfig,
+    prepared: PreparedManualProcessing,
+) -> ProcessingResult:
+    """Synchronous workflow execution hook used by higher-level pipeline orchestration.
+
+    This runs the prepared snapshots, applies note updates, and records usage,
+    but does not show UI feedback or refresh a Browser instance.
+    """
+    if mw is None or mw.col is None:
+        raise OpenAIClientError("Anki collection is not available.")
+
+    result = _process_snapshots(config, prepared.snapshots, prepared.failures)
+    _apply_note_updates(result.updates)
+
+    usage_totals = _aggregate_usage(result.updates)
+    if usage_totals["request_count"]:
+        record_usage_run(
+            model=config.model,
+            note_count=usage_totals["request_count"],
+            request_count=usage_totals["request_count"],
+            input_tokens=usage_totals["input_tokens"],
+            cached_input_tokens=usage_totals["cached_input_tokens"],
+            output_tokens=usage_totals["output_tokens"],
+            reasoning_tokens=usage_totals["reasoning_tokens"],
+            total_tokens=usage_totals["total_tokens"],
+            estimated_cost_usd=usage_totals["estimated_cost_usd"],
+            history_limit=config.usage_history_limit,
+        )
+
+    mw.reset()
+    return result
+
+
 def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[NoteSnapshot], list[NoteFailure]]:
     assert mw is not None and mw.col is not None
 

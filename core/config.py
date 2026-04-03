@@ -82,6 +82,32 @@ class Workflow:
 
 
 @dataclass(frozen=True)
+class PipelineNoteSelector:
+    query: str
+    limit: int | None = None
+
+
+@dataclass(frozen=True)
+class PipelineStep:
+    step_id: str
+    step_type: str
+    workflow_id: str | None = None
+    group_id: str | None = None
+    add_tags: list[str] | None = None
+    remove_tags: list[str] | None = None
+    when: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class Pipeline:
+    pipeline_id: str
+    name: str
+    enabled: bool
+    note_selector: PipelineNoteSelector
+    steps: list[PipelineStep]
+
+
+@dataclass(frozen=True)
 class AddonConfig:
     enabled: bool
     show_tooltips: bool
@@ -108,6 +134,7 @@ class AddonConfig:
     processing_presets: list[ProcessingPreset]
     workflow_groups: list[WorkflowGroup]
     workflows: list[Workflow]
+    pipelines: list[Pipeline]
 
 
 def load_config() -> AddonConfig:
@@ -188,6 +215,11 @@ def load_config() -> AddonConfig:
         workflow_groups=workflow_groups,
         saved_system_prompts=saved_system_prompts,
     )
+    pipelines = _read_pipelines(
+        raw.get("pipelines", []),
+        workflows=workflows,
+        workflow_groups=workflow_groups,
+    )
 
     return AddonConfig(
         enabled=enabled,
@@ -215,6 +247,7 @@ def load_config() -> AddonConfig:
         processing_presets=processing_presets,
         workflow_groups=workflow_groups,
         workflows=workflows,
+        pipelines=pipelines,
     )
 
 
@@ -278,6 +311,17 @@ def _read_int(source: dict[str, Any], key: str, *, minimum: int, default: int) -
     value = source.get(key, default)
     if not isinstance(value, int):
         raise ConfigError(f"Config key '{key}' must be an integer.")
+    if value < minimum:
+        raise ConfigError(f"Config key '{key}' must be >= {minimum}.")
+    return value
+
+
+def _read_optional_int(source: dict[str, Any], key: str, *, minimum: int) -> int | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ConfigError(f"Config key '{key}' must be an integer or null.")
     if value < minimum:
         raise ConfigError(f"Config key '{key}' must be >= {minimum}.")
     return value
@@ -631,6 +675,136 @@ def _read_workflow_group_ids(
             parsed_group_ids.append(group_id)
             seen_group_ids.add(group_id)
     return parsed_group_ids
+
+
+def _read_pipelines(
+    value: Any,
+    *,
+    workflows: list[Workflow],
+    workflow_groups: list[WorkflowGroup],
+) -> list[Pipeline]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'pipelines' must be a list.")
+
+    allowed_workflow_ids = {workflow.workflow_id for workflow in workflows}
+    allowed_group_ids = {group.group_id for group in workflow_groups}
+    allowed_step_types = {"run_workflow", "run_group", "run_mlr_audit", "tag", "stop"}
+    parsed_pipelines: list[Pipeline] = []
+    seen_pipeline_ids: set[str] = set()
+
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"pipelines[{index}] must be an object.")
+
+        pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
+        if pipeline_id in seen_pipeline_ids:
+            raise ConfigError(f"pipelines[{index}] uses duplicate id '{pipeline_id}'.")
+        seen_pipeline_ids.add(pipeline_id)
+
+        selector_raw = item.get("note_selector")
+        if not isinstance(selector_raw, dict):
+            raise ConfigError(f"pipelines[{index}].note_selector must be an object.")
+        note_selector = PipelineNoteSelector(
+            query=_read_string(selector_raw, "query"),
+            limit=_read_optional_int(selector_raw, "limit", minimum=1),
+        )
+
+        steps_raw = item.get("steps")
+        if not isinstance(steps_raw, list) or not steps_raw:
+            raise ConfigError(f"pipelines[{index}].steps must be a non-empty list.")
+
+        steps: list[PipelineStep] = []
+        seen_step_ids: set[str] = set()
+        for step_index, step_raw in enumerate(steps_raw):
+            if not isinstance(step_raw, dict):
+                raise ConfigError(f"pipelines[{index}].steps[{step_index}] must be an object.")
+
+            step_id = _read_string(step_raw, "id", default=f"{pipeline_id}-step-{step_index + 1}")
+            if step_id in seen_step_ids:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] uses duplicate id '{step_id}'."
+                )
+            seen_step_ids.add(step_id)
+
+            step_type = _read_string(step_raw, "type")
+            if step_type not in allowed_step_types:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}].type must be one of: "
+                    + ", ".join(sorted(allowed_step_types))
+                    + "."
+                )
+
+            workflow_id = _read_optional_string(step_raw, "workflow_id")
+            group_id = _read_optional_string(step_raw, "group_id")
+            if workflow_id is not None and workflow_id not in allowed_workflow_ids:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] references unknown workflow_id '{workflow_id}'."
+                )
+            if group_id is not None and group_id not in allowed_group_ids:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] references unknown group_id '{group_id}'."
+                )
+
+            if step_type == "run_workflow" and workflow_id is None:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] must define workflow_id for run_workflow."
+                )
+            if step_type == "run_group" and group_id is None:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] must define group_id for run_group."
+                )
+            if step_type != "run_workflow" and workflow_id is not None:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] may only define workflow_id for run_workflow."
+                )
+            if step_type != "run_group" and group_id is not None:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] may only define group_id for run_group."
+                )
+
+            add_tags = _read_optional_string_list(step_raw.get("add_tags"), f"pipelines[{index}].steps[{step_index}].add_tags")
+            remove_tags = _read_optional_string_list(
+                step_raw.get("remove_tags"),
+                f"pipelines[{index}].steps[{step_index}].remove_tags",
+            )
+            if step_type == "tag" and not add_tags and not remove_tags:
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] must define add_tags and/or remove_tags for tag steps."
+                )
+            if step_type != "tag" and (add_tags or remove_tags):
+                raise ConfigError(
+                    f"pipelines[{index}].steps[{step_index}] may only define add_tags/remove_tags for tag steps."
+                )
+
+            when_value = step_raw.get("when")
+            if when_value is not None and not isinstance(when_value, dict):
+                raise ConfigError(f"pipelines[{index}].steps[{step_index}].when must be an object.")
+
+            steps.append(
+                PipelineStep(
+                    step_id=step_id,
+                    step_type=step_type,
+                    workflow_id=workflow_id,
+                    group_id=group_id,
+                    add_tags=add_tags or None,
+                    remove_tags=remove_tags or None,
+                    when=when_value,
+                )
+            )
+
+        parsed_pipelines.append(
+            Pipeline(
+                pipeline_id=pipeline_id,
+                name=_read_string(item, "name"),
+                enabled=_read_bool(item, "enabled", default=True),
+                note_selector=note_selector,
+                steps=steps,
+            )
+        )
+
+    return parsed_pipelines
 
 
 def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:

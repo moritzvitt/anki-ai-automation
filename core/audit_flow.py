@@ -169,7 +169,7 @@ def run_browser_ai_audit(browser: Browser, note_ids: list[int]) -> None:
     op = QueryOp(
         parent=browser,
         op=lambda _col: _run_audit(config, candidates, skipped_before_run),
-        success=lambda result: _apply_audit_result(browser, result),
+        success=lambda result: apply_audit_run_result(result, browser=browser),
     )
     op.with_progress(label=f"Auditing {len(candidates)} note(s) with AI...")
     op.run_in_background()
@@ -178,6 +178,8 @@ def run_browser_ai_audit(browser: Browser, note_ids: list[int]) -> None:
 def _prepare_audit_candidates(
     note_ids: list[int],
     audit_log: dict[str, Any],
+    *,
+    max_candidates: int | None = MAX_AUDIT_NOTES_PER_RUN,
 ) -> tuple[list[AuditCandidate], list[str]]:
     assert mw is not None and mw.col is not None
 
@@ -186,8 +188,8 @@ def _prepare_audit_candidates(
     skipped: list[str] = []
 
     for note_id in note_ids:
-        if len(candidates) >= MAX_AUDIT_NOTES_PER_RUN:
-            skipped.append(f"Stopped after the first {MAX_AUDIT_NOTES_PER_RUN} eligible notes.")
+        if max_candidates is not None and len(candidates) >= max_candidates:
+            skipped.append(f"Stopped after the first {max_candidates} eligible notes.")
             break
 
         note = mw.col.get_note(note_id)
@@ -291,6 +293,24 @@ def _run_audit(
     )
 
 
+def execute_mlr_audit(
+    config: AddonConfig,
+    note_ids: list[int],
+    *,
+    max_notes: int | None = MAX_AUDIT_NOTES_PER_RUN,
+) -> AuditRunResult:
+    if mw is None or mw.col is None:
+        raise OpenAIClientError("Anki collection is not available.")
+
+    audit_log = load_audit_log()
+    candidates, skipped_before_run = _prepare_audit_candidates(
+        note_ids,
+        audit_log,
+        max_candidates=max_notes,
+    )
+    return _run_audit(config, candidates, skipped_before_run)
+
+
 def _validate_audit_response(value: Any) -> AuditResult:
     if not isinstance(value, dict):
         raise ValueError("Audit response must be a JSON object.")
@@ -370,7 +390,12 @@ def _validate_audit_response(value: Any) -> AuditResult:
     )
 
 
-def _apply_audit_result(browser: Browser, result: AuditRunResult) -> None:
+def apply_audit_run_result(
+    result: AuditRunResult,
+    *,
+    browser: Browser | None = None,
+    show_feedback: bool = True,
+) -> None:
     assert mw is not None and mw.col is not None
 
     audit_log = load_audit_log()
@@ -465,30 +490,32 @@ def _apply_audit_result(browser: Browser, result: AuditRunResult) -> None:
     save_audit_log(audit_log)
     _record_audit_usage(result)
 
-    if hasattr(browser, "search"):
+    if browser is not None and hasattr(browser, "search"):
         browser.search()
     mw.reset()
 
-    summary = (
-        f"AI audit checked {len(result.successes)} note(s), "
-        f"failed on {len(result.failures)}."
-    )
-    show_tooltip(summary, parent=browser)
-
-    report_lines: list[str] = []
-    if result.skipped_before_run:
-        report_lines.append("Skipped before audit:")
-        report_lines.extend(f"- {line}" for line in result.skipped_before_run[:10])
-    if result.failures:
-        if report_lines:
-            report_lines.append("")
-        report_lines.append("Audit failures:")
-        report_lines.extend(
-            f"- Note {failure.note_id} ({failure.note_type_name}): {failure.reason}"
-            for failure in result.failures[:20]
+    if show_feedback:
+        summary = (
+            f"AI audit checked {len(result.successes)} note(s), "
+            f"failed on {len(result.failures)}."
         )
-    if report_lines:
-        showInfo("\n".join(report_lines), parent=browser)
+        if browser is not None:
+            show_tooltip(summary, parent=browser)
+
+        report_lines: list[str] = []
+        if result.skipped_before_run:
+            report_lines.append("Skipped before audit:")
+            report_lines.extend(f"- {line}" for line in result.skipped_before_run[:10])
+        if result.failures:
+            if report_lines:
+                report_lines.append("")
+            report_lines.append("Audit failures:")
+            report_lines.extend(
+                f"- Note {failure.note_id} ({failure.note_type_name}): {failure.reason}"
+                for failure in result.failures[:20]
+            )
+        if report_lines:
+            showInfo("\n".join(report_lines), parent=browser)
 
 
 def _remove_status_tags(note: Any) -> None:
@@ -598,3 +625,24 @@ def _today_key_from_timestamp(timestamp: str | None) -> str:
     if not timestamp:
         return _today_key()
     return timestamp.split(" ", 1)[0]
+
+
+def audit_success_artifact(success: AuditSuccess) -> dict[str, Any]:
+    return {
+        "status": success.result.status.value,
+        "confidence": success.result.confidence,
+        "is_learnworthy": success.result.is_learnworthy,
+        "auto_fix_allowed": success.result.auto_fix_allowed,
+        "summary": success.result.summary,
+        "issues": [
+            {
+                "severity": issue.severity.value,
+                "field": issue.field.value,
+                "issue": issue.issue,
+            }
+            for issue in success.result.issues
+        ],
+        "fields_to_update": list(success.result.fields_to_update),
+        "recommended_tags": list(success.result.recommended_tags),
+        "checked_at": success.checked_at,
+    }

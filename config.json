@@ -201,6 +201,10 @@
     {
       "id": "mlr-maintenance",
       "name": "Moritz Language Reactor"
+    },
+    {
+      "id": "mlr-audit-follow-up",
+      "name": "MLR Audit Follow-up"
     }
   ],
   "workflows": [
@@ -357,6 +361,88 @@
       "response_delimiter": "--{field}--",
       "group_id": "mlr-maintenance",
       "position": 10
+    },
+    {
+      "id": "workflow-mlr-fix-minor-japanese-notes",
+      "name": "MLR Fix Minor -> Japanese Notes",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
+      "prompt_id": "mlr-japanese-notes-improver",
+      "target_field": "Japanese Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": false,
+      "response_delimiter": null,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 11
+    },
+    {
+      "id": "workflow-mlr-fix-minor-notes",
+      "name": "MLR Fix Minor -> Notes",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
+      "prompt_id": "update-grammar-notes",
+      "target_field": "Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": false,
+      "response_delimiter": null,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 12
+    },
+    {
+      "id": "workflow-mlr-fix-minor-word-definition",
+      "name": "MLR Fix Minor -> Word Definition",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
+      "prompt_id": "mlr-word-definition-optimizer",
+      "target_field": "Word Definition",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": false,
+      "response_delimiter": null,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 13
+    }
+  ],
+  "pipelines": [
+    {
+      "id": "pipeline-mlr-audit-first-15",
+      "name": "MLR Audit First 15",
+      "enabled": true,
+      "note_selector": {
+        "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15"
+      },
+      "steps": [
+        {
+          "id": "audit",
+          "type": "run_mlr_audit"
+        }
+      ]
     }
   ],
   "field_mappings": [
