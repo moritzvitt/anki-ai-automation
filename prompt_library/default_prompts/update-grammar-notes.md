@@ -3,9 +3,13 @@
 You are improving the "Notes" field (grammar explanation) of an Anki card for an intermediate learner.
 
 Card:
-Front: {{Front}}
-Back: {{Back}}
+Cloze: {{Cloze}}
+Lemma: {{Lemma}}
 Current Notes: {{Notes}}
+Grammar: {{Grammar}}
+AI Audit Status: {{AI Audit Status}}
+AI Audit Summary: {{AI Audit Summary}}
+AI Fields To Update: {{AI Fields To Update}}
 
 Tasks:
 1. Rewrite the Notes to:
@@ -22,4 +26,9 @@ Tasks:
    - overly basic explanations
    - long paragraphs
 
-4. Output ONLY the updated "Notes" field.
+4. Audit-specific rules:
+   - If `AI Audit Status` is not `FIXABLE_MINOR`, make no changes.
+   - Use `AI Audit Summary` and `AI Fields To Update` as the main guide.
+   - Keep the fix minimal and avoid overlapping too much with the Grammar field.
+
+5. Output ONLY the updated "Notes" field.

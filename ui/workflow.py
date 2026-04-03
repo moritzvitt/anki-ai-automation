@@ -45,7 +45,7 @@ from ..core.workflow_engine import (
     apply_field_update_result,
     execute_workflow,
 )
-from .tooltips import set_hover_help
+from .tooltips import set_hover_help, show_tooltip
 
 
 @dataclass
@@ -526,6 +526,7 @@ class WorkflowManagerDialog(QDialog):
         workflows: list[Workflow],
         *,
         run_label: str,
+        note_ids_override: list[int] | None = None,
         show_summary_dialog: bool = True,
         require_confirmation: bool = True,
         on_done: Callable[[WorkflowSequenceSummary], None] | None = None,
@@ -549,22 +550,28 @@ class WorkflowManagerDialog(QDialog):
                     parent=self,
                 )
                 return
-            try:
-                query_counts.append((workflow, len(_find_note_ids_for_query(workflow.query))))
-            except RuntimeError as error:
-                showCritical(f"Workflow '{workflow.name}' query error:\n\n{error}", parent=self)
-                return
+            if note_ids_override is None:
+                try:
+                    query_counts.append((workflow, len(_find_note_ids_for_query(workflow.query))))
+                except RuntimeError as error:
+                    showCritical(f"Workflow '{workflow.name}' query error:\n\n{error}", parent=self)
+                    return
 
         if require_confirmation:
-            confirmation_lines = [
-                f"Ready to run {len(workflows)} workflow(s) for '{run_label}'.",
-                "",
-                "Current query matches:",
-            ]
-            for workflow, count in query_counts[:20]:
-                confirmation_lines.append(f"- {workflow.name}: {count} note(s)")
-            if len(query_counts) > 20:
-                confirmation_lines.append(f"- ...and {len(query_counts) - 20} more workflows")
+            confirmation_lines = [f"Ready to run {len(workflows)} workflow(s) for '{run_label}'.", ""]
+            if note_ids_override is None:
+                confirmation_lines.append("Current query matches:")
+                for workflow, count in query_counts[:20]:
+                    confirmation_lines.append(f"- {workflow.name}: {count} note(s)")
+                if len(query_counts) > 20:
+                    confirmation_lines.append(f"- ...and {len(query_counts) - 20} more workflows")
+            else:
+                confirmation_lines.append(f"Selected Browser notes: {len(note_ids_override)}")
+                confirmation_lines.append("Workflows:")
+                for workflow in workflows[:20]:
+                    confirmation_lines.append(f"- {workflow.name}")
+                if len(workflows) > 20:
+                    confirmation_lines.append(f"- ...and {len(workflows) - 20} more workflows")
             confirmation_lines.extend(["", "Continue?"])
             if not askUser("\n".join(confirmation_lines), parent=self):
                 return
@@ -577,6 +584,7 @@ class WorkflowManagerDialog(QDialog):
             config=config,
             prompt_lookup=prompt_lookup,
             summary=summary,
+            note_ids_override=note_ids_override,
             show_summary_dialog=show_summary_dialog,
             on_done=on_done,
         )
@@ -589,6 +597,7 @@ class WorkflowManagerDialog(QDialog):
         config,
         prompt_lookup: dict[str, SavedPrompt],
         summary: WorkflowSequenceSummary,
+        note_ids_override: list[int] | None,
         show_summary_dialog: bool,
         on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
@@ -610,25 +619,30 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                note_ids_override=note_ids_override,
                 show_summary_dialog=show_summary_dialog,
                 on_done=on_done,
             )
             return
 
-        try:
-            note_ids = _find_note_ids_for_query(workflow.query)
-        except RuntimeError as error:
-            summary.failures.append(f"- Workflow '{workflow.name}': query failed: {error}")
-            self._run_workflow_at_index(
-                workflows=workflows,
-                index=index + 1,
-                config=config,
-                prompt_lookup=prompt_lookup,
-                summary=summary,
-                show_summary_dialog=show_summary_dialog,
-                on_done=on_done,
-            )
-            return
+        if note_ids_override is None:
+            try:
+                note_ids = _find_note_ids_for_query(workflow.query)
+            except RuntimeError as error:
+                summary.failures.append(f"- Workflow '{workflow.name}': query failed: {error}")
+                self._run_workflow_at_index(
+                    workflows=workflows,
+                    index=index + 1,
+                    config=config,
+                    prompt_lookup=prompt_lookup,
+                    summary=summary,
+                    note_ids_override=note_ids_override,
+                    show_summary_dialog=show_summary_dialog,
+                    on_done=on_done,
+                )
+                return
+        else:
+            note_ids = list(note_ids_override)
 
         if not note_ids:
             summary.skipped.append(f"- {workflow.name}: no matching notes.")
@@ -638,6 +652,7 @@ class WorkflowManagerDialog(QDialog):
                 config=config,
                 prompt_lookup=prompt_lookup,
                 summary=summary,
+                note_ids_override=note_ids_override,
                 show_summary_dialog=show_summary_dialog,
                 on_done=on_done,
             )
@@ -654,6 +669,7 @@ class WorkflowManagerDialog(QDialog):
                 summary=summary,
                 workflow=workflow,
                 result=result,
+                note_ids_override=note_ids_override,
                 show_summary_dialog=show_summary_dialog,
                 on_done=on_done,
             ),
@@ -671,6 +687,7 @@ class WorkflowManagerDialog(QDialog):
         summary: WorkflowSequenceSummary,
         workflow: Workflow,
         result: WorkflowExecutionResult,
+        note_ids_override: list[int] | None,
         show_summary_dialog: bool,
         on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
@@ -696,6 +713,7 @@ class WorkflowManagerDialog(QDialog):
             config=config,
             prompt_lookup=prompt_lookup,
             summary=summary,
+            note_ids_override=note_ids_override,
             show_summary_dialog=show_summary_dialog,
             on_done=on_done,
         )
@@ -765,6 +783,7 @@ def run_workflows_background(
     workflows: list[Workflow],
     *,
     run_label: str,
+    note_ids_override: list[int] | None = None,
     show_summary_dialog: bool = False,
     on_done: Callable[[WorkflowSequenceSummary], None] | None = None,
 ) -> None:
@@ -788,6 +807,7 @@ def run_workflows_background(
     dialog._run_workflow_sequence(
         workflows,
         run_label=run_label,
+        note_ids_override=note_ids_override,
         show_summary_dialog=show_summary_dialog,
         require_confirmation=False,
         on_done=finish,

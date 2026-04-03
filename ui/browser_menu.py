@@ -13,6 +13,7 @@ from ..core.config import ConfigError, load_config
 from ..core.workflow_engine import execute_workflow_by_id
 from .automation import open_transform_dialog
 from .tooltips import show_tooltip
+from .workflow import run_workflows_background
 
 
 def register_browser_menu() -> None:
@@ -31,6 +32,8 @@ def _on_browser_context_menu(browser: Browser, menu: QMenu) -> None:
     action.triggered.connect(lambda: _trigger_processing(browser))
     audit_action = QAction("Audit with AI", browser)
     audit_action.triggered.connect(lambda: _trigger_audit(browser))
+    workflows_menu = menu.addMenu("Run Workflow with AI")
+    _populate_workflows_menu(browser, workflows_menu, note_ids)
     menu.addSeparator()
     menu.addAction(action)
     menu.addAction(audit_action)
@@ -74,6 +77,119 @@ def _trigger_audit(browser: Browser) -> None:
     )
     op.with_progress(label=f"Running workflow: {workflow.name}")
     op.run_in_background()
+
+
+def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int]) -> None:
+    try:
+        config = load_config()
+    except ConfigError as error:
+        error_action = QAction("Workflow configuration error", browser)
+        error_action.setEnabled(False)
+        error_action.setToolTip(str(error))
+        menu.addAction(error_action)
+        return
+
+    enabled_workflows = [
+        workflow
+        for workflow in sorted(config.workflows, key=lambda item: item.position)
+        if workflow.enabled
+    ]
+    enabled_groups = [
+        group
+        for group in sorted(config.workflow_groups, key=lambda item: item.name.lower())
+        if any(group.group_id in (workflow.group_ids or []) for workflow in enabled_workflows)
+    ]
+    if not enabled_workflows:
+        empty_action = QAction("No enabled workflows", browser)
+        empty_action.setEnabled(False)
+        menu.addAction(empty_action)
+        return
+
+    if enabled_groups:
+        groups_menu = menu.addMenu("Run Group")
+        for group in enabled_groups:
+            action = QAction(group.name, browser)
+            action.triggered.connect(
+                lambda _checked=False, selected_group_id=group.group_id: _trigger_browser_group(
+                    browser,
+                    selected_group_id,
+                    note_ids,
+                )
+            )
+            groups_menu.addAction(action)
+        menu.addSeparator()
+
+    for workflow in enabled_workflows:
+        action = QAction(workflow.name, browser)
+        action.triggered.connect(
+            lambda _checked=False, selected_workflow=workflow: _trigger_browser_workflow(
+                browser,
+                selected_workflow.workflow_id,
+                note_ids,
+            )
+        )
+        menu.addAction(action)
+
+
+def _trigger_browser_workflow(browser: Browser, workflow_id: str, note_ids: list[int]) -> None:
+    if not note_ids:
+        show_tooltip("Select at least one card or note in the Browser.", parent=browser)
+        return
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
+
+    workflow = next((item for item in config.workflows if item.workflow_id == workflow_id), None)
+    if workflow is None:
+        showCritical(f"The workflow '{workflow_id}' is not configured.", parent=browser)
+        return
+    if not workflow.enabled:
+        show_tooltip("Enable the workflow before running it.", parent=browser)
+        return
+
+    run_workflows_background(
+        browser,
+        [workflow],
+        run_label=f"{workflow.name} (selected Browser notes)",
+        note_ids_override=list(note_ids),
+        show_summary_dialog=False,
+        on_done=lambda _summary: _refresh_open_browser_note(browser, changed_note_ids=note_ids),
+    )
+
+
+def _trigger_browser_group(browser: Browser, group_id: str, note_ids: list[int]) -> None:
+    if not note_ids:
+        show_tooltip("Select at least one card or note in the Browser.", parent=browser)
+        return
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
+
+    workflows = [
+        workflow
+        for workflow in sorted(config.workflows, key=lambda item: item.position)
+        if workflow.enabled and group_id in (workflow.group_ids or [])
+    ]
+    if not workflows:
+        show_tooltip("This workflow group does not contain any enabled workflows.", parent=browser)
+        return
+
+    group_name = next(
+        (group.name for group in config.workflow_groups if group.group_id == group_id),
+        "Selected workflow group",
+    )
+    run_workflows_background(
+        browser,
+        workflows,
+        run_label=f"{group_name} (selected Browser notes)",
+        note_ids_override=list(note_ids),
+        show_summary_dialog=False,
+        on_done=lambda _summary: _refresh_open_browser_note(browser, changed_note_ids=note_ids),
+    )
 
 
 def _on_audit_workflow_finished(browser: Browser, workflow, config, result) -> None:
