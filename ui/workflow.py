@@ -97,6 +97,7 @@ class WorkflowSequenceSummary:
 
 _WORKFLOW_RUNNER_DIALOGS: list["WorkflowManagerDialog"] = []
 _GROUP_FILTER_ENABLED_ONLY = "__enabled_only__"
+_GROUP_FILTER_DISABLED_ONLY = "__disabled_only__"
 
 
 def register_workflow_menu() -> None:
@@ -222,6 +223,7 @@ class WorkflowManagerDialog(QDialog):
         self.group_run_combo.blockSignals(True)
         self.group_run_combo.clear()
         self.group_run_combo.addItem("All enabled workflows", _GROUP_FILTER_ENABLED_ONLY)
+        self.group_run_combo.addItem("All disabled workflows", _GROUP_FILTER_DISABLED_ONLY)
         self.group_run_combo.addItem("All workflows", "")
         for group in self._groups:
             self.group_run_combo.addItem(group.name, group.group_id)
@@ -236,6 +238,8 @@ class WorkflowManagerDialog(QDialog):
         current_group_id = self.group_run_combo.currentData()
         if current_group_id == _GROUP_FILTER_ENABLED_ONLY:
             self._visible_workflows = [workflow for workflow in self._workflows if workflow.enabled]
+        elif current_group_id == _GROUP_FILTER_DISABLED_ONLY:
+            self._visible_workflows = [workflow for workflow in self._workflows if not workflow.enabled]
         elif isinstance(current_group_id, str) and current_group_id:
             self._visible_workflows = [
                 workflow for workflow in self._workflows if current_group_id in (workflow.group_ids or [])
