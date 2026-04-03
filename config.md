@@ -12,6 +12,12 @@ The settings dialog now keeps note type rules in a dedicated editor instead of e
 
 Global on/off switch for the add-on.
 
+### `show_tooltips`
+
+Controls both hover help on UI fields and the small transient status tooltips shown after some actions.
+
+Set this to `false` if you want a quieter UI without hover hints or popup tooltip messages.
+
 ### `openai_api_key`
 
 Your OpenAI API key. The add-on will refuse to run until this is set.
@@ -96,6 +102,7 @@ Each mapping supports:
 ```json
 {
   "enabled": true,
+  "show_tooltips": true,
   "openai_api_key": "sk-...",
   "model": "gpt-5-mini",
   "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema.",

@@ -80,6 +80,7 @@ class Workflow:
 @dataclass(frozen=True)
 class AddonConfig:
     enabled: bool
+    show_tooltips: bool
     api_key: str
     model: str
     default_prompt_template: str
@@ -113,6 +114,7 @@ def load_config() -> AddonConfig:
         raise ConfigError("The add-on config could not be loaded.")
 
     enabled = bool(raw.get("enabled", True))
+    show_tooltips = _read_bool(raw, "show_tooltips", default=True)
     api_key = _read_string(raw, "openai_api_key", allow_empty=True)
     model = _read_string(raw, "model", default="gpt-5-mini")
     default_prompt_template = _read_string(raw, "prompt_template")
@@ -183,6 +185,7 @@ def load_config() -> AddonConfig:
 
     return AddonConfig(
         enabled=enabled,
+        show_tooltips=show_tooltips,
         api_key=api_key,
         model=model,
         default_prompt_template=default_prompt_template,

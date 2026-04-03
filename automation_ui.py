@@ -21,7 +21,7 @@ from aqt.qt import (
     QVBoxLayout,
     QWidget,
 )
-from aqt.utils import showCritical, tooltip
+from aqt.utils import showCritical
 
 from .config import (
     ConfigError,
@@ -41,6 +41,7 @@ from .processing import (
     WRITE_MODE_SKIP_NONEMPTY,
     run_manual_ai_processing,
 )
+from .ui_tooltips import set_hover_help, show_tooltip
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ def open_transform_dialog(browser: Browser, note_ids: list[int]) -> None:
         showCritical(str(error), parent=browser)
         return
     if not config.enabled:
-        tooltip("AI Automation is disabled in the add-on config.", parent=browser)
+        show_tooltip("AI Automation is disabled in the add-on config.", parent=browser)
         return
 
     if mw is None or mw.col is None:
@@ -187,6 +188,8 @@ class TransformWithAIDialog(QDialog):
         self.note_types_label.setWordWrap(True)
         summary_form.addRow("Notes", self.note_count_label)
         summary_form.addRow("Note types", self.note_types_label)
+        set_hover_help(self.note_count_label, "How many selected Browser rows resolve to notes that can be processed.", enabled=self._config.show_tooltips)
+        set_hover_help(self.note_types_label, "Shared note types across the current selection.", enabled=self._config.show_tooltips)
         layout.addWidget(summary_group)
 
         options_group = QGroupBox("Run Settings")
@@ -199,6 +202,10 @@ class TransformWithAIDialog(QDialog):
         save_preset_button = QPushButton("Save")
         update_preset_button = QPushButton("Update")
         delete_preset_button = QPushButton("Delete")
+        set_hover_help(self.preset_combo, "Load a saved Browser-processing preset.", enabled=self._config.show_tooltips)
+        set_hover_help(save_preset_button, "Save the current run settings as a reusable preset.", enabled=self._config.show_tooltips)
+        set_hover_help(update_preset_button, "Overwrite the selected preset with the current run settings.", enabled=self._config.show_tooltips)
+        set_hover_help(delete_preset_button, "Delete the selected preset.", enabled=self._config.show_tooltips)
         save_preset_button.clicked.connect(self._save_current_as_preset)
         update_preset_button.clicked.connect(self._update_selected_preset)
         delete_preset_button.clicked.connect(self._delete_selected_preset)
@@ -214,6 +221,10 @@ class TransformWithAIDialog(QDialog):
         new_button = QPushButton("New")
         edit_button = QPushButton("Edit")
         delete_button = QPushButton("Delete")
+        set_hover_help(self.prompt_combo, "Choose the saved user prompt for this run.", enabled=self._config.show_tooltips)
+        set_hover_help(new_button, "Create a new saved user prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(edit_button, "Edit the selected saved user prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(delete_button, "Delete the selected saved user prompt.", enabled=self._config.show_tooltips)
         new_button.clicked.connect(self._create_prompt)
         edit_button.clicked.connect(self._edit_prompt)
         delete_button.clicked.connect(self._delete_prompt)
@@ -229,6 +240,10 @@ class TransformWithAIDialog(QDialog):
         new_system_button = QPushButton("New")
         edit_system_button = QPushButton("Edit")
         delete_system_button = QPushButton("Delete")
+        set_hover_help(self.system_prompt_combo, "Choose the saved system prompt for this run.", enabled=self._config.show_tooltips)
+        set_hover_help(new_system_button, "Create a new saved system prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(edit_system_button, "Edit the selected saved system prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(delete_system_button, "Delete the selected saved system prompt.", enabled=self._config.show_tooltips)
         new_system_button.clicked.connect(self._create_system_prompt)
         edit_system_button.clicked.connect(self._edit_system_prompt)
         delete_system_button.clicked.connect(self._delete_system_prompt)
@@ -246,6 +261,17 @@ class TransformWithAIDialog(QDialog):
         self.temperature_spin.setSingleStep(0.1)
         self.temperature_spin.setValue(self._config.temperature if self._config.temperature is not None else 0.2)
         self.use_global_temperature_check.setChecked(True)
+        set_hover_help(self.model_combo, "Model used for this run. It can differ from the global default.", enabled=self._config.show_tooltips)
+        set_hover_help(self.use_global_temperature_check, "Use the global temperature from the add-on config instead of a run-specific value.", enabled=self._config.show_tooltips)
+        set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._config.show_tooltips)
+        set_hover_help(self.multiple_target_fields_check, "Expect the model response to contain delimited sections that map to multiple note fields.", enabled=self._config.show_tooltips)
+        set_hover_help(self.convert_markdown_to_html_check, "Convert generated Markdown into Anki-friendly HTML before writing it back.", enabled=self._config.show_tooltips)
+        set_hover_help(self.delimiter_edit, "Delimiter used to split a multi-field response, for example --Notes-- or --{field}--.", enabled=self._config.show_tooltips)
+        set_hover_help(self.target_field_combo, "Single note field that should receive the generated output.", enabled=self._config.show_tooltips)
+        set_hover_help(self.mode_combo, "Choose whether generated text overwrites, appends, or skips already-filled target fields.", enabled=self._config.show_tooltips)
+        set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Changes are saved back to that prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Changes are saved back to that prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(self.run_button, "Start processing the selected notes with the current settings.", enabled=self._config.show_tooltips)
 
         options_form.addRow("Preset", preset_row)
         options_form.addRow("Model", self.model_combo)
@@ -478,7 +504,7 @@ class TransformWithAIDialog(QDialog):
     def _update_selected_preset(self) -> None:
         preset = self._selected_preset()
         if preset is None:
-            tooltip("Choose a preset to update.", parent=self)
+            show_tooltip("Choose a preset to update.", parent=self)
             return
 
         updated = self._current_preset_choice(
@@ -494,12 +520,12 @@ class TransformWithAIDialog(QDialog):
         index = self.preset_combo.findData(updated.preset_id)
         if index >= 0:
             self.preset_combo.setCurrentIndex(index)
-        tooltip(f"Updated preset '{updated.name}'.", parent=self)
+        show_tooltip(f"Updated preset '{updated.name}'.", parent=self)
 
     def _delete_selected_preset(self) -> None:
         preset = self._selected_preset()
         if preset is None:
-            tooltip("Choose a preset to delete.", parent=self)
+            show_tooltip("Choose a preset to delete.", parent=self)
             return
         reply = QMessageBox.question(
             self,

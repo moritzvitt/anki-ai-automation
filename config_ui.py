@@ -27,6 +27,7 @@ from aqt.utils import showCritical, showInfo
 
 from .config import ADDON_NAME
 from .model_catalog import ModelOption, fallback_model_options, fetch_model_options
+from .ui_tooltips import set_hover_help
 
 
 def register_config_action() -> None:
@@ -57,6 +58,7 @@ class ConfigDialog(QDialog):
         self._current_prompt = str(self._config.get("prompt_template", ""))
 
         self.enabled_checkbox = QCheckBox("Enable AI Automation")
+        self.show_tooltips_checkbox = QCheckBox("Show tooltips and hover help")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.model_combo = QComboBox()
@@ -106,6 +108,18 @@ class ConfigDialog(QDialog):
         self.prompt_edit.setMinimumHeight(180)
         self.model_status_label.setWordWrap(True)
         self.refresh_models_button.clicked.connect(self._refresh_model_options)
+        help_enabled = bool(self._config.get("show_tooltips", True))
+        set_hover_help(self.enabled_checkbox, "Turn the add-on on or off for this Anki profile.", enabled=help_enabled)
+        set_hover_help(
+            self.show_tooltips_checkbox,
+            "Enable or disable hover help and small popup tooltip messages throughout the add-on.",
+            enabled=help_enabled,
+        )
+        set_hover_help(self.api_key_edit, "OpenAI API key used for live model loading and AI requests.", enabled=help_enabled)
+        set_hover_help(self.model_combo, "Default model used unless a Browser run or workflow overrides it.", enabled=help_enabled)
+        set_hover_help(self.refresh_models_button, "Fetch the latest recommended model shortlist from OpenAI.", enabled=help_enabled)
+        set_hover_help(self.system_prompt_edit, "System instructions sent with every request unless overridden elsewhere.", enabled=help_enabled)
+        set_hover_help(self.prompt_edit, "Default user prompt template. Use {{FieldName}} placeholders to pull note content.", enabled=help_enabled)
 
         model_row = QWidget()
         model_layout = QVBoxLayout(model_row)
@@ -118,6 +132,7 @@ class ConfigDialog(QDialog):
         model_layout.addWidget(self.model_status_label)
 
         form.addRow(self.enabled_checkbox)
+        form.addRow(self.show_tooltips_checkbox)
         form.addRow("API key", self.api_key_edit)
         form.addRow("Model", model_row)
         form.addRow("System prompt", self.system_prompt_edit)
@@ -133,11 +148,18 @@ class ConfigDialog(QDialog):
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
+        set_hover_help(
+            self.prompt_history_list,
+            "Older saved versions of the main prompt template.",
+            enabled=bool(self._config.get("show_tooltips", True)),
+        )
         layout.addWidget(self.prompt_history_list)
 
         button_row = QHBoxLayout()
         use_selected_button = QPushButton("Use Selected Prompt")
         delete_selected_button = QPushButton("Delete Selected")
+        set_hover_help(use_selected_button, "Restore the highlighted older prompt into the editor.", enabled=bool(self._config.get("show_tooltips", True)))
+        set_hover_help(delete_selected_button, "Remove the highlighted prompt history entry.", enabled=bool(self._config.get("show_tooltips", True)))
         use_selected_button.clicked.connect(self._use_selected_prompt)
         delete_selected_button.clicked.connect(self._delete_selected_prompt)
         button_row.addWidget(use_selected_button)
@@ -156,6 +178,11 @@ class ConfigDialog(QDialog):
         layout.addWidget(rules_label)
 
         self.note_type_rules_list.setMinimumHeight(180)
+        set_hover_help(
+            self.note_type_rules_list,
+            "Per-note-type output rules. These decide which fields are written back when the add-on runs automatically.",
+            enabled=bool(self._config.get("show_tooltips", True)),
+        )
         layout.addWidget(QLabel("Note type rules"))
         layout.addWidget(self.note_type_rules_list)
 
@@ -163,6 +190,9 @@ class ConfigDialog(QDialog):
         add_rule_button = QPushButton("Add Rule")
         edit_rule_button = QPushButton("Edit Rule")
         delete_rule_button = QPushButton("Delete Rule")
+        set_hover_help(add_rule_button, "Create a new note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
+        set_hover_help(edit_rule_button, "Edit the currently selected note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
+        set_hover_help(delete_rule_button, "Delete the currently selected note type rule.", enabled=bool(self._config.get("show_tooltips", True)))
         add_rule_button.clicked.connect(self._add_rule)
         edit_rule_button.clicked.connect(self._edit_rule)
         delete_rule_button.clicked.connect(self._delete_rule)
@@ -175,6 +205,7 @@ class ConfigDialog(QDialog):
 
     def _populate_fields(self) -> None:
         self.enabled_checkbox.setChecked(bool(self._config.get("enabled", True)))
+        self.show_tooltips_checkbox.setChecked(bool(self._config.get("show_tooltips", True)))
         self.api_key_edit.setText(str(self._config.get("openai_api_key", "")))
         self.system_prompt_edit.setPlainText(str(self._config.get("system_prompt", "")))
         self.prompt_edit.setPlainText(self._current_prompt)
@@ -207,6 +238,7 @@ class ConfigDialog(QDialog):
         self._config.update(
             {
                 "enabled": self.enabled_checkbox.isChecked(),
+                "show_tooltips": self.show_tooltips_checkbox.isChecked(),
                 "openai_api_key": self.api_key_edit.text().strip(),
                 "model": self.model_combo.currentData() or self.model_combo.currentText().strip(),
                 "system_prompt": self.system_prompt_edit.toPlainText().strip(),
@@ -421,6 +453,10 @@ class MappingDialog(QDialog):
         self.system_prompt_edit.setPlaceholderText("Optional custom system prompt for this note type")
         self.prompt_template_edit.setMinimumHeight(140)
         self.system_prompt_edit.setMinimumHeight(120)
+        set_hover_help(self.note_type_edit, "Exact note type name, or * to match every note type not covered by a more specific rule.")
+        set_hover_help(self.output_fields_edit, "Comma-separated list of note fields that this rule is allowed to update.")
+        set_hover_help(self.prompt_template_edit, "Optional rule-specific prompt that overrides the global prompt template.")
+        set_hover_help(self.system_prompt_edit, "Optional rule-specific system prompt that overrides the global system prompt.")
         form.addRow("Note type", self.note_type_edit)
         form.addRow("Output fields", self.output_fields_edit)
         form.addRow("Prompt override", self.prompt_template_edit)

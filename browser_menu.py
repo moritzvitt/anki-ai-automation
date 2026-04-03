@@ -5,9 +5,9 @@ from typing import Any
 from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.qt import QAction, QMenu
-from aqt.utils import tooltip
 
 from .automation_ui import open_transform_dialog
+from .ui_tooltips import show_tooltip
 
 
 def register_browser_menu() -> None:
@@ -31,7 +31,7 @@ def _on_browser_context_menu(browser: Browser, menu: QMenu) -> None:
 def _trigger_processing(browser: Browser) -> None:
     note_ids = _selected_note_ids(browser)
     if not note_ids:
-        tooltip("Select at least one card or note in the Browser.", parent=browser)
+        show_tooltip("Select at least one card or note in the Browser.", parent=browser)
         return
 
     open_transform_dialog(browser, note_ids)

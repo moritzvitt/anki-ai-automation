@@ -12,7 +12,7 @@ from aqt import mw
 from aqt.browser import Browser
 from aqt.qt import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 from aqt.operations import QueryOp
-from aqt.utils import askUser, showCritical, showInfo, tooltip
+from aqt.utils import askUser, showCritical, showInfo
 
 from .config import AddonConfig, FieldMapping
 from .openai_client import (
@@ -26,6 +26,7 @@ from .openai_client import (
 from .pricing import estimate_cost_usd, resolve_model_pricing
 from .prompting import extract_placeholders, render_prompt
 from .usage_stats import record_usage_run
+from .ui_tooltips import show_tooltip
 
 
 WRITE_MODE_APPEND = "append"
@@ -569,7 +570,7 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
                 summary += f", used {usage_totals['total_tokens']:,} tokens"
             if usage_totals["estimated_cost_usd"] is not None:
                 summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
-            tooltip(summary + ".", parent=browser)
+            show_tooltip(summary + ".", parent=browser)
         elif usage_totals["request_count"]:
             summary = (
                 f"AI Automation processed {usage_totals['request_count']} note(s), "
@@ -577,9 +578,9 @@ def _apply_result(browser: Browser, config: AddonConfig, result: ProcessingResul
             )
             if usage_totals["estimated_cost_usd"] is not None:
                 summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
-            tooltip(summary + ".", parent=browser)
+            show_tooltip(summary + ".", parent=browser)
         elif applied:
-            tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
+            show_tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
 
         if result.failures:
             showInfo(_format_failure_report(result.failures), parent=browser)

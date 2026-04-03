@@ -25,7 +25,7 @@ from aqt.qt import (
     QVBoxLayout,
     QWidget,
 )
-from aqt.utils import askUser, showCritical, showInfo, tooltip
+from aqt.utils import askUser, showCritical, showInfo
 
 from .automation_ui import (
     ProcessingPresetChoice,
@@ -54,6 +54,7 @@ from .processing import (
     prepare_manual_ai_processing,
     start_prepared_manual_processing,
 )
+from .ui_tooltips import set_hover_help, show_tooltip
 
 
 @dataclass(frozen=True)
@@ -130,14 +131,17 @@ class WorkflowManagerDialog(QDialog):
         group_layout = QHBoxLayout(group_box)
         group_layout.addWidget(QLabel("Workflow group"))
         group_layout.addWidget(self.group_run_combo, stretch=1)
+        set_hover_help(self.group_run_combo, "Filter the workflow list by group, or choose a group to run all of its workflows.", enabled=self._config.show_tooltips)
         self.group_run_combo.currentIndexChanged.connect(self._populate)
         run_group_button = QPushButton("Run Group")
+        set_hover_help(run_group_button, "Run every workflow in the currently selected group, in order.", enabled=self._config.show_tooltips)
         run_group_button.clicked.connect(self._run_selected_group)
         group_layout.addWidget(run_group_button)
         layout.addWidget(group_box)
 
         layout.addWidget(QLabel("Workflows"))
         self.workflow_list.setMinimumHeight(320)
+        set_hover_help(self.workflow_list, "Saved query-based workflows. Each row shows the query, prompt, target field, and run mode.", enabled=self._config.show_tooltips)
         layout.addWidget(self.workflow_list)
 
         button_row = QHBoxLayout()
@@ -148,6 +152,13 @@ class WorkflowManagerDialog(QDialog):
         move_up_button = QPushButton("Move Up")
         move_down_button = QPushButton("Move Down")
         run_button = QPushButton("Run Workflow")
+        set_hover_help(add_button, "Create a new workflow.", enabled=self._config.show_tooltips)
+        set_hover_help(edit_button, "Edit the selected workflow.", enabled=self._config.show_tooltips)
+        set_hover_help(delete_button, "Delete the selected workflow.", enabled=self._config.show_tooltips)
+        set_hover_help(duplicate_button, "Create a copy of the selected workflow.", enabled=self._config.show_tooltips)
+        set_hover_help(move_up_button, "Move the selected workflow earlier in the run order.", enabled=self._config.show_tooltips)
+        set_hover_help(move_down_button, "Move the selected workflow later in the run order.", enabled=self._config.show_tooltips)
+        set_hover_help(run_button, "Run only the currently selected workflow.", enabled=self._config.show_tooltips)
         add_button.clicked.connect(self._add_workflow)
         edit_button.clicked.connect(self._edit_workflow)
         delete_button.clicked.connect(self._delete_workflow)
@@ -393,7 +404,7 @@ class WorkflowManagerDialog(QDialog):
     def _duplicate_workflow(self) -> None:
         workflow = self._selected_workflow()
         if workflow is None:
-            tooltip("Select a workflow to duplicate.", parent=self)
+            show_tooltip("Select a workflow to duplicate.", parent=self)
             return
 
         row = self._workflows.index(workflow)
@@ -432,18 +443,18 @@ class WorkflowManagerDialog(QDialog):
     def _run_selected_workflow(self) -> None:
         workflow = self._selected_workflow()
         if workflow is None:
-            tooltip("Select a workflow to run.", parent=self)
+            show_tooltip("Select a workflow to run.", parent=self)
             return
         self._run_workflow_sequence([workflow], run_label=workflow.name)
 
     def _run_selected_group(self) -> None:
         group_id = self.group_run_combo.currentData()
         if not isinstance(group_id, str) or not group_id:
-            tooltip("Choose a workflow group to run.", parent=self)
+            show_tooltip("Choose a workflow group to run.", parent=self)
             return
         workflows = [workflow for workflow in self._workflows if workflow.group_id == group_id]
         if not workflows:
-            tooltip("This group does not contain any workflows.", parent=self)
+            show_tooltip("This group does not contain any workflows.", parent=self)
             return
         group_name = self._group_name(group_id) or "Selected group"
         self._run_workflow_sequence(workflows, run_label=group_name)
@@ -456,7 +467,7 @@ class WorkflowManagerDialog(QDialog):
             return
 
         if not config.enabled:
-            tooltip("AI Automation is disabled in the add-on config.", parent=self)
+            show_tooltip("AI Automation is disabled in the add-on config.", parent=self)
             return
 
         prompt_lookup = {prompt.prompt_id: prompt for prompt in config.saved_prompts}
@@ -638,12 +649,12 @@ class WorkflowManagerDialog(QDialog):
 
     def _show_workflow_sequence_summary(self, summary: WorkflowSequenceSummary) -> None:
         if summary.updated_requests:
-            tooltip(
+            show_tooltip(
                 f"AI Automation ran workflows and sent {summary.updated_requests} request(s).",
                 parent=self,
             )
         elif not summary.failures and not summary.skipped:
-            tooltip("No workflows ran.", parent=self)
+            show_tooltip("No workflows ran.", parent=self)
 
         report_lines = ["Workflow run summary:", ""]
         report_lines.extend(f"- {line}" for line in summary.workflow_reports)
@@ -714,6 +725,7 @@ class WorkflowDialog(QDialog):
         self._groups = list(groups)
         self._current_group_name = current_group_name or ""
         self._current_model = current_model
+        self._show_tooltips = load_config().show_tooltips
         self._model_options = fallback_model_options(
             current_model=current_model,
             pricing_overrides=model_pricing,
@@ -745,6 +757,9 @@ class WorkflowDialog(QDialog):
         form = QFormLayout()
 
         self.query_edit.setMinimumHeight(96)
+        set_hover_help(self.name_edit, "Friendly workflow name shown in the manager and run confirmations.", enabled=self._show_tooltips)
+        set_hover_help(self.query_edit, "Anki Browser search query used to find notes for this workflow.", enabled=self._show_tooltips)
+        set_hover_help(self.query_count_label, "Shows how many notes currently match the workflow query.", enabled=self._show_tooltips)
 
         prompt_row = QWidget()
         prompt_layout = QHBoxLayout(prompt_row)
@@ -753,6 +768,10 @@ class WorkflowDialog(QDialog):
         new_button = QPushButton("New")
         edit_button = QPushButton("Edit")
         delete_button = QPushButton("Delete")
+        set_hover_help(self.prompt_combo, "Choose the saved user prompt for this workflow.", enabled=self._show_tooltips)
+        set_hover_help(new_button, "Create a new saved user prompt.", enabled=self._show_tooltips)
+        set_hover_help(edit_button, "Edit the selected saved user prompt.", enabled=self._show_tooltips)
+        set_hover_help(delete_button, "Delete the selected saved user prompt.", enabled=self._show_tooltips)
         new_button.clicked.connect(self._create_prompt)
         edit_button.clicked.connect(self._edit_prompt)
         delete_button.clicked.connect(self._delete_prompt)
@@ -764,6 +783,7 @@ class WorkflowDialog(QDialog):
         system_prompt_layout = QHBoxLayout(system_prompt_row)
         system_prompt_layout.setContentsMargins(0, 0, 0, 0)
         system_prompt_layout.addWidget(self.system_prompt_combo, stretch=1)
+        set_hover_help(self.system_prompt_combo, "Choose the saved system prompt for this workflow.", enabled=self._show_tooltips)
 
         query_row = QWidget()
         query_layout = QVBoxLayout(query_row)
@@ -772,6 +792,7 @@ class WorkflowDialog(QDialog):
         refresh_row = QHBoxLayout()
         refresh_row.setContentsMargins(0, 0, 0, 0)
         refresh_button = QPushButton("Refresh Count")
+        set_hover_help(refresh_button, "Run the Anki search query now and show the current match count.", enabled=self._show_tooltips)
         refresh_button.clicked.connect(self._refresh_query_count)
         refresh_row.addWidget(refresh_button)
         refresh_row.addWidget(self.query_count_label, stretch=1)
@@ -801,12 +822,25 @@ class WorkflowDialog(QDialog):
         save_preset_button = QPushButton("Save")
         update_preset_button = QPushButton("Update")
         delete_preset_button = QPushButton("Delete")
+        set_hover_help(self.preset_combo, "Load a saved processing preset into this workflow.", enabled=self._show_tooltips)
+        set_hover_help(save_preset_button, "Save the current workflow processing settings as a reusable preset.", enabled=self._show_tooltips)
+        set_hover_help(update_preset_button, "Overwrite the selected preset with the current workflow settings.", enabled=self._show_tooltips)
+        set_hover_help(delete_preset_button, "Delete the selected processing preset.", enabled=self._show_tooltips)
         save_preset_button.clicked.connect(self._save_current_as_preset)
         update_preset_button.clicked.connect(self._update_selected_preset)
         delete_preset_button.clicked.connect(self._delete_selected_preset)
         preset_layout.addWidget(save_preset_button)
         preset_layout.addWidget(update_preset_button)
         preset_layout.addWidget(delete_preset_button)
+        set_hover_help(self.model_combo, "Model used by this workflow. Leave it on the current selection to follow the global default.", enabled=self._show_tooltips)
+        set_hover_help(self.use_global_temperature_check, "Use the global temperature from settings instead of a workflow-specific value.", enabled=self._show_tooltips)
+        set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._show_tooltips)
+        set_hover_help(self.multiple_target_fields_check, "Expect delimited response sections that map to multiple note fields.", enabled=self._show_tooltips)
+        set_hover_help(self.convert_markdown_to_html_check, "Convert generated Markdown to HTML before saving it back into notes.", enabled=self._show_tooltips)
+        set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
+        set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
+        set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
+        set_hover_help(self.group_combo, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
         form.addRow("Preset", preset_row)
         form.addRow("Model", self.model_combo)
         temperature_row = QWidget()
@@ -1027,7 +1061,7 @@ class WorkflowDialog(QDialog):
     def _update_selected_preset(self) -> None:
         preset = self._selected_preset()
         if preset is None:
-            tooltip("Choose a preset to update.", parent=self)
+            show_tooltip("Choose a preset to update.", parent=self)
             return
 
         updated = self._current_preset_choice(
@@ -1043,12 +1077,12 @@ class WorkflowDialog(QDialog):
         index = self.preset_combo.findData(updated.preset_id)
         if index >= 0:
             self.preset_combo.setCurrentIndex(index)
-        tooltip(f"Updated preset '{updated.name}'.", parent=self)
+        show_tooltip(f"Updated preset '{updated.name}'.", parent=self)
 
     def _delete_selected_preset(self) -> None:
         preset = self._selected_preset()
         if preset is None:
-            tooltip("Choose a preset to delete.", parent=self)
+            show_tooltip("Choose a preset to delete.", parent=self)
             return
         reply = QMessageBox.question(
             self,
