@@ -203,16 +203,16 @@ class TransformWithAIDialog(QDialog):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        summary_group = QGroupBox("Selection")
-        summary_form = QFormLayout(summary_group)
+        self.summary_group = QGroupBox("Selection")
+        summary_form = QFormLayout(self.summary_group)
         self.note_count_label.setWordWrap(True)
         self.note_types_label.setWordWrap(True)
         summary_form.addRow("Notes", self.note_count_label)
         summary_form.addRow("Note types", self.note_types_label)
         set_hover_help(self.note_count_label, "How many selected Browser rows resolve to notes that can be processed.", enabled=self._config.show_tooltips)
         set_hover_help(self.note_types_label, "Shared note types across the current selection.", enabled=self._config.show_tooltips)
-        if not self._settings_only:
-            layout.addWidget(summary_group)
+        layout.addWidget(self.summary_group)
+        self.summary_group.setVisible(not self._settings_only)
 
         options_group = QGroupBox("Run Settings")
         options_form = QFormLayout(options_group)
@@ -903,6 +903,7 @@ class SavedPromptDialog(QDialog):
         self._require_prompt_text = require_prompt_text
 
         self.name_edit = QLineEdit()
+        self.name_edit.setMinimumWidth(760)
         self.prompt_edit = QPlainTextEdit()
         self.prompt_edit.setMinimumHeight(220)
         self.prompt_edit.setPlaceholderText(placeholder_text)

@@ -6,12 +6,15 @@ from typing import Callable
 from aqt import mw
 from aqt.qt import (
     QAction,
+    Qt,
+    QAbstractScrollArea,
     QCheckBox,
     QColor,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFrame,
     QSpinBox,
     QFormLayout,
     QGroupBox,
@@ -24,6 +27,8 @@ from aqt.qt import (
     QPushButton,
     QPlainTextEdit,
     QPalette,
+    QScrollArea,
+    QTimer,
     QVBoxLayout,
     QWidget,
 )
@@ -135,11 +140,11 @@ class WorkflowManagerDialog(QDialog):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        group_box = QGroupBox("Run Group")
+        group_box = QGroupBox("Workflow Group")
         group_layout = QHBoxLayout(group_box)
         group_layout.addWidget(QLabel("Workflow group"))
         group_layout.addWidget(self.group_run_combo, stretch=1)
-        set_hover_help(self.group_run_combo, "Filter the workflow list by group, or choose a group to run all of its workflows.", enabled=self._config.show_tooltips)
+        set_hover_help(self.group_run_combo, "Filter the workflow list by group.", enabled=self._config.show_tooltips)
         self.group_run_combo.currentIndexChanged.connect(self._populate)
         run_group_button = QPushButton("Run Group")
         set_hover_help(run_group_button, "Run every workflow in the currently selected group, in order.", enabled=self._config.show_tooltips)
@@ -771,7 +776,7 @@ class WorkflowDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Workflow")
-        self.resize(720, 560)
+        self.resize(1440, 840)
 
         self._raw_config = load_raw_config()
         self._prompts = list(prompts)
@@ -788,7 +793,7 @@ class WorkflowDialog(QDialog):
         )
 
         self.name_edit = QLineEdit()
-        self.query_edit = QPlainTextEdit()
+        self.query_edit = QLineEdit()
         self.query_count_label = QLabel("Click Refresh Count to check the query.")
         self.model_combo = QComboBox()
         self.use_global_temperature_check = QCheckBox("Use global temperature")
@@ -810,15 +815,30 @@ class WorkflowDialog(QDialog):
         self.trigger_on_periodic_check = QCheckBox("Run automatically when the condition becomes true")
         self.trigger_min_matches_spin = QSpinBox()
         self.group_edit = QLineEdit()
+        self.preset_group: QWidget | None = None
+        self.prompt_group: QWidget | None = None
+        self._scroll_area: QScrollArea | None = None
+        self._scroll_content: QWidget | None = None
+        self._buttons_box: QDialogButtonBox | None = None
 
         self._build_ui()
         self._populate(workflow)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        content = QWidget()
+        scroll_area.setWidget(content)
+        self._scroll_area = scroll_area
+        self._scroll_content = content
+        content_layout = QVBoxLayout(content)
         form = QFormLayout()
 
-        self.query_edit.setMinimumHeight(96)
+        self.query_edit.setMinimumWidth(760)
+        self.name_edit.setMinimumWidth(760)
         set_hover_help(self.name_edit, "Friendly workflow name shown in the manager and run confirmations.", enabled=self._show_tooltips)
         set_hover_help(self.query_edit, "Anki Browser search query used to find notes for this workflow.", enabled=self._show_tooltips)
         set_hover_help(self.query_count_label, "Shows how many notes currently match the workflow query.", enabled=self._show_tooltips)
@@ -895,6 +915,7 @@ class WorkflowDialog(QDialog):
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
+
         preset_row = QWidget()
         preset_layout = QHBoxLayout(preset_row)
         preset_layout.setContentsMargins(0, 0, 0, 0)
@@ -926,42 +947,116 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
         set_hover_help(self.group_edit, "Optional comma-separated workflow groups used to organize and batch-run related workflows.", enabled=self._show_tooltips)
-        form.addRow("Preset", preset_row)
-        form.addRow("Model", self.model_combo)
+
+        content_layout.addLayout(form)
+
+        preset_form = QFormLayout()
+        preset_form.addRow("Preset", preset_row)
+        preset_form.addRow("Model", self.model_combo)
         temperature_row = QWidget()
         temperature_layout = QHBoxLayout(temperature_row)
         temperature_layout.setContentsMargins(0, 0, 0, 0)
         temperature_layout.addWidget(self.use_global_temperature_check)
         temperature_layout.addWidget(self.temperature_spin)
-        form.addRow("Temperature", temperature_row)
-        form.addRow("Prompt", prompt_row)
-        form.addRow("System prompt", system_prompt_row)
-        form.addRow("", self.multiple_target_fields_check)
-        form.addRow("", self.convert_markdown_to_html_check)
-        form.addRow("Response delimiter", self.delimiter_edit)
-        form.addRow("Target field", self.target_field_combo)
-        form.addRow("Mode", self.mode_combo)
-        form.addRow("", self.trigger_on_startup_check)
-        form.addRow("", self.trigger_on_periodic_check)
-        form.addRow("Trigger min matches", self.trigger_min_matches_spin)
-        form.addRow("Groups", self.group_edit)
-        layout.addLayout(form)
-        layout.addWidget(QLabel("Prompt"))
-        layout.addWidget(self.prompt_preview)
-        layout.addWidget(QLabel("System prompt"))
-        layout.addWidget(self.system_prompt_preview)
+        preset_form.addRow("Temperature", temperature_row)
+        preset_form.addRow("", self.multiple_target_fields_check)
+        preset_form.addRow("", self.convert_markdown_to_html_check)
+        preset_form.addRow("Response delimiter", self.delimiter_edit)
+        preset_form.addRow("Target field", self.target_field_combo)
+        preset_form.addRow("Mode", self.mode_combo)
+        preset_form.addRow("", self.trigger_on_startup_check)
+        preset_form.addRow("", self.trigger_on_periodic_check)
+        preset_form.addRow("Trigger min matches", self.trigger_min_matches_spin)
+        preset_form.addRow("Groups", self.group_edit)
+        self.preset_group = self._make_collapsible_section("Preset Settings", preset_form, expanded=True)
+        content_layout.addWidget(self.preset_group)
+
+        prompt_layout_group = QVBoxLayout()
+        prompt_layout_group.addWidget(prompt_row)
+        prompt_layout_group.addWidget(QLabel("Prompt"))
+        prompt_layout_group.addWidget(self.prompt_preview)
+        prompt_layout_group.addWidget(system_prompt_row)
+        prompt_layout_group.addWidget(QLabel("System prompt"))
+        prompt_layout_group.addWidget(self.system_prompt_preview)
+        self.prompt_group = self._make_collapsible_section("Prompt Settings", prompt_layout_group, expanded=False)
+        content_layout.addWidget(self.prompt_group)
 
         help_text = QLabel(
             "Queries use normal Anki Browser syntax and operate on notes. "
             "Use Refresh Count to preview how many notes currently match."
         )
         help_text.setWordWrap(True)
-        layout.addWidget(help_text)
+        content_layout.addWidget(help_text)
+        content_layout.addStretch(1)
+        layout.addWidget(scroll_area)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
+        self._buttons_box = buttons
         layout.addWidget(buttons)
+
+    def _make_collapsible_section(
+        self,
+        title: str,
+        inner_layout: QFormLayout | QVBoxLayout,
+        *,
+        expanded: bool,
+    ) -> QWidget:
+        section = QWidget(self)
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(4)
+
+        toggle = QPushButton(section)
+        toggle.setCheckable(True)
+        toggle.setChecked(expanded)
+        toggle.setFlat(True)
+        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        toggle.setStyleSheet("QPushButton { border: none; font-weight: 600; text-align: left; padding: 2px 0; }")
+
+        content = QWidget(section)
+        content.setLayout(inner_layout)
+        content.setVisible(expanded)
+
+        def _set_toggle_label(is_expanded: bool) -> None:
+            toggle.setText(f"{'▾' if is_expanded else '▸'} {title}")
+
+        def _toggle_section(is_expanded: bool) -> None:
+            _set_toggle_label(is_expanded)
+            content.setVisible(is_expanded)
+            if is_expanded:
+                QTimer.singleShot(0, self._expand_window_to_fit_content)
+
+        _set_toggle_label(expanded)
+        toggle.toggled.connect(_toggle_section)
+        section_layout.addWidget(toggle)
+        section_layout.addWidget(content)
+        return section
+
+    def _expand_window_to_fit_content(self) -> None:
+        if self._scroll_content is not None:
+            self._scroll_content.adjustSize()
+        if self._scroll_area is not None:
+            self._scroll_area.updateGeometry()
+        self.layout().activate()
+        hint = self.layout().sizeHint()
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            max_width = max(available.width() - 60, 720)
+            max_height = max(available.height() - 60, 520)
+        else:
+            max_width = hint.width()
+            max_height = hint.height()
+        width_padding = 24
+        height_padding = 24
+        if self._scroll_area is not None:
+            width_padding += self._scroll_area.frameWidth() * 2
+            height_padding += self._scroll_area.frameWidth() * 2
+        target_width = min(max(self.width(), hint.width() + width_padding), max_width)
+        target_height = min(max(self.height(), hint.height() + height_padding), max_height)
+        self.resize(target_width, target_height)
 
     def _populate(self, workflow: Workflow | None) -> None:
         self._populate_prompt_combo()
@@ -976,7 +1071,7 @@ class WorkflowDialog(QDialog):
             return
 
         self.name_edit.setText(workflow.name)
-        self.query_edit.setPlainText(workflow.query)
+        self.query_edit.setText(workflow.query)
         self.target_field_combo.setEditText(workflow.target_field)
         self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
@@ -1006,7 +1101,7 @@ class WorkflowDialog(QDialog):
 
     def workflow_draft(self) -> WorkflowDraft | None:
         name = self.name_edit.text().strip()
-        query = self.query_edit.toPlainText().strip()
+        query = self.query_edit.text().strip()
         model = self.model_combo.currentData() or self.model_combo.currentText().strip()
         prompt_id = self.prompt_combo.currentData() or self.prompt_combo.currentText().strip()
         system_prompt_id = self.system_prompt_combo.currentData() or ""
@@ -1313,7 +1408,7 @@ class WorkflowDialog(QDialog):
         self.target_field_combo.setEditText(field_name)
 
     def _refresh_query_count(self) -> None:
-        query = self.query_edit.toPlainText().strip()
+        query = self.query_edit.text().strip()
         if not query:
             self.query_count_label.setText("Enter a query first.")
             return

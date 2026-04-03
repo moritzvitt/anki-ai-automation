@@ -24,6 +24,9 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Workflow group filtering and group runs now include workflows that belong to more than one group.
 - The main config dialog now focuses on core settings and links out to dedicated workflow and Browser settings dialogs.
 - The default flashcard system prompt no longer forces strict JSON-only output.
+- Workflow editing now uses a wider, scrollable layout with collapsible settings sections to make large workflows easier to review.
+- Workflow queries now use a single-line input, and workflow group filtering uses clearer wording in the manager.
+- Browser AI and saved prompt dialogs now use roomier layouts, including a consistent selection summary area and wider prompt name input.
 
 ## 0.1.0 - 2026-03-27
 
