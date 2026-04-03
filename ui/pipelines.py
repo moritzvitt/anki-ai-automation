@@ -16,6 +16,7 @@ from aqt.qt import (
 )
 from aqt.utils import showCritical, showInfo
 
+from ..core.audit_flow import apply_audit_run_result
 from ..core.config import ConfigError, Pipeline, load_config
 from ..core.pipelines import PipelineRunResult, execute_pipeline_by_id
 from .tooltips import set_hover_help, show_tooltip
@@ -138,6 +139,15 @@ class PipelineManagerDialog(QDialog):
 
     def _on_pipeline_finished(self, pipeline: Pipeline, result: PipelineRunResult) -> None:
         self.setEnabled(True)
+        workflow_lookup = {workflow.workflow_id: workflow for workflow in self._config.workflows}
+        for report in result.step_reports:
+            for deferred in report.deferred_audit_applications:
+                apply_audit_run_result(
+                    deferred.result,
+                    workflow=workflow_lookup.get(deferred.workflow_id),
+                    config=self._config,
+                    show_feedback=False,
+                )
         success_count = sum(1 for context in result.contexts if not context.failures)
         failure_count = sum(1 for context in result.contexts if context.failures)
         show_tooltip(

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from aqt import mw
 
 from .audit_flow import (
-    apply_audit_run_result,
+    AuditRunResult,
     audit_success_artifact,
     execute_audit_workflow,
 )
@@ -15,6 +15,12 @@ from .processing import (
     execute_prepared_manual_processing,
     prepare_manual_ai_processing,
 )
+
+
+@dataclass(frozen=True)
+class DeferredAuditApplication:
+    workflow_id: str
+    result: AuditRunResult
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,7 @@ class WorkflowExecutionResult:
     failures: list[str]
     updated_requests: int
     artifacts_by_note_id: dict[int, dict[str, object]]
+    deferred_audit_applications: list[DeferredAuditApplication]
 
 
 def execute_workflow(
@@ -110,6 +117,7 @@ def _execute_field_update_workflow(
         ],
         updated_requests=len(result.updates),
         artifacts_by_note_id={},
+        deferred_audit_applications=[],
     )
 
 
@@ -122,7 +130,6 @@ def _execute_audit_workflow(
 ) -> WorkflowExecutionResult:
     ordered_note_ids = [int(note_id) for note_id in note_ids]
     result = execute_audit_workflow(config, workflow, note_ids, max_notes=None)
-    apply_audit_run_result(result, workflow=workflow, config=config, show_feedback=show_feedback)
 
     succeeded_note_ids = [item.note_id for item in result.successes]
     failed_note_ids = [item.note_id for item in result.failures]
@@ -146,6 +153,9 @@ def _execute_audit_workflow(
             success.note_id: {"audit": audit_success_artifact(success)}
             for success in result.successes
         },
+        deferred_audit_applications=[
+            DeferredAuditApplication(workflow_id=workflow.workflow_id, result=result)
+        ],
     )
 
 

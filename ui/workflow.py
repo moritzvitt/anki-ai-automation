@@ -42,6 +42,7 @@ from .automation import (
     SavedPromptDialog,
     _preset_choices_from_saved_processing_presets,
 )
+from ..core.audit_flow import apply_audit_run_result
 from ..core.audit_prompts import AUDIT_SCHEMA_PRESET_MLR, available_audit_schema_presets
 from ..core.config import (
     ConfigError,
@@ -744,6 +745,13 @@ class WorkflowManagerDialog(QDialog):
         show_summary_dialog: bool,
         on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
+        for deferred in result.deferred_audit_applications:
+            apply_audit_run_result(
+                deferred.result,
+                workflow=workflow,
+                config=config,
+                show_feedback=False,
+            )
         summary.updated_requests += result.updated_requests
         summary.workflow_reports.append(
             f"{workflow.name}: {len(result.succeeded_note_ids)} processed, {len(result.failed_note_ids) + len(result.skipped_note_ids)} skipped."
@@ -882,6 +890,9 @@ class WorkflowDialog(QDialog):
         self._scroll_area: QScrollArea | None = None
         self._scroll_content: QWidget | None = None
         self._buttons_box: QDialogButtonBox | None = None
+        self._preset_form: QFormLayout | None = None
+        self._preset_row: QWidget | None = None
+        self._preset_group_toggle: QPushButton | None = None
 
         self._build_ui()
         self._populate(workflow)
@@ -991,6 +1002,7 @@ class WorkflowDialog(QDialog):
         form.addRow("", self.enabled_check)
 
         preset_row = QWidget()
+        self._preset_row = preset_row
         preset_layout = QHBoxLayout(preset_row)
         preset_layout.setContentsMargins(0, 0, 0, 0)
         preset_layout.addWidget(self.preset_combo, stretch=1)
@@ -1030,6 +1042,7 @@ class WorkflowDialog(QDialog):
         content_layout.addLayout(form)
 
         preset_form = QFormLayout()
+        self._preset_form = preset_form
         preset_form.addRow("Preset", preset_row)
         preset_form.addRow("Model", self.model_combo)
         preset_form.addRow("API mode", self.api_mode_combo)
@@ -1113,6 +1126,8 @@ class WorkflowDialog(QDialog):
         toggle.toggled.connect(_toggle_section)
         section_layout.addWidget(toggle)
         section_layout.addWidget(content)
+        if title == "Preset Settings":
+            self._preset_group_toggle = toggle
         return section
 
     def _expand_window_to_fit_content(self) -> None:
@@ -1347,7 +1362,30 @@ class WorkflowDialog(QDialog):
         if is_audit:
             self.multiple_target_fields_check.setChecked(False)
             self._set_combo_to_data(self.api_mode_combo, "responses")
+        self._set_preset_form_row_visible(self._preset_row, not is_audit)
+        self._set_preset_form_row_visible(self.multiple_target_fields_check, not is_audit)
+        self._set_preset_form_row_visible(self.convert_markdown_to_html_check, not is_audit)
+        self._set_preset_form_row_visible(self.delimiter_edit, not is_audit)
+        self._set_preset_form_row_visible(self.target_field_combo, not is_audit)
+        self._set_preset_form_row_visible(self.mode_combo, not is_audit)
+        self._set_preset_form_row_visible(self.schema_preset_combo, is_audit)
+        self._update_preset_group_title(is_audit=is_audit)
         self._refresh_target_mode_ui()
+
+    def _set_preset_form_row_visible(self, field: QWidget | None, visible: bool) -> None:
+        if self._preset_form is None or field is None:
+            return
+        label = self._preset_form.labelForField(field)
+        if label is not None:
+            label.setVisible(visible)
+        field.setVisible(visible)
+
+    def _update_preset_group_title(self, *, is_audit: bool) -> None:
+        if self._preset_group_toggle is None:
+            return
+        title = "Audit Settings" if is_audit else "Preset Settings"
+        prefix = "▾" if self._preset_group_toggle.isChecked() else "▸"
+        self._preset_group_toggle.setText(f"{prefix} {title}")
 
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())

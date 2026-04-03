@@ -8,6 +8,7 @@ from aqt.operations import QueryOp
 from aqt.qt import QAction, QMenu
 from aqt.utils import showCritical, showInfo
 
+from ..core.audit_flow import apply_audit_run_result
 from ..core.config import ConfigError, load_config
 from ..core.workflow_engine import execute_workflow_by_id
 from .automation import open_transform_dialog
@@ -63,20 +64,28 @@ def _trigger_audit(browser: Browser) -> None:
     op = QueryOp(
         parent=browser,
         op=lambda _col: execute_workflow_by_id(config, "mlr-audit", note_ids=note_ids, show_feedback=False),
-        success=lambda result: _on_audit_workflow_finished(browser, result.workflow_name, result.updated_requests, result.failures),
+        success=lambda result: _on_audit_workflow_finished(browser, workflow, config, result),
     )
     op.with_progress(label=f"Running workflow: {workflow.name}")
     op.run_in_background()
 
 
-def _on_audit_workflow_finished(browser: Browser, workflow_name: str, updated_requests: int, failures: list[str]) -> None:
+def _on_audit_workflow_finished(browser: Browser, workflow, config, result) -> None:
+    for deferred in result.deferred_audit_applications:
+        apply_audit_run_result(
+            deferred.result,
+            workflow=workflow,
+            config=config,
+            browser=browser,
+            show_feedback=False,
+        )
     show_tooltip(
-        f"{workflow_name} checked {updated_requests} note(s).",
+        f"{result.workflow_name} checked {result.updated_requests} note(s).",
         parent=browser,
     )
-    if failures:
+    if result.failures:
         showInfo(
-            "\n".join(["Audit workflow failures:"] + failures[:20]),
+            "\n".join(["Audit workflow failures:"] + result.failures[:20]),
             parent=browser,
         )
 

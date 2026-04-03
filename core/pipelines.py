@@ -6,7 +6,7 @@ from typing import Any
 from aqt import mw
 
 from .config import AddonConfig, Pipeline, PipelineStep, Workflow
-from .workflow_engine import WorkflowExecutionResult, execute_workflow
+from .workflow_engine import DeferredAuditApplication, WorkflowExecutionResult, execute_workflow
 
 
 @dataclass
@@ -30,6 +30,7 @@ class PipelineStepReport:
     failed_note_ids: list[int]
     skipped_note_ids: list[int]
     details: list[str]
+    deferred_audit_applications: list[DeferredAuditApplication]
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ def execute_pipeline(config: AddonConfig, pipeline: Pipeline) -> PipelineRunResu
                     failed_note_ids=[],
                     skipped_note_ids=[context.note_id for context in contexts if not context.stopped],
                     details=["No notes matched this step's condition."],
+                    deferred_audit_applications=[],
                 )
             )
             continue
@@ -225,6 +227,7 @@ def _execute_workflow_step(
         failed_note_ids=execution.failed_note_ids,
         skipped_note_ids=execution.skipped_note_ids,
         details=execution.failures[:20],
+        deferred_audit_applications=list(execution.deferred_audit_applications),
     )
 
 
@@ -247,11 +250,13 @@ def _execute_group_step(
             failed_note_ids=[],
             skipped_note_ids=[context.note_id for context in contexts],
             details=[f"Group '{step.group_id}' does not contain any workflows."],
+            deferred_audit_applications=[],
         )
 
     all_succeeded: set[int] = set()
     all_failed: set[int] = set()
     details: list[str] = []
+    deferred_audit_applications: list[DeferredAuditApplication] = []
     for workflow in workflows:
         active_contexts = [context for context in contexts if not context.stopped]
         if not active_contexts:
@@ -260,6 +265,7 @@ def _execute_group_step(
         all_succeeded.update(nested_report.succeeded_note_ids)
         all_failed.update(nested_report.failed_note_ids)
         details.extend(f"{workflow.name}: {detail}" for detail in nested_report.details)
+        deferred_audit_applications.extend(nested_report.deferred_audit_applications)
 
     for context in contexts:
         if context.note_id in all_failed:
@@ -281,6 +287,7 @@ def _execute_group_step(
             if context.note_id not in all_succeeded and context.note_id not in all_failed
         ],
         details=details,
+        deferred_audit_applications=deferred_audit_applications,
     )
 
 
@@ -315,6 +322,7 @@ def _execute_tag_step(step: PipelineStep, contexts: list[PipelineNoteContext]) -
         failed_note_ids=[context.note_id for context in contexts if context.step_results.get(step.step_id) == "failed"],
         skipped_note_ids=[],
         details=[],
+        deferred_audit_applications=[],
     )
 
 
@@ -330,6 +338,7 @@ def _execute_stop_step(step: PipelineStep, contexts: list[PipelineNoteContext]) 
         failed_note_ids=[],
         skipped_note_ids=[],
         details=["Stopped matched notes from continuing through the pipeline."],
+        deferred_audit_applications=[],
     )
 def _refresh_context(context: PipelineNoteContext) -> None:
     assert mw is not None and mw.col is not None
