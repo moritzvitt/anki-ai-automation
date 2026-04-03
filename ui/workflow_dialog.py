@@ -36,6 +36,7 @@ from .automation import (
 from .tooltips import set_hover_help, show_tooltip
 from ..core.audit_prompts import AUDIT_SCHEMA_PRESET_MLR, available_audit_schema_presets
 from ..core.config import (
+    DEFAULT_PROMPTS_DIR,
     ProcessingPreset,
     Workflow,
     WorkflowGroup,
@@ -238,8 +239,6 @@ class WorkflowDialog(QDialog):
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.prompt_combo.currentIndexChanged.connect(self._refresh_prompt_preview)
         self.system_prompt_combo.currentIndexChanged.connect(self._refresh_system_prompt_preview)
-        self.prompt_preview.textChanged.connect(self._sync_prompt_from_editor)
-        self.system_prompt_preview.textChanged.connect(self._sync_system_prompt_from_editor)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setRange(0.0, 2.0)
@@ -287,8 +286,8 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
         set_hover_help(self.success_tags_edit, "Comma-separated note tags to add when this field-update workflow succeeds for a note.", enabled=self._show_tooltips)
         set_hover_help(self.failure_tags_edit, "Comma-separated note tags to add when this field-update workflow fails for a note.", enabled=self._show_tooltips)
-        set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
-        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Changes are saved back to that prompt.", enabled=self._show_tooltips)
+        set_hover_help(self.prompt_preview, "Editable text of the selected prompt. Use Save Prompt to store changes.", enabled=self._show_tooltips)
+        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Use Save System Prompt to store changes.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
@@ -324,10 +323,28 @@ class WorkflowDialog(QDialog):
 
         prompt_layout_group = QVBoxLayout()
         prompt_layout_group.addWidget(prompt_row)
-        prompt_layout_group.addWidget(QLabel("Prompt"))
+        prompt_preview_header = QWidget()
+        prompt_preview_header_layout = QHBoxLayout(prompt_preview_header)
+        prompt_preview_header_layout.setContentsMargins(0, 0, 0, 0)
+        prompt_preview_header_layout.addWidget(QLabel("Prompt"))
+        prompt_preview_header_layout.addStretch(1)
+        save_prompt_button = QPushButton("Save Prompt")
+        set_hover_help(save_prompt_button, "Save the edited prompt text. Shipped default prompts are forked into a new user prompt instead of being overwritten.", enabled=self._show_tooltips)
+        save_prompt_button.clicked.connect(self._save_prompt_preview)
+        prompt_preview_header_layout.addWidget(save_prompt_button)
+        prompt_layout_group.addWidget(prompt_preview_header)
         prompt_layout_group.addWidget(self.prompt_preview)
         prompt_layout_group.addWidget(system_prompt_row)
-        prompt_layout_group.addWidget(QLabel("System prompt"))
+        system_prompt_header = QWidget()
+        system_prompt_header_layout = QHBoxLayout(system_prompt_header)
+        system_prompt_header_layout.setContentsMargins(0, 0, 0, 0)
+        system_prompt_header_layout.addWidget(QLabel("System prompt"))
+        system_prompt_header_layout.addStretch(1)
+        save_system_prompt_button = QPushButton("Save System Prompt")
+        set_hover_help(save_system_prompt_button, "Save the edited system prompt text without waiting for the whole workflow dialog to be saved.", enabled=self._show_tooltips)
+        save_system_prompt_button.clicked.connect(self._save_system_prompt_preview)
+        system_prompt_header_layout.addWidget(save_system_prompt_button)
+        prompt_layout_group.addWidget(system_prompt_header)
         prompt_layout_group.addWidget(self.system_prompt_preview)
         self.prompt_group = self._make_collapsible_section("Prompt Settings", prompt_layout_group, expanded=False)
         content_layout.addWidget(self.prompt_group)
@@ -566,43 +583,99 @@ class WorkflowDialog(QDialog):
                 return prompt
         return None
 
+    def _is_default_prompt(self, prompt_id: str) -> bool:
+        return (DEFAULT_PROMPTS_DIR / f"{prompt_id}.md").exists()
+
+    def _forked_prompt_name(self, base_name: str) -> str:
+        existing_names = {prompt.name for prompt in self._prompts}
+        candidate = f"{base_name} (User)"
+        suffix = 2
+        while candidate in existing_names:
+            candidate = f"{base_name} (User {suffix})"
+            suffix += 1
+        return candidate
+
     def _refresh_system_prompt_preview(self) -> None:
         prompt = self._selected_system_prompt()
         self.system_prompt_preview.blockSignals(True)
         self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else self._raw_config.get("system_prompt", ""))
         self.system_prompt_preview.blockSignals(False)
 
-    def _sync_prompt_from_editor(self) -> None:
+    def _save_prompt_preview(self) -> bool:
         prompt = self._selected_prompt()
         if prompt is None:
-            return
+            showCritical("Choose a saved prompt before saving.", parent=self)
+            return False
         updated_text = self.prompt_preview.toPlainText().strip()
-        for index, current in enumerate(self._prompts):
-            if current.prompt_id == prompt.prompt_id:
-                self._prompts[index] = PromptChoice(
-                    prompt_id=current.prompt_id,
-                    name=current.name,
-                    prompt_text=updated_text,
-                )
-                self._save_prompts()
-                return
+        if not updated_text:
+            showCritical("Prompt text must not be empty.", parent=self)
+            return False
+        if updated_text == prompt.prompt_text:
+            return True
 
-    def _sync_system_prompt_from_editor(self) -> None:
+        replacement = PromptChoice(
+            prompt_id=prompt.prompt_id,
+            name=prompt.name,
+            prompt_text=updated_text,
+        )
+        if self._is_default_prompt(prompt.prompt_id):
+            replacement = PromptChoice(
+                prompt_id=new_object_id("prompt"),
+                name=self._forked_prompt_name(prompt.name),
+                prompt_text=updated_text,
+            )
+            self._prompts.append(replacement)
+        else:
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
+        self._save_prompts()
+        self._populate_prompt_combo()
+        index = self.prompt_combo.findData(replacement.prompt_id)
+        if index >= 0:
+            self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
+        if replacement.prompt_id != prompt.prompt_id:
+            show_tooltip(
+                f"Saved as new user prompt '{replacement.name}'.",
+                parent=self,
+            )
+        else:
+            show_tooltip(f"Saved prompt '{replacement.name}'.", parent=self)
+        return True
+
+    def _save_system_prompt_preview(self) -> bool:
         prompt = self._selected_system_prompt()
         updated_text = self.system_prompt_preview.toPlainText().strip()
+        if not updated_text:
+            showCritical("System prompt text must not be empty.", parent=self)
+            return False
         if prompt is None:
+            if updated_text == str(self._raw_config.get("system_prompt", "")).strip():
+                return True
             self._raw_config["system_prompt"] = updated_text
             save_raw_config(self._raw_config)
-            return
+            show_tooltip("Saved default system prompt.", parent=self)
+            return True
         for index, current in enumerate(self._system_prompts):
             if current.prompt_id == prompt.prompt_id:
+                if updated_text == current.prompt_text:
+                    return True
                 self._system_prompts[index] = PromptChoice(
                     prompt_id=current.prompt_id,
                     name=current.name,
                     prompt_text=updated_text,
                 )
                 self._save_system_prompts()
-                return
+                self._populate_system_prompt_combo()
+                combo_index = self.system_prompt_combo.findData(current.prompt_id)
+                if combo_index >= 0:
+                    self.system_prompt_combo.setCurrentIndex(combo_index)
+                self._refresh_system_prompt_preview()
+                show_tooltip(f"Saved system prompt '{current.name}'.", parent=self)
+                return True
+        return False
 
     def _refresh_target_mode_ui(self) -> None:
         is_multi = self.multiple_target_fields_check.isChecked()
@@ -1053,6 +1126,10 @@ class WorkflowDialog(QDialog):
         save_raw_config(self._raw_config)
 
     def _validate_and_accept(self) -> None:
+        if not self._save_prompt_preview():
+            return
+        if not self._save_system_prompt_preview():
+            return
         draft = self.workflow_draft()
         if draft is None:
             showCritical("Workflow values could not be read.", parent=self)
@@ -1099,3 +1176,38 @@ def _find_note_ids_for_query(query: str) -> list[int]:
     except Exception as error:
         raise RuntimeError(str(error)) from error
     return [int(note_id) for note_id in note_ids]
+
+
+def _common_fields_for_notes(note_ids: list[int]) -> list[str]:
+    if mw is None or mw.col is None or not note_ids:
+        return []
+
+    common_fields: list[str] | None = None
+    for note_id in note_ids:
+        note = mw.col.get_note(int(note_id))
+        if note is None:
+            continue
+        field_names = list(note.keys())
+        if common_fields is None:
+            common_fields = field_names
+            continue
+        common_fields = [field_name for field_name in common_fields if field_name in field_names]
+        if not common_fields:
+            return []
+
+    return common_fields or []
+
+
+def _parse_group_names(value: str) -> list[str]:
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for item in value.split(","):
+        normalized = item.strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        parsed.append(normalized)
+    return parsed

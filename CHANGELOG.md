@@ -27,6 +27,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
 - Browser audits can now be re-run on already-audited notes, verify persisted audit tags more reliably, refresh the currently open Browser note after a successful audit, and no longer show the temporary audit debug report popup.
+- The workflow manager and workflow editor now load again after the YAML/prompt refactor, and prompt editing in the workflow dialog now uses explicit save buttons while forking shipped default prompts into new user prompts instead of overwriting the defaults.
 - Field-update workflows can now add configurable success and failure tags, and the workflow editor exposes those tags directly for normal field-update workflows.
 - Field-update workflow note writes are now deferred and applied on the main thread, which makes manually run workflows and pipeline-driven field updates more stable on macOS.
 - Pipeline tag steps and card-suspension steps now defer their Anki mutations until the main thread, reducing crashes from background-thread UI/collection interactions.

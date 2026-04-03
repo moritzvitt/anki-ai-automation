@@ -6,7 +6,9 @@ from typing import Callable
 from aqt import mw
 from aqt.operations import QueryOp
 from aqt.qt import (
+    Qt,
     QAction,
+    QCheckBox,
     QColor,
     QComboBox,
     QDialog,
@@ -16,14 +18,16 @@ from aqt.qt import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QPalette,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 from aqt.utils import askUser, showCritical, showInfo
 
-from .automation import PromptChoice
+from .automation import PromptChoice, _preset_choices_from_saved_processing_presets
 from .workflow_dialog import WorkflowDialog
 from ..core.audit_flow import apply_audit_run_result
 from ..core.config import (
