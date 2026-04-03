@@ -813,3 +813,14 @@ def _trigger_summary(workflow: Workflow) -> str:
     if not trigger_events:
         return "manual only"
     return f"{', '.join(trigger_events)} when query matches >= {workflow.trigger_min_matches}"
+
+
+def _find_note_ids_for_query(query: str) -> list[int]:
+    if mw is None or mw.col is None:
+        raise RuntimeError("Anki collection is not available.")
+
+    try:
+        note_ids = list(mw.col.find_notes(query))
+    except Exception as error:
+        raise RuntimeError(str(error)) from error
+    return [int(note_id) for note_id in note_ids]

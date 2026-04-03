@@ -29,6 +29,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Browser audits can now be re-run on already-audited notes, verify persisted audit tags more reliably, refresh the currently open Browser note after a successful audit, and no longer show the temporary audit debug report popup.
 - The workflow manager and workflow editor now load again after the YAML/prompt refactor, and prompt editing in the workflow dialog now uses explicit save buttons while forking shipped default prompts into new user prompts instead of overwriting the defaults.
 - Shipped default prompts are now protected from in-place edits across the prompt UIs, with edited defaults being saved as new user prompts with a unique suffix, and several MLR prompt texts were refreshed to match the current audit and follow-up flow.
+- Running workflows from the workflow manager now resolves query note IDs correctly again instead of failing with a missing helper error.
 - Field-update workflows can now add configurable success and failure tags, and the workflow editor exposes those tags directly for normal field-update workflows.
 - Field-update workflow note writes are now deferred and applied on the main thread, which makes manually run workflows and pipeline-driven field updates more stable on macOS.
 - Pipeline tag steps and card-suspension steps now defer their Anki mutations until the main thread, reducing crashes from background-thread UI/collection interactions.
