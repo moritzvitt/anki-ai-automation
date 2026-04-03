@@ -24,6 +24,4 @@ Avoid:
 - basic explanations
 - redundancy
 
-Output format:
---Japanese Notes--
-...
+Output ONLY the updated "Japanese Notes" field content.

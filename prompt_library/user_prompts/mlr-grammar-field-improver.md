@@ -17,6 +17,4 @@ Requirements:
 - no duplication of vocabulary notes
 - mention the exact form used in the sentence when helpful
 
-Output format:
---{Grammar}--
-...
+Output ONLY the updated "Grammar" field content.

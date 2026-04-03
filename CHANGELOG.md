@@ -35,6 +35,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - The architecture docs were refreshed to match the typed workflow model, pipeline branching behavior, and current MLR audit-follow-up flow.
 - The sample audit pipeline docs and standalone Mermaid diagram were updated to show the current seeded follow-up branches and reject-handling path instead of the earlier audit-only prototype.
 - Markdown-to-HTML conversion is now enabled by default for new Browser runs and workflows, and the seeded MLR audit-related workflows and presets now default to HTML conversion as well.
+- The MLR audit follow-up workflows are now modeled consistently: the four field-specific follow-up workflows use single-target output mode, and a separate combined-support-fields workflow is available in its own group for one-shot follow-up runs.
 
 ## 1.1.0 - 2026-04-03
 

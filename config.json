@@ -57,12 +57,12 @@
     {
       "id": "mlr-japanese-notes-improver",
       "name": "MLR Japanese Notes Improver",
-      "prompt": "You are refining the \"Japanese Notes\" field for an intermediate learner.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\n\nTask:\nRewrite Japanese Notes to be:\n- concise\n- focused on nuance and usage\n- helpful at B1-B2 level\n\nInclude only if relevant:\n- nuance vs similar words\n- collocations\n- register (casual, formal, written, etc.)\n- restrictions / common mistakes\n\nAvoid:\n- basic explanations\n- redundancy\n\nOutput format:\n--Japanese Notes--\n..."
+      "prompt": "# MLR Japanese Notes Improver\n\nYou are refining the \"Japanese Notes\" field for an intermediate learner.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\n\nTask:\nRewrite Japanese Notes to be:\n- concise\n- focused on nuance and usage\n- helpful at B1-B2 level\n\nInclude only if relevant:\n- nuance vs similar words\n- collocations\n- register (casual, formal, written, etc.)\n- restrictions / common mistakes\n\nAvoid:\n- basic explanations\n- redundancy\n\nOutput ONLY the updated \"Japanese Notes\" field content.\n"
     },
     {
       "id": "mlr-word-definition-optimizer",
       "name": "MLR Word Definition Optimizer",
-      "prompt": "You are improving the \"Word Definition\" field.\n\nFields:\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\n\nTask:\nCreate a concise and precise definition.\n\nRules:\n- short (1-2 lines max)\n- capture core meaning\n- include multiple meanings ONLY if common\n- avoid dictionary clutter\n- prefer natural English over literal gloss\n\nOutput format:\n--Word Definition--\n..."
+      "prompt": "# MLR Word Definition Optimizer\n\nYou are improving the \"Word Definition\" field.\n\nFields:\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\n\nTask:\nCreate a concise and precise definition.\n\nRules:\n- short (1-2 lines max)\n- capture core meaning\n- include multiple meanings ONLY if common\n- avoid dictionary clutter\n- prefer natural English over literal gloss\n\nOutput ONLY the updated \"Word Definition\" field content.\n"
     },
     {
       "id": "mlr-grammar-notes-generator",
@@ -87,7 +87,12 @@
     {
       "id": "mlr-grammar-field-improver",
       "name": "MLR Grammar Field Improver",
-      "prompt": "You are improving the \"Grammar\" field of a Japanese Anki card.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nGrammar: {{Grammar}}\nNotes: {{Notes}}\n\nTask:\nIdentify the most relevant grammar point or structure in this sentence and explain it briefly and accurately.\n\nRequirements:\n- concise\n- sentence-specific\n- no generic textbook dump\n- no duplication of vocabulary notes\n- mention the exact form used in the sentence when helpful\n\nOutput format:\n--{Grammar}--\n...\n"
+      "prompt": "You are improving the \"Grammar\" field of a Japanese Anki card.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nGrammar: {{Grammar}}\nNotes: {{Notes}}\n\nTask:\nIdentify the most relevant grammar point or structure in this sentence and explain it briefly and accurately.\n\nRequirements:\n- concise\n- sentence-specific\n- no generic textbook dump\n- no duplication of vocabulary notes\n- mention the exact form used in the sentence when helpful\n\nOutput ONLY the updated \"Grammar\" field content.\n"
+    },
+    {
+      "id": "mlr-audit-follow-up-combined",
+      "name": "MLR Audit Follow-up Combined",
+      "prompt": "# MLR Audit Follow-up Combined\n\nYou are improving the support fields of a Japanese Anki card after an audit marked it as fixable with minor changes.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\nGrammar: {{Grammar}}\nAI Audit Status: {{AI Audit Status}}\nAI Audit Summary: {{AI Audit Summary}}\nAI Fields To Update: {{AI Fields To Update}}\n\nTask:\nUpdate only the support fields that actually need improvement.\n\nPossible fields to update:\n- Japanese Notes\n- Notes\n- Word Definition\n- Grammar\n\nRules:\n- Use `AI Fields To Update` as the primary guide for which fields to touch.\n- Do not rewrite Cloze, Lemma, or Subtitle.\n- Do not include fields that do not need a change.\n- Keep each updated field concise and useful.\n- Avoid duplicating the same explanation across fields.\n\nOutput format:\n--{Japanese Notes}--\n...\n\n--{Notes}--\n...\n\n--{Word Definition}--\n...\n\n--{Grammar}--\n...\n\nOnly include field blocks for fields you are actually changing.\n"
     }
   ],
   "saved_system_prompts": [
@@ -226,6 +231,10 @@
     {
       "id": "mlr-audit-follow-up",
       "name": "MLR Audit Follow-up"
+    },
+    {
+      "id": "mlr-audit-combined",
+      "name": "MLR Audit Combined"
     }
   ],
   "workflows": [
@@ -421,14 +430,14 @@
       "name": "MLR Fix Minor -> Japanese Notes",
       "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
       "prompt_id": "mlr-japanese-notes-improver",
-      "target_field": "",
+      "target_field": "Japanese Notes",
       "mode": "overwrite",
       "model": "gpt-5-mini",
       "temperature": null,
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
       "convert_markdown_to_html": true,
-      "response_delimiter": "--{field}--",
+      "response_delimiter": null,
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
       "trigger_min_matches": 1,
@@ -491,14 +500,14 @@
       "name": "MLR Fix Minor -> Word Definition",
       "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
       "prompt_id": "mlr-word-definition-optimizer",
-      "target_field": "",
+      "target_field": "Word Definition",
       "mode": "overwrite",
       "model": "gpt-5-mini",
       "temperature": null,
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
       "convert_markdown_to_html": true,
-      "response_delimiter": "--{field}--",
+      "response_delimiter": null,
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
       "trigger_min_matches": 1,
@@ -616,12 +625,47 @@
       "store_raw_output": true,
       "name": "MLR Fix Minor -> Grammar",
       "prompt_id": "mlr-grammar-field-improver",
-      "target_field": "",
+      "target_field": "Grammar",
       "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": true,
+      "response_delimiter": null
+    },
+    {
+      "id": "workflow-mlr-fix-minor-combined",
+      "name": "MLR Fix Minor -> Combined Support Fields",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
+      "workflow_type": "field_update",
+      "enabled": true,
+      "prompt_id": "mlr-audit-follow-up-combined",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "api_mode": "global_default",
       "system_prompt_id": "delimited-field-sections",
       "multiple_target_fields": true,
       "convert_markdown_to_html": true,
-      "response_delimiter": "--{field}--"
+      "response_delimiter": "--{field}--",
+      "schema_preset": null,
+      "response_schema_json": null,
+      "note_type_filter": null,
+      "clear_status_tags": null,
+      "status_tag_map": null,
+      "extra_status_tags": null,
+      "success_tags": null,
+      "failure_tags": null,
+      "metadata_field_map": null,
+      "store_raw_output": true,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-combined"
+      ],
+      "group_id": "mlr-audit-combined",
+      "position": 16
     }
   ],
   "pipelines": [

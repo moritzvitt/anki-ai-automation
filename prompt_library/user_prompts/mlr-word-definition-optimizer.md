@@ -17,6 +17,4 @@ Rules:
 - avoid dictionary clutter
 - prefer natural English over literal gloss
 
-Output format:
---Word Definition--
-...
+Output ONLY the updated "Word Definition" field content.
