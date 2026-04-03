@@ -138,6 +138,7 @@ Pipelines are config-only for now and support:
 - running all workflows in a group
 - running the dedicated MLR audit step
 - adding/removing tags
+- suspending cards that belong to matched notes
 - stopping matched notes from continuing
 - per-note branching through declarative `when` conditions
 
@@ -149,6 +150,7 @@ Supported step types:
 - `run_group`
 - `run_mlr_audit`
 - `tag`
+- `suspend_cards`
 - `stop`
 
 Supported condition operators include:
@@ -158,6 +160,7 @@ Supported condition operators include:
 - `not`
 - `artifact_equals`
 - `artifact_in`
+- `artifact_contains`
 - `tag_present`
 - `tag_absent`
 - `field_empty`

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -254,7 +256,10 @@ def _prepare_audit_candidates(
             AuditCandidate(
                 note_id=note_id,
                 note_type_name=note_type_name,
-                fields={field_name: note[field_name] for field_name in relevant_fields},
+                fields={
+                    field_name: _normalize_audit_field_value(field_name, str(note[field_name]))
+                    for field_name in relevant_fields
+                },
             )
         )
 
@@ -530,6 +535,27 @@ def _audit_user_prompt_template(config: AddonConfig, workflow: Workflow, preset:
         if prompt is not None:
             return prompt.prompt_text
     return preset.default_user_prompt_template
+
+
+def _normalize_audit_field_value(field_name: str, value: str) -> str:
+    if field_name != AuditField.CLOZE.value:
+        return value
+    return _strip_html_for_audit(value)
+
+
+def _strip_html_for_audit(value: str) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"(?i)<br\\s*/?>", "\n", value)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", "", text)
+    text = re.sub(r"(?is)<script.*?>.*?</script>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
 
 
 def apply_audit_run_result(

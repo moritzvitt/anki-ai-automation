@@ -83,6 +83,11 @@
       "id": "mlr-audit-prompt",
       "name": "MLR Audit",
       "prompt": "Review this Japanese Anki card for study quality.\n\nYour task is diagnostic and routing-only.\nDo not rewrite any field content.\nEvaluate whether the card is good as-is, fixable with limited support-field changes, too risky for limited automatic fixing, unsuitable for study, or should be skipped.\n\nUse these criteria:\n1. Clear learning focus\n2. Natural and comprehensible Japanese\n3. Good cloze design\n4. Correct and useful meaning/explanations\n5. Appropriate amount of information\n6. No misleading or major errors\n\nImportant rules:\n- Use GOOD only if the card is already study-ready.\n- Use FIXABLE_MINOR if only supporting fields need modest changes.\n- Use FIXABLE_MAJOR if the card may be repairable, but not safely through limited automatic changes.\n- Use REJECT if the card should not be learned in its current form.\n- Use SKIP if the card cannot be classified cleanly in this workflow.\n- fields_to_update may only include Japanese Notes, Notes, Word Definition, or Grammar.\n- Prefer minimal intervention.\n- Return JSON only.\n\nCard fields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\nGrammar: {{Grammar}}\n"
+    },
+    {
+      "id": "mlr-grammar-field-improver",
+      "name": "MLR Grammar Field Improver",
+      "prompt": "You are improving the \"Grammar\" field of a Japanese Anki card.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nGrammar: {{Grammar}}\nNotes: {{Notes}}\n\nTask:\nIdentify the most relevant grammar point or structure in this sentence and explain it briefly and accurately.\n\nRequirements:\n- concise\n- sentence-specific\n- no generic textbook dump\n- no duplication of vocabulary notes\n- mention the exact form used in the sentence when helpful\n\nOutput format:\n--{Grammar}--\n...\n"
     }
   ],
   "saved_system_prompts": [
@@ -219,9 +224,301 @@
   ],
   "workflows": [
     {
+      "id": "workflow-card-quality-check",
+      "name": "Card Quality Check",
+      "query": "tag:ai-card-quality",
+      "prompt_id": "card-quality-check",
+      "target_field": "Notes",
+      "mode": "append",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 0,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-update-japanese-notes",
+      "name": "Update Japanese Notes",
+      "query": "tag:ai-japanese-notes",
+      "prompt_id": "update-japanese-notes",
+      "target_field": "Japanese Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 1,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-update-grammar-notes",
+      "name": "Update Notes (Grammar Explanation)",
+      "query": "tag:ai-grammar-notes",
+      "prompt_id": "update-grammar-notes",
+      "target_field": "Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "japanese-maintenance",
+      "position": 2,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-full-card-optimization",
+      "name": "Full Card Optimization",
+      "query": "tag:ai-card-optimize",
+      "prompt_id": "full-card-optimization",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "japanese-maintenance",
+      "position": 3,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-card-quality-check",
+      "name": "MLR Card Quality Check",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-quality",
+      "prompt_id": "mlr-card-quality-check",
+      "target_field": "Notes",
+      "mode": "append",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "response_delimiter": null,
+      "group_id": "mlr-maintenance",
+      "position": 4,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-full-field-refactor",
+      "name": "MLR Full Field Refactor",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-refactor",
+      "prompt_id": "mlr-full-field-refactor",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 5,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-japanese-notes",
+      "name": "MLR Japanese Notes Improver",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-japanese-notes",
+      "prompt_id": "mlr-japanese-notes-improver",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 6,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-word-definition",
+      "name": "MLR Word Definition Optimizer",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-word-definition",
+      "prompt_id": "mlr-word-definition-optimizer",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 7,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-grammar-notes",
+      "name": "MLR Grammar Notes Generator",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-grammar",
+      "prompt_id": "mlr-grammar-notes-generator",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 8,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-cloze-optimization",
+      "name": "MLR Cloze Optimization",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-cloze",
+      "prompt_id": "mlr-cloze-optimization",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 9,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-fix-only",
+      "name": "MLR Fix Only What's Wrong",
+      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-fix-only",
+      "prompt_id": "mlr-fix-only-whats-wrong",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "response_delimiter": "--{field}--",
+      "group_id": "mlr-maintenance",
+      "position": 10,
+      "workflow_type": "field_update",
+      "enabled": false,
+      "api_mode": "global_default"
+    },
+    {
+      "id": "workflow-mlr-fix-minor-japanese-notes",
+      "name": "MLR Fix Minor -> Japanese Notes",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
+      "prompt_id": "mlr-japanese-notes-improver",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "convert_markdown_to_html": false,
+      "response_delimiter": "--{field}--",
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 11,
+      "workflow_type": "field_update",
+      "enabled": true,
+      "api_mode": "global_default",
+      "schema_preset": null,
+      "response_schema_json": null,
+      "note_type_filter": null,
+      "clear_status_tags": null,
+      "status_tag_map": null,
+      "extra_status_tags": null,
+      "success_tags": null,
+      "failure_tags": null,
+      "metadata_field_map": null,
+      "store_raw_output": true
+    },
+    {
+      "id": "workflow-mlr-fix-minor-notes",
+      "name": "MLR Fix Minor -> Notes",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
+      "prompt_id": "update-grammar-notes",
+      "target_field": "Notes",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "default-system-prompt",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": false,
+      "response_delimiter": null,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 12,
+      "workflow_type": "field_update",
+      "enabled": true,
+      "api_mode": "global_default",
+      "schema_preset": null,
+      "response_schema_json": null,
+      "note_type_filter": null,
+      "clear_status_tags": null,
+      "status_tag_map": null,
+      "extra_status_tags": null,
+      "success_tags": null,
+      "failure_tags": null,
+      "metadata_field_map": null,
+      "store_raw_output": true
+    },
+    {
+      "id": "workflow-mlr-fix-minor-word-definition",
+      "name": "MLR Fix Minor -> Word Definition",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
+      "prompt_id": "mlr-word-definition-optimizer",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
+      "convert_markdown_to_html": false,
+      "response_delimiter": "--{field}--",
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-audit-follow-up"
+      ],
+      "group_id": "mlr-audit-follow-up",
+      "position": 13,
+      "workflow_type": "field_update",
+      "enabled": true,
+      "api_mode": "global_default",
+      "schema_preset": null,
+      "response_schema_json": null,
+      "note_type_filter": null,
+      "clear_status_tags": null,
+      "status_tag_map": null,
+      "extra_status_tags": null,
+      "success_tags": null,
+      "failure_tags": null,
+      "metadata_field_map": null,
+      "store_raw_output": true
+    },
+    {
       "id": "mlr-audit",
       "name": "MLR Audit",
-      "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15",
+      "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today limit:15",
       "workflow_type": "audit",
       "enabled": true,
       "prompt_id": "mlr-audit-prompt",
@@ -286,172 +583,14 @@
       "position": 14
     },
     {
-      "id": "workflow-card-quality-check",
-      "name": "Card Quality Check",
-      "query": "tag:ai-card-quality",
-      "prompt_id": "card-quality-check",
-      "target_field": "Notes",
-      "mode": "append",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "response_delimiter": null,
-      "group_id": "japanese-maintenance",
-      "position": 0
-    },
-    {
-      "id": "workflow-update-japanese-notes",
-      "name": "Update Japanese Notes",
-      "query": "tag:ai-japanese-notes",
-      "prompt_id": "update-japanese-notes",
-      "target_field": "Japanese Notes",
+      "id": "workflow-mlr-fix-minor-grammar",
+      "position": 15,
+      "workflow_type": "field_update",
+      "enabled": true,
+      "api_mode": "global_default",
+      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor -is:suspended limit:15",
       "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "response_delimiter": null,
-      "group_id": "japanese-maintenance",
-      "position": 1
-    },
-    {
-      "id": "workflow-update-grammar-notes",
-      "name": "Update Notes (Grammar Explanation)",
-      "query": "tag:ai-grammar-notes",
-      "prompt_id": "update-grammar-notes",
-      "target_field": "Notes",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "response_delimiter": null,
-      "group_id": "japanese-maintenance",
-      "position": 2
-    },
-    {
-      "id": "workflow-full-card-optimization",
-      "name": "Full Card Optimization",
-      "query": "tag:ai-card-optimize",
-      "prompt_id": "full-card-optimization",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "japanese-maintenance",
-      "position": 3
-    },
-    {
-      "id": "workflow-mlr-card-quality-check",
-      "name": "MLR Card Quality Check",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-quality",
-      "prompt_id": "mlr-card-quality-check",
-      "target_field": "Notes",
-      "mode": "append",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "response_delimiter": null,
-      "group_id": "mlr-maintenance",
-      "position": 4
-    },
-    {
-      "id": "workflow-mlr-full-field-refactor",
-      "name": "MLR Full Field Refactor",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-refactor",
-      "prompt_id": "mlr-full-field-refactor",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 5
-    },
-    {
-      "id": "workflow-mlr-japanese-notes",
-      "name": "MLR Japanese Notes Improver",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-japanese-notes",
-      "prompt_id": "mlr-japanese-notes-improver",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 6
-    },
-    {
-      "id": "workflow-mlr-word-definition",
-      "name": "MLR Word Definition Optimizer",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-word-definition",
-      "prompt_id": "mlr-word-definition-optimizer",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 7
-    },
-    {
-      "id": "workflow-mlr-grammar-notes",
-      "name": "MLR Grammar Notes Generator",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-grammar",
-      "prompt_id": "mlr-grammar-notes-generator",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 8
-    },
-    {
-      "id": "workflow-mlr-cloze-optimization",
-      "name": "MLR Cloze Optimization",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-cloze",
-      "prompt_id": "mlr-cloze-optimization",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 9
-    },
-    {
-      "id": "workflow-mlr-fix-only",
-      "name": "MLR Fix Only What's Wrong",
-      "query": "note:\"Moritz Language Reactor\" tag:ai-mlr-fix-only",
-      "prompt_id": "mlr-fix-only-whats-wrong",
-      "target_field": "",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "system_prompt_id": "delimited-field-sections",
-      "multiple_target_fields": true,
-      "response_delimiter": "--{field}--",
-      "group_id": "mlr-maintenance",
-      "position": 10
-    },
-    {
-      "id": "workflow-mlr-fix-minor-japanese-notes",
-      "name": "MLR Fix Minor -> Japanese Notes",
-      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
-      "prompt_id": "mlr-japanese-notes-improver",
-      "target_field": "Japanese Notes",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
       "temperature": null,
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "convert_markdown_to_html": false,
-      "response_delimiter": null,
       "trigger_on_startup": false,
       "trigger_on_periodic": false,
       "trigger_min_matches": 1,
@@ -459,51 +598,24 @@
         "mlr-audit-follow-up"
       ],
       "group_id": "mlr-audit-follow-up",
-      "position": 11
-    },
-    {
-      "id": "workflow-mlr-fix-minor-notes",
-      "name": "MLR Fix Minor -> Notes",
-      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
-      "prompt_id": "update-grammar-notes",
-      "target_field": "Notes",
-      "mode": "overwrite",
+      "schema_preset": null,
+      "response_schema_json": null,
+      "note_type_filter": null,
+      "clear_status_tags": null,
+      "status_tag_map": null,
+      "extra_status_tags": null,
+      "success_tags": null,
+      "failure_tags": null,
+      "metadata_field_map": null,
+      "store_raw_output": true,
+      "name": "MLR Fix Minor -> Grammar",
+      "prompt_id": "mlr-grammar-field-improver",
+      "target_field": "",
       "model": "gpt-5-mini",
-      "temperature": null,
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
+      "system_prompt_id": "delimited-field-sections",
+      "multiple_target_fields": true,
       "convert_markdown_to_html": false,
-      "response_delimiter": null,
-      "trigger_on_startup": false,
-      "trigger_on_periodic": false,
-      "trigger_min_matches": 1,
-      "group_ids": [
-        "mlr-audit-follow-up"
-      ],
-      "group_id": "mlr-audit-follow-up",
-      "position": 12
-    },
-    {
-      "id": "workflow-mlr-fix-minor-word-definition",
-      "name": "MLR Fix Minor -> Word Definition",
-      "query": "note:\"Moritz Language Reactor\" tag:ai_fix_minor limit:15",
-      "prompt_id": "mlr-word-definition-optimizer",
-      "target_field": "Word Definition",
-      "mode": "overwrite",
-      "model": "gpt-5-mini",
-      "temperature": null,
-      "system_prompt_id": "default-system-prompt",
-      "multiple_target_fields": false,
-      "convert_markdown_to_html": false,
-      "response_delimiter": null,
-      "trigger_on_startup": false,
-      "trigger_on_periodic": false,
-      "trigger_min_matches": 1,
-      "group_ids": [
-        "mlr-audit-follow-up"
-      ],
-      "group_id": "mlr-audit-follow-up",
-      "position": 13
+      "response_delimiter": "--{field}--"
     }
   ],
   "pipelines": [
@@ -512,13 +624,145 @@
       "name": "MLR Audit First 15",
       "enabled": true,
       "note_selector": {
-        "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15"
+        "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today",
+        "limit": 15
       },
       "steps": [
         {
           "id": "audit",
           "type": "run_workflow",
           "workflow_id": "mlr-audit"
+        },
+        {
+          "id": "fix-japanese-notes",
+          "type": "run_workflow",
+          "workflow_id": "workflow-mlr-fix-minor-japanese-notes",
+          "when": {
+            "all": [
+              {
+                "artifact_equals": [
+                  "audit.status",
+                  "FIXABLE_MINOR"
+                ]
+              },
+              {
+                "artifact_equals": [
+                  "audit.auto_fix_allowed",
+                  true
+                ]
+              },
+              {
+                "artifact_contains": [
+                  "audit.fields_to_update",
+                  "Japanese Notes"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "fix-notes",
+          "type": "run_workflow",
+          "workflow_id": "workflow-mlr-fix-minor-notes",
+          "when": {
+            "all": [
+              {
+                "artifact_equals": [
+                  "audit.status",
+                  "FIXABLE_MINOR"
+                ]
+              },
+              {
+                "artifact_equals": [
+                  "audit.auto_fix_allowed",
+                  true
+                ]
+              },
+              {
+                "artifact_contains": [
+                  "audit.fields_to_update",
+                  "Notes"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "fix-word-definition",
+          "type": "run_workflow",
+          "workflow_id": "workflow-mlr-fix-minor-word-definition",
+          "when": {
+            "all": [
+              {
+                "artifact_equals": [
+                  "audit.status",
+                  "FIXABLE_MINOR"
+                ]
+              },
+              {
+                "artifact_equals": [
+                  "audit.auto_fix_allowed",
+                  true
+                ]
+              },
+              {
+                "artifact_contains": [
+                  "audit.fields_to_update",
+                  "Word Definition"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "fix-grammar",
+          "type": "run_workflow",
+          "workflow_id": "workflow-mlr-fix-minor-grammar",
+          "when": {
+            "all": [
+              {
+                "artifact_equals": [
+                  "audit.status",
+                  "FIXABLE_MINOR"
+                ]
+              },
+              {
+                "artifact_equals": [
+                  "audit.auto_fix_allowed",
+                  true
+                ]
+              },
+              {
+                "artifact_contains": [
+                  "audit.fields_to_update",
+                  "Grammar"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "mark-reject",
+          "type": "tag",
+          "add_tags": [
+            "mark"
+          ],
+          "when": {
+            "artifact_equals": [
+              "audit.status",
+              "REJECT"
+            ]
+          }
+        },
+        {
+          "id": "suspend-reject",
+          "type": "suspend_cards",
+          "when": {
+            "artifact_equals": [
+              "audit.status",
+              "REJECT"
+            ]
+          }
         }
       ]
     }

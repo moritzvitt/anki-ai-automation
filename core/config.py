@@ -788,7 +788,7 @@ def _read_pipelines(
 
     allowed_workflow_ids = {workflow.workflow_id for workflow in workflows}
     allowed_group_ids = {group.group_id for group in workflow_groups}
-    allowed_step_types = {"run_workflow", "run_group", "tag", "stop", "run_mlr_audit"}
+    allowed_step_types = {"run_workflow", "run_group", "tag", "stop", "suspend_cards", "run_mlr_audit"}
     parsed_pipelines: list[Pipeline] = []
     seen_pipeline_ids: set[str] = set()
 

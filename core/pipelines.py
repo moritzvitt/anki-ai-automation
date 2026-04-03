@@ -87,6 +87,8 @@ def execute_pipeline(config: AddonConfig, pipeline: Pipeline) -> PipelineRunResu
             report = _execute_group_step(config, step, matched_contexts, workflow_lookup)
         elif step.step_type == "tag":
             report = _execute_tag_step(step, matched_contexts)
+        elif step.step_type == "suspend_cards":
+            report = _execute_suspend_cards_step(step, matched_contexts)
         elif step.step_type == "stop":
             report = _execute_stop_step(step, matched_contexts)
         else:  # pragma: no cover - config validation should prevent this.
@@ -158,6 +160,10 @@ def _condition_matches(context: PipelineNoteContext, condition: dict[str, Any] |
     if "artifact_in" in condition:
         path, expected = _read_binary_condition(condition["artifact_in"], "artifact_in")
         return isinstance(expected, list) and _resolve_artifact_path(context.artifacts, path) in expected
+    if "artifact_contains" in condition:
+        path, expected = _read_binary_condition(condition["artifact_contains"], "artifact_contains")
+        value = _resolve_artifact_path(context.artifacts, path)
+        return isinstance(value, list) and expected in value
     if "tag_present" in condition:
         return isinstance(condition["tag_present"], str) and condition["tag_present"] in context.current_tags
     if "tag_absent" in condition:
@@ -340,6 +346,54 @@ def _execute_stop_step(step: PipelineStep, contexts: list[PipelineNoteContext]) 
         details=["Stopped matched notes from continuing through the pipeline."],
         deferred_audit_applications=[],
     )
+
+
+def _execute_suspend_cards_step(step: PipelineStep, contexts: list[PipelineNoteContext]) -> PipelineStepReport:
+    assert mw is not None and mw.col is not None
+    suspended_note_ids: list[int] = []
+    failed_note_ids: list[int] = []
+    details: list[str] = []
+
+    for context in contexts:
+        note = mw.col.get_note(context.note_id)
+        if note is None:
+            context.step_results[step.step_id] = "failed"
+            context.failures.append("Note not found while suspending cards.")
+            failed_note_ids.append(context.note_id)
+            continue
+
+        card_ids = [int(card_id) for card_id in note.card_ids()]
+        if not card_ids:
+            context.step_results[step.step_id] = "failed"
+            context.failures.append("No cards were found for this note while suspending.")
+            failed_note_ids.append(context.note_id)
+            continue
+
+        sched = getattr(mw.col, "sched", None)
+        if sched is None or not hasattr(sched, "suspend_cards"):
+            context.step_results[step.step_id] = "failed"
+            context.failures.append("Anki scheduler does not support card suspension in this context.")
+            failed_note_ids.append(context.note_id)
+            continue
+
+        sched.suspend_cards(card_ids)
+        context.step_results[step.step_id] = "success"
+        suspended_note_ids.append(context.note_id)
+        details.append(f"Suspended {len(card_ids)} card(s) for note {context.note_id}.")
+        _refresh_context(context)
+
+    return PipelineStepReport(
+        step_id=step.step_id,
+        step_type=step.step_type,
+        matched_note_ids=[context.note_id for context in contexts],
+        succeeded_note_ids=suspended_note_ids,
+        failed_note_ids=failed_note_ids,
+        skipped_note_ids=[],
+        details=details[:20],
+        deferred_audit_applications=[],
+    )
+
+
 def _refresh_context(context: PipelineNoteContext) -> None:
     assert mw is not None and mw.col is not None
     note = mw.col.get_note(context.note_id)

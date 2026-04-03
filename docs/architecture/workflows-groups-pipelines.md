@@ -1,6 +1,6 @@
 # Workflows, Groups, and Pipelines
 
-This note explains the three-layer execution model in AI Automation and where the audit flow fits into it.
+This note explains the three-layer execution model in AI Automation and where the current MLR audit-and-follow-up pipeline fits into it.
 
 ## Summary
 
@@ -18,31 +18,31 @@ The important design rule is that these three concepts stay separate:
 
 ```mermaid
 graph TD
-    A[Prompt Library Markdown Files<br/>prompt_library/system_prompts/...<br/>prompt_library/user_prompts/...] --> B[audit_prompts.py<br/>Audit preset registry<br/>Schema preset metadata<br/>JSON schema builder]
+    A[Prompt Library Markdown Files] --> B[audit_prompts.py Audit preset registry]
 
-    C[config.json / meta.json] --> D[config.py<br/>Typed config loading<br/>Workflow / Group / Pipeline models]
-    B --> E[audit_flow.py<br/>Structured audit execution<br/>Validation, tags, metadata]
+    C[config.json / meta.json] --> D[config.py Typed config loading]
+    B --> E[audit_flow.py Structured audit execution]
 
-    D --> F[workflow_engine.py<br/>Workflow dispatch by workflow_type]
+    D --> F[workflow_engine.py Workflow dispatch by type]
     E --> F
 
-    D --> G[pipelines.py<br/>Pipeline orchestration<br/>Per-note branching]
+    D --> G[pipelines.py Pipeline orchestration]
     F --> G
 
-    H[ui/automation.py<br/>Browser field-update runs] --> F
-    I[ui/browser_menu.py<br/>Browser actions] --> F
-    J[ui/workflow.py<br/>Workflow manager] --> F
-    K[ui/pipelines.py<br/>Pipeline runner UI] --> G
+    H[ui/automation.py Browser field-update runs] --> F
+    I[ui/browser_menu.py Browser actions] --> F
+    J[ui/workflow.py Workflow manager] --> F
+    K[ui/pipelines.py Pipeline runner UI] --> G
 
-    F --> L[field_update workflow<br/>Prompt -> response -> field writes]
-    F --> M[audit workflow<br/>Prompt -> structured response -> tags + metadata]
+    F --> L[field_update workflow Prompt to field writes]
+    F --> M[audit workflow Prompt to tags and metadata]
 
-    G --> N[Pipeline step: run_workflow]
-    G --> O[Pipeline step: run_group]
-    G --> P[Pipeline step: tag / stop]
+    G --> N[run_workflow]
+    G --> O[run_group]
+    G --> P[tag or suspend_cards or stop]
 
-    L --> Q[processing.py<br/>Snapshot building<br/>Batching<br/>Note updates]
-    M --> R[audit_storage.py<br/>Audit log persistence]
+    L --> Q[processing.py]
+    M --> R[audit_storage.py]
 
 ```
 
@@ -116,9 +116,14 @@ They:
 - run workflows or groups
 - branch declaratively using conditions such as:
   - `artifact_equals`
+  - `artifact_contains`
   - `tag_present`
   - `field_empty`
   - `previous_step_succeeded`
+- can also apply non-generative operational steps such as:
+  - `tag`
+  - `suspend_cards`
+  - `stop`
 
 Pipelines call workflows uniformly by workflow ID. They do not need to know whether a workflow is a field update or an audit workflow.
 
@@ -140,6 +145,7 @@ That means:
 The audit workflow itself still has a richer contract than a field update workflow:
 
 - it requests structured output
+- it normalizes the `Cloze` field by stripping HTML before prompt rendering
 - it validates the result against a schema preset
 - it derives tags from normalized status values
 - it persists audit metadata
@@ -192,6 +198,11 @@ So the split is:
 3. Each step runs conditionally for matching notes.
 4. Workflow execution is delegated to [`workflow_engine.py`](../../core/workflow_engine.py).
 5. Artifacts from one step can be used by later pipeline conditions.
+6. The current seeded MLR pipeline uses:
+   - `mlr-audit`
+   - conditional field-specific follow-up workflows
+   - `tag` to add `mark` to rejected notes
+   - `suspend_cards` to suspend rejected notes' cards
 
 ## Extension Points
 

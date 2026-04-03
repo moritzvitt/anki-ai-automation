@@ -18,6 +18,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - A real visible `mlr-audit` workflow that can be edited, listed, and referenced by pipelines like any other workflow.
 - Per-row `Enabled` checkboxes in the workflow manager so workflows can be toggled without opening the editor.
 - A Tools action to backfill the optional `AI Audit ...` note fields from the stored audit log after those fields are added to a note type.
+- A dedicated `MLR Fix Minor -> Grammar` follow-up workflow and prompt so audit-driven support-field fixes can cover `Grammar` as well as `Japanese Notes`, `Notes`, and `Word Definition`.
+- A `suspend_cards` pipeline step and an `artifact_contains` condition operator for declarative per-note branching on validated list artifacts.
 
 ### Changed
 
@@ -27,6 +29,10 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - The config docs now document `pipelines` and note that workflow and pipeline queries can use `limit:x` when the separate `limit-search-results` add-on is installed.
 - Workflow config loading is now more tolerant of older saved key names and correctly allows empty `target_field` values for audit workflows.
 - Audit workflow side effects now apply on the main thread after background execution, which makes Browser audits and pipeline audits more stable and avoids mutating notes from the worker thread.
+- The seeded `MLR Audit First 15` pipeline now runs the audit and then conditionally executes field-specific follow-up workflows for `FIXABLE_MINOR` notes in one pass.
+- Rejected notes in the seeded MLR audit pipeline are now tagged `mark` and have their cards suspended automatically.
+- Audit preparation now strips HTML from the `Cloze` field before sending it to the model, which makes audit prompts more stable for HTML-rich note content.
+- The architecture docs were refreshed to match the typed workflow model, pipeline branching behavior, and current MLR audit-follow-up flow.
 
 ## 1.1.0 - 2026-04-03
 
