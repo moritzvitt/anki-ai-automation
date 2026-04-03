@@ -21,6 +21,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - A dedicated `MLR Fix Minor -> Grammar` follow-up workflow and prompt so audit-driven support-field fixes can cover `Grammar` as well as `Japanese Notes`, `Notes`, and `Word Definition`.
 - A `suspend_cards` pipeline step and an `artifact_contains` condition operator for declarative per-note branching on validated list artifacts.
 - A Tools action to migrate older underscore-style AI tags such as `ai_good` and `mark` to the newer Anki tag-tree format under `ai::...`.
+- A file-backed automation library under `automation_library/` plus a migration tool that exports shipped workflows, groups, and pipelines into individual `.yaml` files.
 
 ### Changed
 
@@ -45,6 +46,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Prompt storage now treats markdown files as the source of truth: shipped prompts live in `prompt_library/default_prompts`, user-created prompts live in `prompt_library/user_prompts`, and legacy saved prompts from config are imported into markdown files instead of remaining embedded in Anki config JSON.
 - Markdown-to-HTML conversion is now enabled by default for new Browser runs and workflows, and the seeded MLR audit-related workflows and presets now default to HTML conversion as well.
 - The MLR audit follow-up workflows are now modeled consistently: the four field-specific follow-up workflows use single-target output mode, and a separate combined-support-fields workflow is available in its own group for one-shot follow-up runs.
+- Workflows, groups, and pipelines are no longer stored as large embedded JSON arrays in `config.json` / `meta.json`; the JSON config now keeps only ordering metadata while live automation definitions are loaded from per-file YAML storage.
+- Shipped default prompts used by the Browser prompt picker now all follow the normal markdown `# Heading` prompt-file format, so runtime-only defaults do not break the saved-prompt loader.
 
 ## 1.1.0 - 2026-04-03
 

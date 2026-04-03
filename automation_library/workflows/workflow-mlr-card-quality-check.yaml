@@ -1,0 +1,15 @@
+id: "workflow-mlr-card-quality-check"
+name: "MLR Card Quality Check"
+query: "note:\"Moritz Language Reactor\" tag:ai-mlr-quality"
+prompt_id: "mlr-card-quality-check"
+target_field: "Notes"
+mode: "append"
+model: "gpt-5-mini"
+system_prompt_id: "default-system-prompt"
+multiple_target_fields: false
+response_delimiter: null
+group_id: "mlr-maintenance"
+position: 4
+workflow_type: "field_update"
+enabled: false
+api_mode: "global_default"

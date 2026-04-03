@@ -1,0 +1,15 @@
+id: "workflow-card-quality-check"
+name: "Card Quality Check"
+query: "tag:ai-card-quality"
+prompt_id: "card-quality-check"
+target_field: "Notes"
+mode: "append"
+model: "gpt-5-mini"
+system_prompt_id: "default-system-prompt"
+multiple_target_fields: false
+response_delimiter: null
+group_id: "japanese-maintenance"
+position: 0
+workflow_type: "field_update"
+enabled: false
+api_mode: "global_default"

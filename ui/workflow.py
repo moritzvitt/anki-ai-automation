@@ -54,6 +54,7 @@ from ..core.config import (
     load_raw_config,
     new_object_id,
     save_saved_prompts,
+    save_workflow_state,
     save_raw_config,
 )
 from ..services.model_catalog import fallback_model_options
@@ -379,47 +380,12 @@ class WorkflowManagerDialog(QDialog):
 
     def _save_state(self) -> None:
         self._raw_config = load_raw_config()
-        self._raw_config["workflow_groups"] = [
-            {"id": group.group_id, "name": group.name}
-            for group in sorted(self._groups, key=lambda group: group.name.lower())
-        ]
-        self._raw_config["workflows"] = [
-            {
-                "id": workflow.workflow_id,
-                "name": workflow.name,
-                "query": workflow.query,
-                "workflow_type": workflow.workflow_type,
-                "enabled": workflow.enabled,
-                "prompt_id": workflow.prompt_id,
-                "target_field": workflow.target_field,
-                "mode": workflow.mode,
-                "model": workflow.model,
-                "temperature": workflow.temperature,
-                "api_mode": workflow.api_mode,
-                "system_prompt_id": workflow.system_prompt_id,
-                "multiple_target_fields": workflow.multiple_target_fields,
-                "convert_markdown_to_html": workflow.convert_markdown_to_html,
-                "response_delimiter": workflow.response_delimiter,
-                "schema_preset": workflow.schema_preset,
-                "response_schema_json": workflow.response_schema_json,
-                "note_type_filter": workflow.note_type_filter,
-                "clear_status_tags": workflow.clear_status_tags,
-                "status_tag_map": workflow.status_tag_map,
-                "extra_status_tags": workflow.extra_status_tags,
-                "success_tags": workflow.success_tags,
-                "failure_tags": workflow.failure_tags,
-                "metadata_field_map": workflow.metadata_field_map,
-                "store_raw_output": workflow.store_raw_output,
-                "trigger_on_startup": workflow.trigger_on_startup,
-                "trigger_on_periodic": workflow.trigger_on_periodic,
-                "trigger_min_matches": workflow.trigger_min_matches,
-                "group_ids": workflow.group_ids or [],
-                "group_id": (workflow.group_ids or [None])[0],
-                "position": index,
-            }
+        ordered_groups = sorted(self._groups, key=lambda group: group.name.lower())
+        ordered_workflows = [
+            replace(workflow, position=index)
             for index, workflow in enumerate(self._workflows)
         ]
-        save_raw_config(self._raw_config)
+        save_workflow_state(self._raw_config, ordered_groups, ordered_workflows)
         self._load_state()
         self._populate()
 

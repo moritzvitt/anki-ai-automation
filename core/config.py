@@ -15,6 +15,16 @@ PROMPT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "prompt_library"
 DEFAULT_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "default_prompts"
 USER_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "user_prompts"
 SAVED_PROMPT_ORDER_KEY = "saved_prompt_order"
+AUTOMATION_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "automation_library"
+DEFAULT_GROUPS_DIR = AUTOMATION_LIBRARY_ROOT / "groups"
+DEFAULT_WORKFLOWS_DIR = AUTOMATION_LIBRARY_ROOT / "workflows"
+DEFAULT_PIPELINES_DIR = AUTOMATION_LIBRARY_ROOT / "pipelines"
+USER_GROUPS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "groups"
+USER_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "workflows"
+USER_PIPELINES_DIR = Path(__file__).resolve().parent.parent / "user_data" / "pipelines"
+WORKFLOW_GROUP_ORDER_KEY = "workflow_group_order"
+WORKFLOW_ORDER_KEY = "workflow_order"
+PIPELINE_ORDER_KEY = "pipeline_order"
 
 
 class ConfigError(RuntimeError):
@@ -226,15 +236,15 @@ def load_config() -> AddonConfig:
         saved_prompts=saved_prompts,
         saved_system_prompts=saved_system_prompts,
     )
-    workflow_groups = _read_workflow_groups(raw.get("workflow_groups", []))
+    workflow_groups = _read_workflow_groups(raw)
     workflows = _read_workflows(
-        raw.get("workflows", []),
+        raw,
         saved_prompts=saved_prompts,
         workflow_groups=workflow_groups,
         saved_system_prompts=saved_system_prompts,
     )
     pipelines = _read_pipelines(
-        raw.get("pipelines", []),
+        raw,
         workflows=workflows,
         workflow_groups=workflow_groups,
     )
@@ -482,29 +492,33 @@ def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template:
     return prompts
 
 
-def _read_workflow_groups(value: Any) -> list[WorkflowGroup]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list):
-        raise ConfigError("Config key 'workflow_groups' must be a list.")
-
-    groups: list[WorkflowGroup] = []
-    seen_ids: set[str] = set()
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ConfigError(f"workflow_groups[{index}] must be an object.")
-
-        group_id = _read_string(item, "id", default=f"group-{index + 1}")
-        if group_id in seen_ids:
-            raise ConfigError(f"workflow_groups[{index}] uses duplicate id '{group_id}'.")
-        seen_ids.add(group_id)
-        groups.append(
-            WorkflowGroup(
-                group_id=group_id,
-                name=_read_string(item, "name"),
+def _read_workflow_groups(raw_config: dict[str, Any]) -> list[WorkflowGroup]:
+    config_scope = _prompt_config_scope(raw_config)
+    file_groups, file_order = _load_automation_files(
+        DEFAULT_GROUPS_DIR,
+        USER_GROUPS_DIR,
+        parser=_parse_workflow_group_entry,
+    )
+    legacy_groups = _read_legacy_workflow_groups(config_scope.get("workflow_groups", []))
+    if legacy_groups:
+        if _import_legacy_automation_to_files(
+            USER_GROUPS_DIR,
+            legacy_groups,
+            item_id_attr="group_id",
+            default_dir=DEFAULT_GROUPS_DIR,
+        ):
+            file_groups, file_order = _load_automation_files(
+                DEFAULT_GROUPS_DIR,
+                USER_GROUPS_DIR,
+                parser=_parse_workflow_group_entry,
             )
-        )
-    return groups
+        config_scope["workflow_groups"] = []
+        save_raw_config(raw_config)
+    return _ordered_automation_values(
+        file_groups,
+        config_scope.get(WORKFLOW_GROUP_ORDER_KEY),
+        file_order,
+    )
 
 
 def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> list[SavedSystemPrompt]:
@@ -626,17 +640,13 @@ def _read_processing_presets(
 
 
 def _read_workflows(
-    value: Any,
+    raw_config: dict[str, Any],
     *,
     saved_prompts: list[SavedPrompt],
     workflow_groups: list[WorkflowGroup],
     saved_system_prompts: list[SavedSystemPrompt] | None = None,
 ) -> list[Workflow]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list):
-        raise ConfigError("Config key 'workflows' must be a list.")
-
+    config_scope = _prompt_config_scope(raw_config)
     allowed_prompt_ids = {prompt.prompt_id for prompt in saved_prompts}
     allowed_system_prompt_ids = {
         prompt.prompt_id for prompt in (saved_system_prompts or [])
@@ -645,113 +655,147 @@ def _read_workflows(
     allowed_modes = {"append", "overwrite", "skip_nonempty"}
     allowed_workflow_types = {"field_update", "audit"}
     allowed_api_modes = {"global_default", "responses", "chat_completions"}
-    workflows: list[Workflow] = []
-    seen_ids: set[str] = set()
-
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ConfigError(f"workflows[{index}] must be an object.")
-
-        workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
-        if workflow_id in seen_ids:
-            raise ConfigError(f"workflows[{index}] uses duplicate id '{workflow_id}'.")
-        seen_ids.add(workflow_id)
-
-        prompt_id = _read_string(item, "prompt_id")
-        if prompt_id not in allowed_prompt_ids:
-            raise ConfigError(
-                f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
+    parser = lambda item, index: _parse_workflow_entry(
+        item,
+        index=index,
+        allowed_prompt_ids=allowed_prompt_ids,
+        allowed_system_prompt_ids=allowed_system_prompt_ids,
+        allowed_group_ids=allowed_group_ids,
+        allowed_modes=allowed_modes,
+        allowed_workflow_types=allowed_workflow_types,
+        allowed_api_modes=allowed_api_modes,
+    )
+    file_workflows, file_order = _load_automation_files(
+        DEFAULT_WORKFLOWS_DIR,
+        USER_WORKFLOWS_DIR,
+        parser=parser,
+    )
+    legacy_workflows = _read_legacy_workflow_entries(config_scope.get("workflows", []))
+    if legacy_workflows:
+        if _import_legacy_automation_to_files(
+            USER_WORKFLOWS_DIR,
+            legacy_workflows,
+            item_id_attr="workflow_id",
+            default_dir=DEFAULT_WORKFLOWS_DIR,
+        ):
+            file_workflows, file_order = _load_automation_files(
+                DEFAULT_WORKFLOWS_DIR,
+                USER_WORKFLOWS_DIR,
+                parser=parser,
             )
+        config_scope["workflows"] = []
+        save_raw_config(raw_config)
+    return _ordered_automation_values(
+        file_workflows,
+        config_scope.get(WORKFLOW_ORDER_KEY),
+        file_order,
+    )
 
-        workflow_type = _read_string(item, "workflow_type", default="field_update")
-        if workflow_type not in allowed_workflow_types:
-            raise ConfigError(
-                "Workflow type must be 'field_update' or 'audit'."
-            )
 
-        mode = _read_string(item, "mode", default="overwrite")
-        if mode not in allowed_modes:
-            raise ConfigError(
-                "Workflow mode must be 'append', 'overwrite', or 'skip_nonempty'."
-            )
+def _parse_workflow_entry(
+    item: dict[str, Any],
+    *,
+    index: int,
+    allowed_prompt_ids: set[str],
+    allowed_system_prompt_ids: set[str],
+    allowed_group_ids: set[str],
+    allowed_modes: set[str],
+    allowed_workflow_types: set[str],
+    allowed_api_modes: set[str],
+) -> Workflow:
+    workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
 
-        group_ids = _read_workflow_group_ids(item, allowed_group_ids=allowed_group_ids, index=index)
-        model = _read_optional_string(item, "model")
-        api_mode = _read_optional_choice(
-            item,
-            "api_mode",
-            allowed=allowed_api_modes,
-        ) or "global_default"
-        temperature = _read_optional_float(
-            item,
-            "temperature",
-            minimum=0.0,
-            maximum=2.0,
-        )
-        system_prompt_id = _read_optional_string(item, "system_prompt_id")
-        if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
-            raise ConfigError(
-                f"workflows[{index}] references unknown system_prompt_id '{system_prompt_id}'."
-            )
-        multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
-        response_delimiter = _read_optional_string(item, "response_delimiter")
-        if multiple_target_fields and not response_delimiter:
-            raise ConfigError(
-                f"workflows[{index}] enables multiple_target_fields but has no response_delimiter."
-            )
-        trigger_on_startup = _read_bool(item, "trigger_on_startup", default=False)
-        trigger_on_periodic = _read_bool(item, "trigger_on_periodic", default=False)
-        trigger_min_matches = _read_int(item, "trigger_min_matches", minimum=1, default=1)
-
-        allow_empty_target_field = multiple_target_fields or workflow_type == "audit"
-        target_field = _read_legacy_compatible_string(
-            item,
-            "target_field",
-            aliases=("targetfield", "targetField"),
-            default="",
-            allow_empty=allow_empty_target_field,
-        )
-        schema_preset = _read_optional_string(item, "schema_preset")
-        response_schema_json = _read_optional_string(item, "response_schema_json")
-        if workflow_type == "audit" and schema_preset is None and response_schema_json is None:
-            schema_preset = "mlr_audit"
-
-        workflows.append(
-            Workflow(
-                workflow_id=workflow_id,
-                name=_read_string(item, "name"),
-                query=_read_string(item, "query"),
-                prompt_id=prompt_id,
-                workflow_type=workflow_type,
-                enabled=_read_bool(item, "enabled", default=True),
-                target_field=target_field,
-                mode=mode,
-                model=model,
-                temperature=temperature,
-                api_mode=api_mode,
-                system_prompt_id=system_prompt_id,
-                multiple_target_fields=multiple_target_fields,
-                convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=True),
-                response_delimiter=response_delimiter,
-                schema_preset=schema_preset,
-                response_schema_json=response_schema_json,
-                note_type_filter=_read_optional_string(item, "note_type_filter"),
-                clear_status_tags=_read_optional_string_list(item.get("clear_status_tags"), f"workflows[{index}].clear_status_tags") or None,
-                status_tag_map=_read_optional_string_map(item, "status_tag_map"),
-                extra_status_tags=_read_optional_string_list_map(item, "extra_status_tags"),
-                success_tags=_read_optional_string_list(item.get("success_tags"), f"workflows[{index}].success_tags") or None,
-                failure_tags=_read_optional_string_list(item.get("failure_tags"), f"workflows[{index}].failure_tags") or None,
-                metadata_field_map=_read_optional_string_map(item, "metadata_field_map"),
-                store_raw_output=_read_bool(item, "store_raw_output", default=True),
-                trigger_on_startup=trigger_on_startup,
-                trigger_on_periodic=trigger_on_periodic,
-                trigger_min_matches=trigger_min_matches,
-                group_ids=group_ids,
-                position=_read_int(item, "position", minimum=0, default=index),
-            )
+    prompt_id = _read_string(item, "prompt_id")
+    if prompt_id not in allowed_prompt_ids:
+        raise ConfigError(
+            f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
         )
 
-    return workflows
+    workflow_type = _read_string(item, "workflow_type", default="field_update")
+    if workflow_type not in allowed_workflow_types:
+        raise ConfigError(
+            "Workflow type must be 'field_update' or 'audit'."
+        )
+
+    mode = _read_string(item, "mode", default="overwrite")
+    if mode not in allowed_modes:
+        raise ConfigError(
+            "Workflow mode must be 'append', 'overwrite', or 'skip_nonempty'."
+        )
+
+    group_ids = _read_workflow_group_ids(item, allowed_group_ids=allowed_group_ids, index=index)
+    model = _read_optional_string(item, "model")
+    api_mode = _read_optional_choice(
+        item,
+        "api_mode",
+        allowed=allowed_api_modes,
+    ) or "global_default"
+    temperature = _read_optional_float(
+        item,
+        "temperature",
+        minimum=0.0,
+        maximum=2.0,
+    )
+    system_prompt_id = _read_optional_string(item, "system_prompt_id")
+    if system_prompt_id is not None and system_prompt_id not in allowed_system_prompt_ids:
+        raise ConfigError(
+            f"workflows[{index}] references unknown system_prompt_id '{system_prompt_id}'."
+        )
+    multiple_target_fields = _read_bool(item, "multiple_target_fields", default=False)
+    response_delimiter = _read_optional_string(item, "response_delimiter")
+    if multiple_target_fields and not response_delimiter:
+        raise ConfigError(
+            f"workflows[{index}] enables multiple_target_fields but has no response_delimiter."
+        )
+    trigger_on_startup = _read_bool(item, "trigger_on_startup", default=False)
+    trigger_on_periodic = _read_bool(item, "trigger_on_periodic", default=False)
+    trigger_min_matches = _read_int(item, "trigger_min_matches", minimum=1, default=1)
+
+    allow_empty_target_field = multiple_target_fields or workflow_type == "audit"
+    target_field = _read_legacy_compatible_string(
+        item,
+        "target_field",
+        aliases=("targetfield", "targetField"),
+        default="",
+        allow_empty=allow_empty_target_field,
+    )
+    schema_preset = _read_optional_string(item, "schema_preset")
+    response_schema_json = _read_optional_string(item, "response_schema_json")
+    if workflow_type == "audit" and schema_preset is None and response_schema_json is None:
+        schema_preset = "mlr_audit"
+
+    return Workflow(
+        workflow_id=workflow_id,
+        name=_read_string(item, "name"),
+        query=_read_string(item, "query"),
+        prompt_id=prompt_id,
+        workflow_type=workflow_type,
+        enabled=_read_bool(item, "enabled", default=True),
+        target_field=target_field,
+        mode=mode,
+        model=model,
+        temperature=temperature,
+        api_mode=api_mode,
+        system_prompt_id=system_prompt_id,
+        multiple_target_fields=multiple_target_fields,
+        convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=True),
+        response_delimiter=response_delimiter,
+        schema_preset=schema_preset,
+        response_schema_json=response_schema_json,
+        note_type_filter=_read_optional_string(item, "note_type_filter"),
+        clear_status_tags=_read_optional_string_list(item.get("clear_status_tags"), f"workflows[{index}].clear_status_tags") or None,
+        status_tag_map=_read_optional_string_map(item, "status_tag_map"),
+        extra_status_tags=_read_optional_string_list_map(item, "extra_status_tags"),
+        success_tags=_read_optional_string_list(item.get("success_tags"), f"workflows[{index}].success_tags") or None,
+        failure_tags=_read_optional_string_list(item.get("failure_tags"), f"workflows[{index}].failure_tags") or None,
+        metadata_field_map=_read_optional_string_map(item, "metadata_field_map"),
+        store_raw_output=_read_bool(item, "store_raw_output", default=True),
+        trigger_on_startup=trigger_on_startup,
+        trigger_on_periodic=trigger_on_periodic,
+        trigger_min_matches=trigger_min_matches,
+        group_ids=group_ids,
+        position=_read_int(item, "position", minimum=0, default=index),
+    )
 
 
 def _read_workflow_group_ids(
@@ -786,136 +830,158 @@ def _read_workflow_group_ids(
 
 
 def _read_pipelines(
-    value: Any,
+    raw_config: dict[str, Any],
     *,
     workflows: list[Workflow],
     workflow_groups: list[WorkflowGroup],
 ) -> list[Pipeline]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list):
-        raise ConfigError("Config key 'pipelines' must be a list.")
-
+    config_scope = _prompt_config_scope(raw_config)
     allowed_workflow_ids = {workflow.workflow_id for workflow in workflows}
     allowed_group_ids = {group.group_id for group in workflow_groups}
+    parser = lambda item, index: _parse_pipeline_entry(
+        item,
+        index=index,
+        allowed_workflow_ids=allowed_workflow_ids,
+        allowed_group_ids=allowed_group_ids,
+    )
+    file_pipelines, file_order = _load_automation_files(
+        DEFAULT_PIPELINES_DIR,
+        USER_PIPELINES_DIR,
+        parser=parser,
+    )
+    legacy_pipelines = _read_legacy_pipeline_entries(config_scope.get("pipelines", []))
+    if legacy_pipelines:
+        if _import_legacy_automation_to_files(
+            USER_PIPELINES_DIR,
+            legacy_pipelines,
+            item_id_attr="pipeline_id",
+            default_dir=DEFAULT_PIPELINES_DIR,
+        ):
+            file_pipelines, file_order = _load_automation_files(
+                DEFAULT_PIPELINES_DIR,
+                USER_PIPELINES_DIR,
+                parser=parser,
+            )
+        config_scope["pipelines"] = []
+        save_raw_config(raw_config)
+    return _ordered_automation_values(
+        file_pipelines,
+        config_scope.get(PIPELINE_ORDER_KEY),
+        file_order,
+    )
+
+
+def _parse_pipeline_entry(
+    item: dict[str, Any],
+    *,
+    index: int,
+    allowed_workflow_ids: set[str],
+    allowed_group_ids: set[str],
+) -> Pipeline:
     allowed_step_types = {"run_workflow", "run_group", "tag", "stop", "suspend_cards", "run_mlr_audit"}
-    parsed_pipelines: list[Pipeline] = []
-    seen_pipeline_ids: set[str] = set()
+    pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
 
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ConfigError(f"pipelines[{index}] must be an object.")
+    selector_raw = item.get("note_selector")
+    if not isinstance(selector_raw, dict):
+        raise ConfigError(f"pipelines[{index}].note_selector must be an object.")
+    note_selector = PipelineNoteSelector(
+        query=_read_string(selector_raw, "query"),
+        limit=_read_optional_int(selector_raw, "limit", minimum=1),
+    )
 
-        pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
-        if pipeline_id in seen_pipeline_ids:
-            raise ConfigError(f"pipelines[{index}] uses duplicate id '{pipeline_id}'.")
-        seen_pipeline_ids.add(pipeline_id)
+    steps_raw = item.get("steps")
+    if not isinstance(steps_raw, list) or not steps_raw:
+        raise ConfigError(f"pipelines[{index}].steps must be a non-empty list.")
 
-        selector_raw = item.get("note_selector")
-        if not isinstance(selector_raw, dict):
-            raise ConfigError(f"pipelines[{index}].note_selector must be an object.")
-        note_selector = PipelineNoteSelector(
-            query=_read_string(selector_raw, "query"),
-            limit=_read_optional_int(selector_raw, "limit", minimum=1),
+    steps: list[PipelineStep] = []
+    seen_step_ids: set[str] = set()
+    for step_index, step_raw in enumerate(steps_raw):
+        if not isinstance(step_raw, dict):
+            raise ConfigError(f"pipelines[{index}].steps[{step_index}] must be an object.")
+
+        step_id = _read_string(step_raw, "id", default=f"{pipeline_id}-step-{step_index + 1}")
+        if step_id in seen_step_ids:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] uses duplicate id '{step_id}'."
+            )
+        seen_step_ids.add(step_id)
+
+        step_type = _read_string(step_raw, "type")
+        if step_type not in allowed_step_types:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}].type must be one of: "
+                + ", ".join(sorted(allowed_step_types))
+                + "."
+            )
+
+        workflow_id = _read_optional_string(step_raw, "workflow_id")
+        group_id = _read_optional_string(step_raw, "group_id")
+        if step_type == "run_mlr_audit" and workflow_id is None:
+            workflow_id = "mlr-audit"
+            step_type = "run_workflow"
+        if workflow_id is not None and workflow_id not in allowed_workflow_ids:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] references unknown workflow_id '{workflow_id}'."
+            )
+        if group_id is not None and group_id not in allowed_group_ids:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] references unknown group_id '{group_id}'."
+            )
+
+        if step_type == "run_workflow" and workflow_id is None:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] must define workflow_id for run_workflow."
+            )
+        if step_type == "run_group" and group_id is None:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] must define group_id for run_group."
+            )
+        if step_type != "run_workflow" and workflow_id is not None:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] may only define workflow_id for run_workflow."
+            )
+        if step_type != "run_group" and group_id is not None:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] may only define group_id for run_group."
+            )
+
+        add_tags = _read_optional_string_list(step_raw.get("add_tags"), f"pipelines[{index}].steps[{step_index}].add_tags")
+        remove_tags = _read_optional_string_list(
+            step_raw.get("remove_tags"),
+            f"pipelines[{index}].steps[{step_index}].remove_tags",
         )
-
-        steps_raw = item.get("steps")
-        if not isinstance(steps_raw, list) or not steps_raw:
-            raise ConfigError(f"pipelines[{index}].steps must be a non-empty list.")
-
-        steps: list[PipelineStep] = []
-        seen_step_ids: set[str] = set()
-        for step_index, step_raw in enumerate(steps_raw):
-            if not isinstance(step_raw, dict):
-                raise ConfigError(f"pipelines[{index}].steps[{step_index}] must be an object.")
-
-            step_id = _read_string(step_raw, "id", default=f"{pipeline_id}-step-{step_index + 1}")
-            if step_id in seen_step_ids:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] uses duplicate id '{step_id}'."
-                )
-            seen_step_ids.add(step_id)
-
-            step_type = _read_string(step_raw, "type")
-            if step_type not in allowed_step_types:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}].type must be one of: "
-                    + ", ".join(sorted(allowed_step_types))
-                    + "."
-                )
-
-            workflow_id = _read_optional_string(step_raw, "workflow_id")
-            group_id = _read_optional_string(step_raw, "group_id")
-            if step_type == "run_mlr_audit" and workflow_id is None:
-                workflow_id = "mlr-audit"
-                step_type = "run_workflow"
-            if workflow_id is not None and workflow_id not in allowed_workflow_ids:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] references unknown workflow_id '{workflow_id}'."
-                )
-            if group_id is not None and group_id not in allowed_group_ids:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] references unknown group_id '{group_id}'."
-                )
-
-            if step_type == "run_workflow" and workflow_id is None:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] must define workflow_id for run_workflow."
-                )
-            if step_type == "run_group" and group_id is None:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] must define group_id for run_group."
-                )
-            if step_type != "run_workflow" and workflow_id is not None:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] may only define workflow_id for run_workflow."
-                )
-            if step_type != "run_group" and group_id is not None:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] may only define group_id for run_group."
-                )
-
-            add_tags = _read_optional_string_list(step_raw.get("add_tags"), f"pipelines[{index}].steps[{step_index}].add_tags")
-            remove_tags = _read_optional_string_list(
-                step_raw.get("remove_tags"),
-                f"pipelines[{index}].steps[{step_index}].remove_tags",
+        if step_type == "tag" and not add_tags and not remove_tags:
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] must define add_tags and/or remove_tags for tag steps."
             )
-            if step_type == "tag" and not add_tags and not remove_tags:
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] must define add_tags and/or remove_tags for tag steps."
-                )
-            if step_type != "tag" and (add_tags or remove_tags):
-                raise ConfigError(
-                    f"pipelines[{index}].steps[{step_index}] may only define add_tags/remove_tags for tag steps."
-                )
-
-            when_value = step_raw.get("when")
-            if when_value is not None and not isinstance(when_value, dict):
-                raise ConfigError(f"pipelines[{index}].steps[{step_index}].when must be an object.")
-
-            steps.append(
-                PipelineStep(
-                    step_id=step_id,
-                    step_type=step_type,
-                    workflow_id=workflow_id,
-                    group_id=group_id,
-                    add_tags=add_tags or None,
-                    remove_tags=remove_tags or None,
-                    when=when_value,
-                )
+        if step_type != "tag" and (add_tags or remove_tags):
+            raise ConfigError(
+                f"pipelines[{index}].steps[{step_index}] may only define add_tags/remove_tags for tag steps."
             )
 
-        parsed_pipelines.append(
-            Pipeline(
-                pipeline_id=pipeline_id,
-                name=_read_string(item, "name"),
-                enabled=_read_bool(item, "enabled", default=True),
-                note_selector=note_selector,
-                steps=steps,
+        when_value = step_raw.get("when")
+        if when_value is not None and not isinstance(when_value, dict):
+            raise ConfigError(f"pipelines[{index}].steps[{step_index}].when must be an object.")
+
+        steps.append(
+            PipelineStep(
+                step_id=step_id,
+                step_type=step_type,
+                workflow_id=workflow_id,
+                group_id=group_id,
+                add_tags=add_tags or None,
+                remove_tags=remove_tags or None,
+                when=when_value,
             )
         )
 
-    return parsed_pipelines
+    return Pipeline(
+        pipeline_id=pipeline_id,
+        name=_read_string(item, "name"),
+        enabled=_read_bool(item, "enabled", default=True),
+        note_selector=note_selector,
+        steps=steps,
+    )
 
 
 def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
@@ -984,6 +1050,31 @@ def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
     _prune_removed_user_prompt_files(seen_ids)
     config_scope["saved_prompts"] = []
     config_scope[SAVED_PROMPT_ORDER_KEY] = ordered_ids
+    save_raw_config(raw_config)
+
+
+def save_workflow_state(
+    raw_config: dict[str, Any],
+    workflow_groups: list[WorkflowGroup],
+    workflows: list[Workflow],
+) -> None:
+    config_scope = _prompt_config_scope(raw_config)
+    group_ids = _save_automation_items(
+        workflow_groups,
+        default_dir=DEFAULT_GROUPS_DIR,
+        user_dir=USER_GROUPS_DIR,
+        item_id_attr="group_id",
+    )
+    workflow_ids = _save_automation_items(
+        workflows,
+        default_dir=DEFAULT_WORKFLOWS_DIR,
+        user_dir=USER_WORKFLOWS_DIR,
+        item_id_attr="workflow_id",
+    )
+    config_scope["workflow_groups"] = []
+    config_scope["workflows"] = []
+    config_scope[WORKFLOW_GROUP_ORDER_KEY] = group_ids
+    config_scope[WORKFLOW_ORDER_KEY] = workflow_ids
     save_raw_config(raw_config)
 
 
@@ -1124,3 +1215,404 @@ def _prompt_config_scope(raw_config: dict[str, Any]) -> dict[str, Any]:
     if isinstance(nested, dict):
         return nested
     return raw_config
+
+
+def _parse_workflow_group_entry(item: dict[str, Any], *, index: int) -> WorkflowGroup:
+    return WorkflowGroup(
+        group_id=_read_string(item, "id", default=f"group-{index + 1}"),
+        name=_read_string(item, "name"),
+    )
+
+
+def _read_legacy_workflow_groups(value: Any) -> list[WorkflowGroup]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'workflow_groups' must be a list.")
+    groups: list[WorkflowGroup] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"workflow_groups[{index}] must be an object.")
+        group = _parse_workflow_group_entry(item, index=index)
+        if group.group_id in seen_ids:
+            raise ConfigError(f"workflow_groups[{index}] uses duplicate id '{group.group_id}'.")
+        seen_ids.add(group.group_id)
+        groups.append(group)
+    return groups
+
+
+def _read_legacy_workflow_entries(value: Any) -> list[dict[str, Any]]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'workflows' must be a list.")
+    entries: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"workflows[{index}] must be an object.")
+        workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
+        if workflow_id in seen_ids:
+            raise ConfigError(f"workflows[{index}] uses duplicate id '{workflow_id}'.")
+        seen_ids.add(workflow_id)
+        entries.append(dict(item))
+    return entries
+
+
+def _read_legacy_pipeline_entries(value: Any) -> list[dict[str, Any]]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("Config key 'pipelines' must be a list.")
+    entries: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ConfigError(f"pipelines[{index}] must be an object.")
+        pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
+        if pipeline_id in seen_ids:
+            raise ConfigError(f"pipelines[{index}] uses duplicate id '{pipeline_id}'.")
+        seen_ids.add(pipeline_id)
+        entries.append(dict(item))
+    return entries
+
+
+def _ordered_automation_values(
+    items_by_id: dict[str, Any],
+    configured_order_value: Any,
+    file_order: list[str],
+) -> list[Any]:
+    configured_order = _read_prompt_order(configured_order_value)
+    ordered_ids = configured_order or file_order
+    items: list[T] = []
+    seen_ids: set[str] = set()
+    for item_id in ordered_ids:
+        item = items_by_id.get(item_id)
+        if item is None or item_id in seen_ids:
+            continue
+        items.append(item)
+        seen_ids.add(item_id)
+    for item_id in file_order:
+        if item_id in seen_ids:
+            continue
+        item = items_by_id[item_id]
+        items.append(item)
+        seen_ids.add(item_id)
+    return items
+
+
+def _load_automation_files(
+    default_dir: Path,
+    user_dir: Path,
+    *,
+    parser: Any,
+) -> tuple[dict[str, Any], list[str]]:
+    merged: dict[str, Any] = {}
+    order: list[str] = []
+    index = 0
+    for directory in (default_dir, user_dir):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.yaml")):
+            item = parser(_read_yamlish_file(path), index=index)
+            index += 1
+            item_id = _automation_item_id(item)
+            merged[item_id] = item
+            if item_id in order:
+                order.remove(item_id)
+            order.append(item_id)
+    return merged, order
+
+
+def _import_legacy_automation_to_files(
+    target_dir: Path,
+    legacy_items: list[Any],
+    *,
+    item_id_attr: str,
+    default_dir: Path | None = None,
+) -> bool:
+    imported = False
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for item in legacy_items:
+        item_id = str(getattr(item, item_id_attr, None) or item.get("id") if isinstance(item, dict) else "").strip()
+        if not item_id:
+            continue
+        item_dict = _automation_item_to_dict(item)
+        path = target_dir / f"{item_id}.yaml"
+        if default_dir is not None:
+            default_path = default_dir / f"{item_id}.yaml"
+            if default_path.exists() and _read_yamlish_file(default_path) == item_dict:
+                if path.exists():
+                    path.unlink()
+                continue
+        _write_yamlish_file(path, item_dict)
+        imported = True
+    return imported
+
+
+def _save_automation_items(
+    items: list[Any],
+    *,
+    default_dir: Path,
+    user_dir: Path,
+    item_id_attr: str,
+) -> list[str]:
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+    user_dir.mkdir(parents=True, exist_ok=True)
+    for item in items:
+        item_id = str(getattr(item, item_id_attr, "")).strip()
+        if not item_id:
+            continue
+        item_dict = _automation_item_to_dict(item)
+        default_path = default_dir / f"{item_id}.yaml"
+        user_path = user_dir / f"{item_id}.yaml"
+        if default_path.exists() and _read_yamlish_file(default_path) == item_dict:
+            if user_path.exists():
+                user_path.unlink()
+        else:
+            _write_yamlish_file(user_path, item_dict)
+        if item_id not in seen_ids:
+            ordered_ids.append(item_id)
+            seen_ids.add(item_id)
+    _prune_removed_user_automation_files(user_dir, active_ids=seen_ids)
+    return ordered_ids
+
+
+def _prune_removed_user_automation_files(user_dir: Path, *, active_ids: set[str]) -> None:
+    if not user_dir.exists():
+        return
+    for path in user_dir.glob("*.yaml"):
+        if path.stem not in active_ids:
+            path.unlink()
+
+
+def _automation_item_id(item: Any) -> str:
+    if isinstance(item, WorkflowGroup):
+        return item.group_id
+    if isinstance(item, Workflow):
+        return item.workflow_id
+    if isinstance(item, Pipeline):
+        return item.pipeline_id
+    raise TypeError(f"Unsupported automation item type: {type(item)!r}")
+
+
+def _automation_item_to_dict(item: Any) -> dict[str, Any]:
+    if isinstance(item, WorkflowGroup):
+        return {"id": item.group_id, "name": item.name}
+    if isinstance(item, Workflow):
+        return {
+            "id": item.workflow_id,
+            "name": item.name,
+            "query": item.query,
+            "workflow_type": item.workflow_type,
+            "enabled": item.enabled,
+            "prompt_id": item.prompt_id,
+            "target_field": item.target_field,
+            "mode": item.mode,
+            "model": item.model,
+            "temperature": item.temperature,
+            "api_mode": item.api_mode,
+            "system_prompt_id": item.system_prompt_id,
+            "multiple_target_fields": item.multiple_target_fields,
+            "convert_markdown_to_html": item.convert_markdown_to_html,
+            "response_delimiter": item.response_delimiter,
+            "schema_preset": item.schema_preset,
+            "response_schema_json": item.response_schema_json,
+            "note_type_filter": item.note_type_filter,
+            "clear_status_tags": item.clear_status_tags,
+            "status_tag_map": item.status_tag_map,
+            "extra_status_tags": item.extra_status_tags,
+            "success_tags": item.success_tags,
+            "failure_tags": item.failure_tags,
+            "metadata_field_map": item.metadata_field_map,
+            "store_raw_output": item.store_raw_output,
+            "trigger_on_startup": item.trigger_on_startup,
+            "trigger_on_periodic": item.trigger_on_periodic,
+            "trigger_min_matches": item.trigger_min_matches,
+            "group_ids": item.group_ids or [],
+            "group_id": (item.group_ids or [None])[0],
+            "position": item.position,
+        }
+    if isinstance(item, Pipeline):
+        return {
+            "id": item.pipeline_id,
+            "name": item.name,
+            "enabled": item.enabled,
+            "note_selector": {
+                "query": item.note_selector.query,
+                "limit": item.note_selector.limit,
+            },
+            "steps": [
+                {
+                    "id": step.step_id,
+                    "type": step.step_type,
+                    "workflow_id": step.workflow_id,
+                    "group_id": step.group_id,
+                    "add_tags": step.add_tags,
+                    "remove_tags": step.remove_tags,
+                    "when": step.when,
+                }
+                for step in item.steps
+            ],
+        }
+    if isinstance(item, dict):
+        return item
+    raise TypeError(f"Unsupported automation item type: {type(item)!r}")
+
+
+def _read_yamlish_file(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    try:
+        value, _ = _parse_yamlish_block(_yamlish_lines(text), 0, 0)
+    except Exception as error:
+        raise ConfigError(f"Could not parse automation file '{path}': {error}") from error
+    if not isinstance(value, dict):
+        raise ConfigError(f"Automation file '{path}' must contain a top-level mapping.")
+    return value
+
+
+def _write_yamlish_file(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_dump_yamlish(value), encoding="utf-8")
+
+
+def _yamlish_lines(text: str) -> list[tuple[int, str]]:
+    lines: list[tuple[int, str]] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        lines.append((indent, raw_line[indent:]))
+    return lines
+
+
+def _parse_yamlish_block(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[Any, int]:
+    if index >= len(lines):
+        return {}, index
+    current_indent, current_text = lines[index]
+    if current_indent != indent:
+        raise ValueError(f"Unexpected indent at '{current_text}'.")
+    if current_text.startswith("-"):
+        return _parse_yamlish_list(lines, index, indent)
+    return _parse_yamlish_mapping(lines, index, indent)
+
+
+def _parse_yamlish_list(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[list[Any], int]:
+    items: list[Any] = []
+    while index < len(lines):
+        current_indent, current_text = lines[index]
+        if current_indent < indent:
+            break
+        if current_indent != indent or not current_text.startswith("-"):
+            break
+        remainder = current_text[1:].strip()
+        if remainder:
+            items.append(_parse_yamlish_scalar(remainder))
+            index += 1
+            continue
+        index += 1
+        value, index = _parse_yamlish_block(lines, index, indent + 2)
+        items.append(value)
+    return items, index
+
+
+def _parse_yamlish_mapping(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[dict[str, Any], int]:
+    mapping: dict[str, Any] = {}
+    while index < len(lines):
+        current_indent, current_text = lines[index]
+        if current_indent < indent:
+            break
+        if current_indent != indent:
+            raise ValueError(f"Unexpected nested indent at '{current_text}'.")
+        if current_text.startswith("-"):
+            break
+        if ":" not in current_text:
+            raise ValueError(f"Expected key/value pair at '{current_text}'.")
+        key, remainder = current_text.split(":", 1)
+        key = key.strip()
+        remainder = remainder.strip()
+        if remainder:
+            mapping[key] = _parse_yamlish_scalar(remainder)
+            index += 1
+            continue
+        index += 1
+        if index >= len(lines) or lines[index][0] <= indent:
+            mapping[key] = {}
+            continue
+        value, index = _parse_yamlish_block(lines, index, indent + 2)
+        mapping[key] = value
+    return mapping, index
+
+
+def _parse_yamlish_scalar(text: str) -> Any:
+    if text == "null":
+        return None
+    if text == "true":
+        return True
+    if text == "false":
+        return False
+    if text == "[]":
+        return []
+    if text == "{}":
+        return {}
+    if text.startswith('"'):
+        import json
+        return json.loads(text)
+    try:
+        if any(char in text for char in (".", "e", "E")):
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
+
+
+def _dump_yamlish(value: Any, indent: int = 0) -> str:
+    lines = _dump_yamlish_lines(value, indent)
+    return "\n".join(lines) + "\n"
+
+
+def _dump_yamlish_lines(value: Any, indent: int) -> list[str]:
+    prefix = " " * indent
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key, item in value.items():
+            if item is None:
+                lines.append(f"{prefix}{key}: null")
+            elif isinstance(item, (dict, list)):
+                if not item:
+                    empty = "{}" if isinstance(item, dict) else "[]"
+                    lines.append(f"{prefix}{key}: {empty}")
+                else:
+                    lines.append(f"{prefix}{key}:")
+                    lines.extend(_dump_yamlish_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}{key}: {_format_yamlish_scalar(item)}")
+        return lines
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                if not item:
+                    empty = "{}" if isinstance(item, dict) else "[]"
+                    lines.append(f"{prefix}- {empty}")
+                else:
+                    lines.append(f"{prefix}-")
+                    lines.extend(_dump_yamlish_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}- {_format_yamlish_scalar(item)}")
+        return lines
+    return [f"{prefix}{_format_yamlish_scalar(value)}"]
+
+
+def _format_yamlish_scalar(value: Any) -> str:
+    import json
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=False)

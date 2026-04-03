@@ -1,0 +1,15 @@
+id: "workflow-mlr-full-field-refactor"
+name: "MLR Full Field Refactor"
+query: "note:\"Moritz Language Reactor\" tag:ai-mlr-refactor"
+prompt_id: "mlr-full-field-refactor"
+target_field: ""
+mode: "overwrite"
+model: "gpt-5-mini"
+system_prompt_id: "delimited-field-sections"
+multiple_target_fields: true
+response_delimiter: "--{field}--"
+group_id: "mlr-maintenance"
+position: 5
+workflow_type: "field_update"
+enabled: false
+api_mode: "global_default"
