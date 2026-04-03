@@ -1,6 +1,6 @@
 # Sample User Audit Pipeline
 
-This document shows a concrete example of a user-facing audit pipeline for `Moritz Language Reactor` notes.
+This document shows a concrete example of the current user-facing audit pipeline for `Moritz Language Reactor` notes.
 
 It is based on the current seeded setup:
 
@@ -12,29 +12,39 @@ It is based on the current seeded setup:
 The sample pipeline:
 
 1. selects `Moritz Language Reactor` notes
-2. excludes notes already tagged `ai_done_today`
+2. excludes notes already processed today and already suspended or buried notes
 3. limits the selection to 15 notes
 4. runs the `mlr-audit` workflow on those notes
-5. lets the audit workflow apply tags and store audit metadata
-
-This is intentionally diagnostic-only. It does not rewrite learning content fields.
+5. branches per note based on the validated audit result
+6. runs field-specific follow-up workflows only when `FIXABLE_MINOR` notes explicitly request those fields
+7. tags rejected notes with `mark` and suspends their cards
 
 ## Mermaid Diagram
 
 ```mermaid
 graph TD
-    A[Pipeline: MLR Audit First 15] --> B[Note selector<br/>note:'Moritz Language Reactor'<br/>-tag:ai_done_today<br/>limit:15]
-    B --> C[workflow_engine.py<br/>run workflow by ID]
-    C --> D[Workflow: mlr-audit<br/>workflow_type: audit]
-    D --> E[Load prompt text<br/>mlr-audit-system.md<br/>mlr-audit.md]
-    D --> F[Load audit preset<br/>mlr_audit schema preset]
-    E --> G[audit_flow.py<br/>Build prompt + call model]
-    F --> G
-    G --> H[Structured JSON validation]
-    H --> I[Apply audit tags]
-    H --> J[Persist audit metadata]
-    I --> K[Note updated with status tags<br/>ai_good / ai_fix_minor / ai_fix_major / ai_reject / ai_skip]
-    J --> L[audit_log.json and optional AI Audit fields]
+    A[Pipeline MLR Audit First 15] --> B[Select MLR notes]
+    B --> C[Limit to 15]
+    C --> D[Run workflow mlr-audit]
+    D --> E[Audit validates structured JSON]
+    E --> F{audit.status}
+
+    F -->|GOOD| G[Keep tags and metadata only]
+    F -->|SKIP| H[Keep skip tags and stop]
+    F -->|FIXABLE_MAJOR| I[Add manual review tags]
+    F -->|REJECT| J[Add tag mark]
+    J --> K[Suspend note cards]
+    F -->|FIXABLE_MINOR| L{fields_to_update}
+
+    L -->|Japanese Notes| M[Run workflow fix minor Japanese Notes]
+    L -->|Notes| N[Run workflow fix minor Notes]
+    L -->|Word Definition| O[Run workflow fix minor Word Definition]
+    L -->|Grammar| P[Run workflow fix minor Grammar]
+
+    M --> Q[Write updated field]
+    N --> Q
+    O --> Q
+    P --> Q
 
 ```
 
@@ -60,7 +70,7 @@ Conceptually it is configured like this:
 {
   "id": "mlr-audit",
   "name": "MLR Audit",
-  "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15",
+  "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today limit:15",
   "workflow_type": "audit",
   "enabled": true,
   "prompt_id": "mlr-audit-prompt",
@@ -103,7 +113,7 @@ Conceptually it is configured like this:
 
 ## Current Example Pipeline
 
-The pipeline is intentionally simple:
+The current seeded pipeline now does the whole first-pass audit-and-follow-up flow:
 
 ```json
 {
@@ -111,34 +121,96 @@ The pipeline is intentionally simple:
   "name": "MLR Audit First 15",
   "enabled": true,
   "note_selector": {
-    "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15"
+    "query": "note:\"Moritz Language Reactor\" is:new -is:suspended -is:buried -tag:ai_done_today",
+    "limit": 15
   },
   "steps": [
     {
       "id": "audit",
       "type": "run_workflow",
       "workflow_id": "mlr-audit"
+    },
+    {
+      "id": "fix-japanese-notes",
+      "type": "run_workflow",
+      "workflow_id": "workflow-mlr-fix-minor-japanese-notes",
+      "when": {
+        "all": [
+          { "artifact_equals": ["audit.status", "FIXABLE_MINOR"] },
+          { "artifact_equals": ["audit.auto_fix_allowed", true] },
+          { "artifact_contains": ["audit.fields_to_update", "Japanese Notes"] }
+        ]
+      }
+    },
+    {
+      "id": "fix-notes",
+      "type": "run_workflow",
+      "workflow_id": "workflow-mlr-fix-minor-notes",
+      "when": {
+        "all": [
+          { "artifact_equals": ["audit.status", "FIXABLE_MINOR"] },
+          { "artifact_equals": ["audit.auto_fix_allowed", true] },
+          { "artifact_contains": ["audit.fields_to_update", "Notes"] }
+        ]
+      }
+    },
+    {
+      "id": "fix-word-definition",
+      "type": "run_workflow",
+      "workflow_id": "workflow-mlr-fix-minor-word-definition",
+      "when": {
+        "all": [
+          { "artifact_equals": ["audit.status", "FIXABLE_MINOR"] },
+          { "artifact_equals": ["audit.auto_fix_allowed", true] },
+          { "artifact_contains": ["audit.fields_to_update", "Word Definition"] }
+        ]
+      }
+    },
+    {
+      "id": "fix-grammar",
+      "type": "run_workflow",
+      "workflow_id": "workflow-mlr-fix-minor-grammar",
+      "when": {
+        "all": [
+          { "artifact_equals": ["audit.status", "FIXABLE_MINOR"] },
+          { "artifact_equals": ["audit.auto_fix_allowed", true] },
+          { "artifact_contains": ["audit.fields_to_update", "Grammar"] }
+        ]
+      }
+    },
+    {
+      "id": "mark-reject",
+      "type": "tag",
+      "add_tags": ["mark"],
+      "when": { "artifact_equals": ["audit.status", "REJECT"] }
+    },
+    {
+      "id": "suspend-reject",
+      "type": "suspend_cards",
+      "when": { "artifact_equals": ["audit.status", "REJECT"] }
     }
   ]
 }
 ```
 
-## Why This Is a Good First User Pipeline
+## Why This Is a Good User Pipeline
 
 This example is a good starting point because it is:
 
 - easy to understand
 - safe to run repeatedly
-- diagnostic-only
 - limited in scope
-- already compatible with later branching
+- still driven by atomic workflows
+- branched only on validated audit data
+- able to complete the first follow-up pass in one run
 
-The workflow does the structured audit work.
+The audit workflow does the structured classification work.
+The follow-up workflows do one field update each.
 The pipeline only selects notes and orchestrates execution.
 
 ## What Gets Written
 
-The audit workflow does not rewrite fields like:
+The audit workflow itself does not rewrite fields like:
 
 - `Cloze`
 - `Lemma`
@@ -154,39 +226,44 @@ Instead it writes:
 - audit metadata in optional note fields if they exist
 - audit entries in `user_data/audit_log.json`
 
-## How This Could Grow Later
+The follow-up workflows may then rewrite only the support fields explicitly listed in `fields_to_update`:
 
-A later version could branch after the audit step.
+- `Japanese Notes`
+- `Notes`
+- `Word Definition`
+- `Grammar`
 
-For example:
+## Supporting Workflows
 
-```mermaid
-graph TD
-    A[Select MLR notes limit:15] --> B[Run mlr-audit]
-    B --> C{audit.status}
-    C -->|GOOD| D[Stop]
-    C -->|FIXABLE_MINOR| E[Run mlr-rewrite-japanese-notes]
-    C -->|FIXABLE_MINOR| F[Run mlr-rewrite-notes]
-    C -->|FIXABLE_MAJOR| G[Add ai_manual_review]
-    C -->|REJECT| H[Add ai_manual_review]
-    C -->|SKIP| I[Stop]
+The current seeded follow-up workflows are:
 
-```
+- `workflow-mlr-fix-minor-japanese-notes`
+- `workflow-mlr-fix-minor-notes`
+- `workflow-mlr-fix-minor-word-definition`
+- `workflow-mlr-fix-minor-grammar`
 
-Related files for the future branching example:
+Each one stays atomic:
 
-- [`config.json`](../../config.json)
-- [`core/pipelines.py`](../../core/pipelines.py)
-- [`core/workflow_engine.py`](../../core/workflow_engine.py)
+- one prompt
+- one field-focused task
+- independently runnable outside the pipeline if needed
 
-That future version would still keep the same architecture:
+## Implementation Notes
 
-- audit remains an atomic workflow
-- rewrite steps remain atomic workflows
-- the pipeline handles branching
+- The audit step strips HTML from `Cloze` before rendering the audit prompt.
+- The pipeline uses `artifact_contains` so list-valued audit output like `fields_to_update` can drive branching.
+- Rejected notes get tag `mark`, then the cards that belong to those notes are suspended.
+- `FIXABLE_MAJOR` currently stays in the audit/tagging lane and does not auto-rewrite fields.
+
+## Mermaid For The Standalone Preview
+
+The same diagram also exists as a standalone Mermaid source file:
+
+- [`sample-user-workflow-pipeline.mmd`](./sample-user-workflow-pipeline.mmd)
 
 ## Notes
 
-- The sample query uses `limit:15`. That works when the separate `limit-search-results` add-on is installed.
+- The workflow query and the pipeline note selector both currently encode the same initial note scope for convenience.
+- The sample workflow query uses `limit:15`. That works when the separate `limit-search-results` add-on is installed.
 - The workflow also includes its own query, but when called from a pipeline the pipeline is the orchestration layer and provides the note set.
 - The audit workflow currently uses the Responses API because it needs structured output validation.

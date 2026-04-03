@@ -33,6 +33,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Rejected notes in the seeded MLR audit pipeline are now tagged `mark` and have their cards suspended automatically.
 - Audit preparation now strips HTML from the `Cloze` field before sending it to the model, which makes audit prompts more stable for HTML-rich note content.
 - The architecture docs were refreshed to match the typed workflow model, pipeline branching behavior, and current MLR audit-follow-up flow.
+- The sample audit pipeline docs and standalone Mermaid diagram were updated to show the current seeded follow-up branches and reject-handling path instead of the earlier audit-only prototype.
 
 ## 1.1.0 - 2026-04-03
 
