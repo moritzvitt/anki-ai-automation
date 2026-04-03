@@ -21,6 +21,7 @@ from aqt.qt import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QPalette,
     QVBoxLayout,
     QWidget,
 )
@@ -204,12 +205,21 @@ class WorkflowManagerDialog(QDialog):
             self._visible_workflows = list(self._workflows)
 
         self.workflow_list.clear()
-        color_a = QColor("#f6f1e8")
-        color_b = QColor("#e8f0ea")
         for index, workflow in enumerate(self._visible_workflows):
             item = QListWidgetItem(self._workflow_preview(workflow))
-            item.setBackground(color_a if index % 2 == 0 else color_b)
+            item.setBackground(self._workflow_row_background(index))
             self.workflow_list.addItem(item)
+
+    def _workflow_row_background(self, index: int) -> QColor:
+        palette = self.workflow_list.palette()
+        base = palette.color(QPalette.ColorRole.Base)
+        warm_accent = QColor("#dba95a")
+        cool_accent = QColor("#66a88f")
+        accent = warm_accent if index % 2 == 0 else cool_accent
+
+        # Keep the alternating rows visible while respecting the active Anki theme.
+        blend_ratio = 0.16 if base.lightness() < 128 else 0.32
+        return _blend_colors(base, accent, blend_ratio)
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
@@ -1257,3 +1267,13 @@ def _common_fields_for_notes(note_ids: list[int]) -> list[str]:
     if not field_sets:
         return []
     return sorted(set.intersection(*field_sets))
+
+
+def _blend_colors(base: QColor, accent: QColor, ratio: float) -> QColor:
+    ratio = max(0.0, min(1.0, ratio))
+    inverse = 1.0 - ratio
+    return QColor(
+        round((base.red() * inverse) + (accent.red() * ratio)),
+        round((base.green() * inverse) + (accent.green() * ratio)),
+        round((base.blue() * inverse) + (accent.blue() * ratio)),
+    )
