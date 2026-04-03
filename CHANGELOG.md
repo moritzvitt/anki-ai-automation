@@ -6,9 +6,16 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ## Unreleased
 
+### Added
+
+- A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
+- A structured stage-1 audit pipeline with strict JSON validation, status-based tagging, and local audit metadata persistence in `user_data/audit_log.json`.
+- Dedicated audit prompt/schema and storage modules so a later auto-fix stage can reuse the validated audit output cleanly.
+
 ### Changed
 
 - Simplified the core settings dialog by removing prompt fields, adding a clearer add-on summary, renaming the model selector to `Default model`, and adding a button that opens Anki's built-in raw JSON config editor.
+- Added a Responses API helper for strict JSON-schema audit requests, and preserved Browser selection order so the first 15 selected notes can be audited predictably.
 
 ## 1.1.0 - 2026-04-03
 

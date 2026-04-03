@@ -41,6 +41,12 @@ class AITextResponseResult:
     usage: TokenUsage
 
 
+@dataclass(frozen=True)
+class AIJSONTextResponseResult:
+    output_text: str
+    usage: TokenUsage
+
+
 def request_field_updates(
     *,
     api_key: str,
@@ -117,6 +123,72 @@ def request_field_updates(
             time.sleep(retry_backoff_seconds * (attempt + 1))
         except json.JSONDecodeError as error:
             raise OpenAIClientError(f"OpenAI response was not valid JSON: {error}") from error
+
+    raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
+
+
+def request_responses_json_text(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    schema_name: str,
+    schema: dict[str, Any],
+    timeout_seconds: float,
+    max_retries: int,
+    retry_backoff_seconds: float,
+    temperature: float | None,
+    reasoning_effort: str | None,
+) -> AIJSONTextResponseResult:
+    if OpenAI is None:
+        raise OpenAIClientError(
+            "The official OpenAI Python client is not installed. "
+            "Install the 'openai' package into Anki's Python environment first."
+        )
+    if not api_key.strip():
+        raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
+
+    client = _build_client(api_key=api_key, timeout_seconds=timeout_seconds)
+    response_format = {
+        "type": "json_schema",
+        "name": schema_name,
+        "strict": True,
+        "schema": schema,
+    }
+
+    last_error: Exception | None = None
+    use_temperature = temperature is not None
+    for attempt in range(max_retries + 1):
+        try:
+            payload: dict[str, Any] = {
+                "model": model,
+                "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
+                "text": {"format": response_format},
+            }
+            if use_temperature and temperature is not None:
+                payload["temperature"] = temperature
+            if reasoning_effort:
+                payload["reasoning"] = {"effort": reasoning_effort}
+
+            response = client.responses.create(**payload)
+            output_text = str(getattr(response, "output_text", "") or "").strip()
+            if not output_text:
+                raise OpenAIClientError("The model returned an empty response.")
+
+            return AIJSONTextResponseResult(
+                output_text=output_text,
+                usage=_parse_usage(getattr(response, "usage", None)),
+            )
+        except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+            if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
+                use_temperature = False
+                last_error = error
+                continue
+            last_error = error
+            if attempt >= max_retries:
+                break
+            time.sleep(retry_backoff_seconds * (attempt + 1))
 
     raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
 
