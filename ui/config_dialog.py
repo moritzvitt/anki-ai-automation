@@ -50,7 +50,7 @@ class ConfigDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("AI Automation Settings")
-        self.resize(980, 760)
+        self.resize(920, 640)
 
         self._addon_manager = mw.addonManager if mw is not None else None
         self._config = self._load_config()
@@ -74,17 +74,19 @@ class ConfigDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
 
-        title = QLabel("AI Automation")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
-        layout.addWidget(title)
-
-        intro = QLabel(
-            "AI Automation uses OpenAI to update Anki notes from Browser selections or reusable query-based workflows.\n\n"
-            "Manage the core add-on settings here. Workflow management, Browser AI settings, and the raw JSON config editor are available through the buttons below."
+        header = QLabel(
+            "<div style='line-height:1.15;'>"
+            "<div style='font-size:16px; font-weight:600; margin:0; padding:0;'>AI Automation Settings</div>"
+            "<div style='margin-top:2px;'>Use OpenAI to update Anki notes from Browser selections or reusable workflows. "
+            "Manage the core settings here, then open the Browser or workflow dialogs for the detailed AI setup.</div>"
+            "</div>"
         )
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+        header.setWordWrap(True)
+        header.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(header)
         layout.addWidget(self._build_main_settings_group())
         layout.addWidget(self._build_navigation_group())
 
