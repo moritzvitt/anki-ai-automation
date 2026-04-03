@@ -44,7 +44,15 @@ When you change this prompt in the custom settings dialog and save, the previous
 
 ### `batch_size`
 
-How many notes are grouped into each processing batch. Requests are still sent one note at a time so updates stay isolated and safe.
+How many notes are grouped into each processing batch. Requests are still sent one note at a time inside the batch so updates stay isolated and safe.
+
+Default: `20`
+
+### `max_parallel_requests`
+
+How many note requests can run in parallel inside each batch.
+
+Default: `4`
 
 ### `request_timeout_seconds`
 
@@ -107,7 +115,8 @@ Each mapping supports:
   "model": "gpt-5-mini",
   "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema.",
   "prompt_template": "Improve the following flashcard content:\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}",
-  "batch_size": 5,
+  "batch_size": 20,
+  "max_parallel_requests": 4,
   "request_timeout_seconds": 90,
   "max_retries": 2,
   "retry_backoff_seconds": 2,

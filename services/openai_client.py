@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import json
 import time
 from dataclasses import dataclass
@@ -249,6 +250,11 @@ def _validate_output(value: Any, output_fields: list[str]) -> dict[str, str]:
 
 
 def _build_client(*, api_key: str, timeout_seconds: float) -> Any:
+    return _cached_client(api_key, timeout_seconds)
+
+
+@lru_cache(maxsize=8)
+def _cached_client(api_key: str, timeout_seconds: float) -> Any:
     return OpenAI(api_key=api_key, timeout=timeout_seconds)
 
 

@@ -106,6 +106,12 @@ class PreparedManualProcessing:
     estimate: ProcessingEstimate | None
 
 
+@dataclass(frozen=True)
+class PromptRenderPlan:
+    prompt_template: str
+    prompt_fields: tuple[str, ...]
+
+
 class ProcessingInterruptDialog(QDialog):
     def __init__(self, parent: QWidget, *, note_count: int) -> None:
         super().__init__(parent)
@@ -287,6 +293,7 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
 
     snapshots: list[NoteSnapshot] = []
     failures: list[NoteFailure] = []
+    placeholder_cache: dict[tuple[str, str], tuple[tuple[str, ...], tuple[str, ...]]] = {}
 
     for note_id in note_ids:
         note = mw.col.get_note(note_id)
@@ -311,9 +318,16 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
         missing_outputs = [field for field in mapping.output_fields if field not in available_fields]
         system_prompt = mapping.system_prompt or config.system_prompt
         prompt_template = mapping.prompt_template or config.default_prompt_template
+        placeholder_key = (prompt_template, system_prompt)
+        if placeholder_key not in placeholder_cache:
+            prompt_fields = tuple(extract_placeholders(prompt_template))
+            system_prompt_fields = tuple(extract_placeholders(system_prompt))
+            placeholder_cache[placeholder_key] = (prompt_fields, system_prompt_fields)
+        else:
+            prompt_fields, system_prompt_fields = placeholder_cache[placeholder_key]
         missing_prompt_fields = _missing_prompt_fields(
-            prompt_template=prompt_template,
-            system_prompt=system_prompt,
+            prompt_fields=prompt_fields,
+            system_prompt_fields=system_prompt_fields,
             available_fields=available_fields,
         )
         if missing_prompt_fields or missing_outputs:
@@ -351,6 +365,8 @@ def _build_manual_snapshots(
 
     snapshots: list[NoteSnapshot] = []
     failures: list[NoteFailure] = []
+    prompt_fields = tuple(extract_placeholders(spec.prompt_template))
+    system_prompt_fields = tuple(extract_placeholders(config.system_prompt))
 
     for note_id in note_ids:
         note = mw.col.get_note(note_id)
@@ -400,8 +416,8 @@ def _build_manual_snapshots(
             continue
 
         missing_prompt_fields = _missing_prompt_fields(
-            prompt_template=spec.prompt_template,
-            system_prompt=config.system_prompt,
+            prompt_fields=prompt_fields,
+            system_prompt_fields=system_prompt_fields,
             available_fields=available_fields,
         )
         if missing_prompt_fields:
@@ -495,6 +511,7 @@ async def _process_snapshots_async(
 
     async def process_batch(batch_snapshots: list[NoteSnapshot]) -> tuple[list[NoteUpdate], list[NoteFailure]]:
         semaphore = asyncio.Semaphore(max_workers)
+        render_plans: dict[tuple[str, str], PromptRenderPlan] = {}
 
         async def run_snapshot(snapshot: NoteSnapshot) -> tuple[NoteUpdate | None, NoteFailure | None]:
             if cancel_event is not None and cancel_event.is_set():
@@ -502,7 +519,15 @@ async def _process_snapshots_async(
             async with semaphore:
                 if cancel_event is not None and cancel_event.is_set():
                     return None, None
-                return await asyncio.to_thread(_process_single_snapshot, config, snapshot)
+                plan_key = (snapshot.prompt_template, snapshot.system_prompt)
+                render_plan = render_plans.get(plan_key)
+                if render_plan is None:
+                    render_plan = PromptRenderPlan(
+                        prompt_template=snapshot.prompt_template,
+                        prompt_fields=tuple(extract_placeholders(snapshot.prompt_template)),
+                    )
+                    render_plans[plan_key] = render_plan
+                return await asyncio.to_thread(_process_single_snapshot, config, snapshot, render_plan)
 
         batch_updates_by_note_id: dict[int, NoteUpdate] = {}
         batch_failures: list[NoteFailure] = []
@@ -656,18 +681,43 @@ def _format_failure_report(failures: list[NoteFailure]) -> str:
     return "\n".join(lines)
 
 
-def _render_snapshot_prompts(snapshot: NoteSnapshot, config: AddonConfig) -> tuple[str, str]:
+def _render_snapshot_prompts(
+    snapshot: NoteSnapshot,
+    _config: AddonConfig,
+    *,
+    render_plan: PromptRenderPlan | None = None,
+    render_plans: dict[tuple[str, str], PromptRenderPlan] | None = None,
+) -> tuple[str, str]:
+    plan = render_plan
+    if plan is None:
+        plan_key = (snapshot.prompt_template, snapshot.system_prompt)
+        if render_plans is not None:
+            plan = render_plans.get(plan_key)
+            if plan is None:
+                plan = PromptRenderPlan(
+                    prompt_template=snapshot.prompt_template,
+                    prompt_fields=tuple(extract_placeholders(snapshot.prompt_template)),
+                )
+                render_plans[plan_key] = plan
+        else:
+            plan = PromptRenderPlan(
+                prompt_template=snapshot.prompt_template,
+                prompt_fields=tuple(extract_placeholders(snapshot.prompt_template)),
+            )
+
     prompt_values = dict(snapshot.fields)
-    prompt_values["NoteType"] = snapshot.note_type_name
-    prompt = render_prompt(snapshot.prompt_template, prompt_values)
+    if "NoteType" in plan.prompt_fields:
+        prompt_values["NoteType"] = snapshot.note_type_name
+    prompt = render_prompt(plan.prompt_template, prompt_values)
     return snapshot.system_prompt, prompt
 
 
 def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> ProcessingEstimate:
     input_tokens = 0
     heuristic_notes = 0
+    render_plans: dict[tuple[str, str], PromptRenderPlan] = {}
     for snapshot in snapshots:
-        system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
+        system_prompt, prompt = _render_snapshot_prompts(snapshot, config, render_plans=render_plans)
         try:
             if snapshot.multiple_target_fields:
                 input_tokens += count_request_input_tokens_for_text(
@@ -713,10 +763,15 @@ def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> 
 def _process_single_snapshot(
     config: AddonConfig,
     snapshot: NoteSnapshot,
+    render_plan: PromptRenderPlan | None = None,
 ) -> tuple[NoteUpdate | None, NoteFailure | None]:
     pricing = resolve_model_pricing(config.model, config.model_pricing)
     try:
-        system_prompt, prompt = _render_snapshot_prompts(snapshot, config)
+        system_prompt, prompt = _render_snapshot_prompts(
+            snapshot,
+            config,
+            render_plan=render_plan,
+        )
         warning_lines: list[str] = []
         if snapshot.multiple_target_fields:
             text_result = request_text_response(
@@ -912,13 +967,13 @@ def _aggregate_usage(updates: list[NoteUpdate]) -> dict[str, int | float | None]
 
 def _missing_prompt_fields(
     *,
-    prompt_template: str,
-    system_prompt: str,
+    prompt_fields: tuple[str, ...] | list[str],
+    system_prompt_fields: tuple[str, ...] | list[str],
     available_fields: dict[str, str],
 ) -> list[str]:
     missing: list[str] = []
     seen: set[str] = set()
-    placeholders = extract_placeholders(prompt_template) + extract_placeholders(system_prompt)
+    placeholders = list(prompt_fields) + list(system_prompt_fields)
     for placeholder in placeholders:
         if placeholder == "NoteType":
             continue

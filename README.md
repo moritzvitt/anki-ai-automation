@@ -78,6 +78,7 @@ Important keys:
 - `prompt_template`: the default user prompt with placeholders like `{{Front}}`
 - `field_mappings`: per-note-type input and output field rules
 - `max_retries` and `request_timeout_seconds`: safety controls for batch processing
+- `batch_size`: how many notes are processed per outer batch
 - `max_parallel_requests`: limits how many note requests can run at the same time
 - `show_estimate_before_sending`: enables the confirmation popup with estimated tokens and cost
 - `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent

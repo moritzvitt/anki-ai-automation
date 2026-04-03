@@ -28,6 +28,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Workflow queries now use a single-line input, and workflow group filtering uses clearer wording in the manager.
 - Browser AI and saved prompt dialogs now use roomier layouts, including a consistent selection summary area and wider prompt name input.
 - Browser `Transform with AI` processing now runs in explicit batches with incremental note updates after each finished batch, making large runs feel more responsive and improving interrupt behavior.
+- Browser AI processing now reuses OpenAI clients, caches prompt template parsing, and uses tuned default batch/concurrency settings for steadier throughput.
 
 ## 0.1.0 - 2026-03-27
 
