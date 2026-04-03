@@ -53,6 +53,7 @@ def request_field_updates(
     retry_backoff_seconds: float,
     temperature: float | None,
     reasoning_effort: str | None,
+    use_chat_completions_api: bool,
 ) -> AIFieldUpdateResult:
     if OpenAI is None:
         raise OpenAIClientError(
@@ -69,6 +70,23 @@ def request_field_updates(
     use_temperature = temperature is not None
     for attempt in range(max_retries + 1):
         try:
+            if use_chat_completions_api:
+                response = client.chat.completions.create(
+                    **_chat_completion_payload(
+                        model=model,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=temperature if use_temperature else None,
+                        response_format=_chat_json_schema_response_format(output_fields),
+                    )
+                )
+                content = _chat_completion_text(response)
+                parsed = json.loads(content)
+                return AIFieldUpdateResult(
+                    field_updates=_validate_output(parsed, output_fields),
+                    usage=_parse_chat_usage(getattr(response, "usage", None)),
+                )
+
             payload: dict[str, Any] = {
                 "model": model,
                 "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
@@ -114,6 +132,7 @@ def request_text_response(
     retry_backoff_seconds: float,
     temperature: float | None,
     reasoning_effort: str | None,
+    use_chat_completions_api: bool,
 ) -> AITextResponseResult:
     if OpenAI is None:
         raise OpenAIClientError(
@@ -129,6 +148,23 @@ def request_text_response(
     use_temperature = temperature is not None
     for attempt in range(max_retries + 1):
         try:
+            if use_chat_completions_api:
+                response = client.chat.completions.create(
+                    **_chat_completion_payload(
+                        model=model,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=temperature if use_temperature else None,
+                    )
+                )
+                output_text = _chat_completion_text(response).strip()
+                if not output_text:
+                    raise OpenAIClientError("The model returned an empty response.")
+                return AITextResponseResult(
+                    output_text=output_text,
+                    usage=_parse_chat_usage(getattr(response, "usage", None)),
+                )
+
             payload: dict[str, Any] = {
                 "model": model,
                 "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
@@ -271,6 +307,59 @@ def _request_input(*, system_prompt: str, user_prompt: str) -> list[dict[str, An
     ]
 
 
+def _chat_completion_payload(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float | None,
+    response_format: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if response_format is not None:
+        payload["response_format"] = response_format
+    return payload
+
+
+def _chat_json_schema_response_format(output_fields: list[str]) -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "anki_field_update",
+            "strict": True,
+            "schema": _output_schema(output_fields),
+        },
+    }
+
+
+def _chat_completion_text(response: Any) -> str:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise OpenAIClientError("The model returned no choices.")
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        return "".join(parts)
+    raise OpenAIClientError("The model returned an unexpected chat completion format.")
+
+
 def _response_format(output_fields: list[str]) -> dict[str, Any]:
     return {
         "type": "json_schema",
@@ -297,6 +386,26 @@ def _parse_usage(usage: Any) -> TokenUsage:
         cached_input_tokens=int(getattr(input_tokens_details, "cached_tokens", 0) or 0),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         reasoning_tokens=int(getattr(output_tokens_details, "reasoning_tokens", 0) or 0),
+        total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+    )
+
+
+def _parse_chat_usage(usage: Any) -> TokenUsage:
+    if usage is None:
+        return TokenUsage(
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+            reasoning_tokens=0,
+            total_tokens=0,
+        )
+    prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
+    completion_tokens_details = getattr(usage, "completion_tokens_details", None)
+    return TokenUsage(
+        input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+        cached_input_tokens=int(getattr(prompt_tokens_details, "cached_tokens", 0) or 0),
+        output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        reasoning_tokens=int(getattr(completion_tokens_details, "reasoning_tokens", 0) or 0),
         total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
     )
 

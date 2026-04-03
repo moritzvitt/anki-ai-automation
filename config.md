@@ -18,6 +18,14 @@ Controls both hover help on UI fields and the small transient status tooltips sh
 
 Set this to `false` if you want a quieter UI without hover hints or popup tooltip messages.
 
+### `use_chat_completions_api`
+
+Controls whether text generation uses the Chat Completions API instead of the Responses API.
+
+Default: `true`
+
+This is enabled by default for speed testing and simpler text-generation runs. Disable it if you want to compare against the Responses API path.
+
 ### `openai_api_key`
 
 Your OpenAI API key. The add-on will refuse to run until this is set.

@@ -57,6 +57,7 @@ class ConfigDialog(QDialog):
 
         self.enabled_checkbox = QCheckBox("Enable AI Automation")
         self.show_tooltips_checkbox = QCheckBox("Show tooltips and hover help")
+        self.use_chat_completions_checkbox = QCheckBox("Use Chat Completions API")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.model_combo = QComboBox()
@@ -106,6 +107,11 @@ class ConfigDialog(QDialog):
             "Enable or disable hover help and small popup tooltip messages throughout the add-on.",
             enabled=help_enabled,
         )
+        set_hover_help(
+            self.use_chat_completions_checkbox,
+            "Use the Chat Completions API instead of the Responses API for text generation. Enabled by default for speed testing.",
+            enabled=help_enabled,
+        )
         set_hover_help(self.api_key_edit, "OpenAI API key used for live model loading and AI requests.", enabled=help_enabled)
         set_hover_help(self.model_combo, "Default model used unless a Browser run or workflow overrides it.", enabled=help_enabled)
         set_hover_help(self.refresh_models_button, "Fetch the latest recommended model shortlist from OpenAI.", enabled=help_enabled)
@@ -124,6 +130,7 @@ class ConfigDialog(QDialog):
 
         form.addRow(self.enabled_checkbox)
         form.addRow(self.show_tooltips_checkbox)
+        form.addRow(self.use_chat_completions_checkbox)
         form.addRow("API key", self.api_key_edit)
         form.addRow("Model", model_row)
         form.addRow("System prompt", self.system_prompt_edit)
@@ -161,6 +168,7 @@ class ConfigDialog(QDialog):
     def _populate_fields(self) -> None:
         self.enabled_checkbox.setChecked(bool(self._config.get("enabled", True)))
         self.show_tooltips_checkbox.setChecked(bool(self._config.get("show_tooltips", True)))
+        self.use_chat_completions_checkbox.setChecked(bool(self._config.get("use_chat_completions_api", True)))
         self.api_key_edit.setText(str(self._config.get("openai_api_key", "")))
         self.system_prompt_edit.setPlainText(str(self._config.get("system_prompt", "")))
         self.prompt_edit.setPlainText(self._current_prompt)
@@ -188,6 +196,7 @@ class ConfigDialog(QDialog):
             {
                 "enabled": self.enabled_checkbox.isChecked(),
                 "show_tooltips": self.show_tooltips_checkbox.isChecked(),
+                "use_chat_completions_api": self.use_chat_completions_checkbox.isChecked(),
                 "openai_api_key": self.api_key_edit.text().strip(),
                 "model": self.model_combo.currentData() or self.model_combo.currentText().strip(),
                 "system_prompt": self.system_prompt_edit.toPlainText().strip(),

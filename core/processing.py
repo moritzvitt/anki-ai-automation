@@ -784,6 +784,7 @@ def _process_single_snapshot(
                 retry_backoff_seconds=config.retry_backoff_seconds,
                 temperature=config.temperature,
                 reasoning_effort=config.reasoning_effort,
+                use_chat_completions_api=config.use_chat_completions_api,
             )
             field_updates, parser_warnings = _parse_delimited_field_updates(
                 response_text=text_result.output_text,
@@ -804,6 +805,7 @@ def _process_single_snapshot(
                 retry_backoff_seconds=config.retry_backoff_seconds,
                 temperature=config.temperature,
                 reasoning_effort=config.reasoning_effort,
+                use_chat_completions_api=config.use_chat_completions_api,
             )
             field_updates = structured_result.field_updates
             usage = structured_result.usage

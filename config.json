@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "show_tooltips": true,
+  "use_chat_completions_api": true,
   "openai_api_key": "",
   "model": "gpt-5-mini",
   "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON.\n\nFormatting guidance for any string fields you generate:\n- Write in clean Markdown similar to the ChatGPT app.\n- Use short paragraphs with clear spacing.\n- Use Markdown headings when they improve readability.\n- Use bullet lists for distinct points.\n- Use numbered lists only for ordered steps.\n- Use **bold** sparingly for emphasis.\n- Do not wrap the whole response in code fences unless the user explicitly wants code.\n- Do not add decorative symbols or unnecessary filler.\n- Keep the formatting readable after Markdown is converted to HTML.",

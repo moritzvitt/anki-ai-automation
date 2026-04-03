@@ -74,6 +74,7 @@ The note type rules are edited in a small dedicated UI instead of a raw `field_m
 Important keys:
 
 - `openai_api_key`: your OpenAI API key
+- `use_chat_completions_api`: toggles Chat Completions vs Responses API for generation
 - `model`: the model name sent to the OpenAI Responses API
 - `prompt_template`: the default user prompt with placeholders like `{{Front}}`
 - `field_mappings`: per-note-type input and output field rules

@@ -84,6 +84,7 @@ class Workflow:
 class AddonConfig:
     enabled: bool
     show_tooltips: bool
+    use_chat_completions_api: bool
     api_key: str
     model: str
     default_prompt_template: str
@@ -118,6 +119,7 @@ def load_config() -> AddonConfig:
 
     enabled = bool(raw.get("enabled", True))
     show_tooltips = _read_bool(raw, "show_tooltips", default=True)
+    use_chat_completions_api = _read_bool(raw, "use_chat_completions_api", default=True)
     api_key = _read_string(raw, "openai_api_key", allow_empty=True)
     model = _read_string(raw, "model", default="gpt-5-mini")
     default_prompt_template = _read_string(raw, "prompt_template")
@@ -189,6 +191,7 @@ def load_config() -> AddonConfig:
     return AddonConfig(
         enabled=enabled,
         show_tooltips=show_tooltips,
+        use_chat_completions_api=use_chat_completions_api,
         api_key=api_key,
         model=model,
         default_prompt_template=default_prompt_template,
