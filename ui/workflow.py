@@ -96,6 +96,7 @@ class WorkflowSequenceSummary:
 
 
 _WORKFLOW_RUNNER_DIALOGS: list["WorkflowManagerDialog"] = []
+_GROUP_FILTER_ENABLED_ONLY = "__enabled_only__"
 
 
 def register_workflow_menu() -> None:
@@ -215,12 +216,17 @@ class WorkflowManagerDialog(QDialog):
     def _populate(self) -> None:
         selected_workflow = self._selected_workflow()
         selected_workflow_id = selected_workflow.workflow_id if selected_workflow is not None else None
+        scroll_bar = self.workflow_list.verticalScrollBar()
+        previous_scroll = scroll_bar.value() if scroll_bar is not None else 0
         selected_group_id = self.group_run_combo.currentData()
         self.group_run_combo.blockSignals(True)
         self.group_run_combo.clear()
+        self.group_run_combo.addItem("All enabled workflows", _GROUP_FILTER_ENABLED_ONLY)
         self.group_run_combo.addItem("All workflows", "")
         for group in self._groups:
             self.group_run_combo.addItem(group.name, group.group_id)
+        if selected_group_id in (None, ""):
+            selected_group_id = _GROUP_FILTER_ENABLED_ONLY
         if isinstance(selected_group_id, str):
             index = self.group_run_combo.findData(selected_group_id)
             if index >= 0:
@@ -228,7 +234,9 @@ class WorkflowManagerDialog(QDialog):
         self.group_run_combo.blockSignals(False)
 
         current_group_id = self.group_run_combo.currentData()
-        if isinstance(current_group_id, str) and current_group_id:
+        if current_group_id == _GROUP_FILTER_ENABLED_ONLY:
+            self._visible_workflows = [workflow for workflow in self._workflows if workflow.enabled]
+        elif isinstance(current_group_id, str) and current_group_id:
             self._visible_workflows = [
                 workflow for workflow in self._workflows if current_group_id in (workflow.group_ids or [])
             ]
@@ -238,7 +246,7 @@ class WorkflowManagerDialog(QDialog):
         self.workflow_list.clear()
         for index, workflow in enumerate(self._visible_workflows):
             item = QListWidgetItem()
-            item.setBackground(self._workflow_row_background(index))
+            item.setBackground(self._workflow_row_background(index, enabled=workflow.enabled))
             self.workflow_list.addItem(item)
             row_widget = self._workflow_row_widget(workflow, index)
             item.setSizeHint(row_widget.sizeHint())
@@ -246,17 +254,23 @@ class WorkflowManagerDialog(QDialog):
 
         if selected_workflow_id is not None:
             self._select_workflow_by_id(selected_workflow_id)
+        if scroll_bar is not None:
+            scroll_bar.setValue(previous_scroll)
 
-    def _workflow_row_background(self, index: int) -> QColor:
+    def _workflow_row_background(self, index: int, *, enabled: bool = True) -> QColor:
         palette = self.workflow_list.palette()
         base = palette.color(QPalette.ColorRole.Base)
         warm_accent = QColor("#dba95a")
         cool_accent = QColor("#66a88f")
         accent = warm_accent if index % 2 == 0 else cool_accent
 
-        # Keep the alternating rows visible while respecting the active Anki theme.
-        blend_ratio = 0.16 if base.lightness() < 128 else 0.32
-        return _blend_colors(base, accent, blend_ratio)
+        # Keep the alternating rows easy to scan while respecting the active Anki theme.
+        blend_ratio = 0.12 if base.lightness() < 128 else 0.20
+        background = _blend_colors(base, accent, blend_ratio)
+        if enabled:
+            return background
+        # Disabled rows stay striped, but fade a little back toward the base color.
+        return _blend_colors(background, base, 0.58)
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
@@ -284,10 +298,11 @@ class WorkflowManagerDialog(QDialog):
 
     def _workflow_row_widget(self, workflow: Workflow, index: int) -> QWidget:
         row = QWidget(self.workflow_list)
-        row.setAutoFillBackground(True)
-        palette = row.palette()
-        palette.setColor(QPalette.ColorRole.Window, self._workflow_row_background(index))
-        row.setPalette(palette)
+        background = self._workflow_row_background(index, enabled=workflow.enabled)
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        row.setStyleSheet(
+            f"background-color: {background.name()}; border-radius: 6px;"
+        )
 
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -305,6 +320,18 @@ class WorkflowManagerDialog(QDialog):
         preview.setWordWrap(True)
         preview.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        preview_palette = preview.palette()
+        if workflow.enabled:
+            preview.setStyleSheet("font-weight: 500;")
+        else:
+            muted_text = _blend_colors(
+                preview_palette.color(QPalette.ColorRole.WindowText),
+                self.workflow_list.palette().color(QPalette.ColorRole.Base),
+                0.42,
+            )
+            preview_palette.setColor(QPalette.ColorRole.WindowText, muted_text)
+            preview.setPalette(preview_palette)
+            preview.setStyleSheet("font-weight: 400;")
         layout.addWidget(preview, stretch=1)
 
         return row
@@ -315,7 +342,6 @@ class WorkflowManagerDialog(QDialog):
                 continue
             self._workflows[index] = replace(workflow, enabled=not workflow.enabled)
             self._save_state()
-            self._select_workflow_by_id(workflow_id)
             return
 
     def _prompt_name(self, prompt_id: str) -> str:
