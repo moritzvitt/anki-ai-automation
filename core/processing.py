@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
-import html
 import math
 import re
 from threading import Event
@@ -24,7 +23,7 @@ from ..services.openai_client import (
     request_text_response,
 )
 from ..services.pricing import estimate_cost_usd, resolve_model_pricing
-from .prompting import extract_placeholders, render_prompt
+from .prompting import build_prompt_values, extract_placeholders, render_prompt
 from .usage_stats import record_usage_run
 from ..ui.tooltips import show_tooltip
 
@@ -746,9 +745,10 @@ def _render_snapshot_prompts(
                 prompt_fields=tuple(extract_placeholders(snapshot.prompt_template)),
             )
 
-    prompt_values = dict(snapshot.fields)
-    if "NoteType" in plan.prompt_fields:
-        prompt_values["NoteType"] = snapshot.note_type_name
+    prompt_values = build_prompt_values(
+        snapshot.fields,
+        note_type_name=snapshot.note_type_name if "NoteType" in plan.prompt_fields else None,
+    )
     prompt = render_prompt(plan.prompt_template, prompt_values)
     return snapshot.system_prompt, prompt
 

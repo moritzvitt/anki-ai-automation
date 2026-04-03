@@ -38,7 +38,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Audit workflow side effects now apply on the main thread after background execution, which makes Browser audits and pipeline audits more stable and avoids mutating notes from the worker thread.
 - The seeded `MLR Audit First 15` pipeline now runs the audit and then conditionally executes field-specific follow-up workflows for `FIXABLE_MINOR` notes in one pass.
 - Rejected notes in the seeded MLR audit pipeline are now tagged `ai::review::mark` and have their cards suspended automatically.
-- Audit preparation now strips HTML from the `Cloze` field before sending it to the model, which makes audit prompts more stable for HTML-rich note content.
+- Prompt preparation now strips HTML from both `Cloze` and `Subtitle` before any API request is sent, including audits and normal field-update workflows.
 - The architecture docs were refreshed to match the typed workflow model, pipeline branching behavior, and current MLR audit-follow-up flow.
 - The sample audit pipeline docs and standalone Mermaid diagram were updated to show the current seeded follow-up branches and reject-handling path instead of the earlier audit-only prototype.
 - Markdown-to-HTML conversion is now enabled by default for new Browser runs and workflows, and the seeded MLR audit-related workflows and presets now default to HTML conversion as well.

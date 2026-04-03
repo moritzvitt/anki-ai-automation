@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import html
 import re
 from typing import Mapping
 
 
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
+PROMPT_HTML_STRIP_FIELDS = frozenset({"Cloze", "Subtitle"})
 
 
 def render_prompt(template: str, values: Mapping[str, str]) -> str:
@@ -21,6 +23,36 @@ def render_prompt(template: str, values: Mapping[str, str]) -> str:
 
 def extract_placeholders(template: str) -> list[str]:
     return list(_extract_placeholders_cached(template))
+
+
+def build_prompt_values(values: Mapping[str, str], *, note_type_name: str | None = None) -> dict[str, str]:
+    """Prepare prompt placeholder values shared across all API-bound flows.
+
+    `Cloze` and `Subtitle` are always stripped down to plain text before being
+    sent to a model so HTML-heavy note content does not leak into prompts.
+    """
+    prompt_values = {
+        key: strip_html_for_prompt(value) if key in PROMPT_HTML_STRIP_FIELDS else value
+        for key, value in values.items()
+    }
+    if note_type_name is not None:
+        prompt_values["NoteType"] = note_type_name
+    return prompt_values
+
+
+def strip_html_for_prompt(value: str) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"(?i)<br\s*/?>", "\n", value)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", "", text)
+    text = re.sub(r"(?is)<script.*?>.*?</script>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
 
 
 @lru_cache(maxsize=128)

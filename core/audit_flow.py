@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import json
 import re
 from dataclasses import dataclass
@@ -35,7 +34,7 @@ from .audit_storage import (
 )
 from .config import AddonConfig, ConfigError, load_config
 from .config import Workflow
-from .prompting import render_prompt
+from .prompting import render_prompt, strip_html_for_prompt
 from .usage_stats import record_usage_run
 
 
@@ -538,24 +537,9 @@ def _audit_user_prompt_template(config: AddonConfig, workflow: Workflow, preset:
 
 
 def _normalize_audit_field_value(field_name: str, value: str) -> str:
-    if field_name != AuditField.CLOZE.value:
-        return value
-    return _strip_html_for_audit(value)
-
-
-def _strip_html_for_audit(value: str) -> str:
-    if not value:
-        return ""
-    text = re.sub(r"(?i)<br\\s*/?>", "\n", value)
-    text = re.sub(r"(?is)<style.*?>.*?</style>", "", text)
-    text = re.sub(r"(?is)<script.*?>.*?</script>", "", text)
-    text = re.sub(r"(?s)<[^>]+>", "", text)
-    text = html.unescape(text)
-    text = text.replace("\xa0", " ")
-    text = re.sub(r"\r\n?", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    return text.strip()
+    if field_name in (AuditField.CLOZE.value, AuditField.SUBTITLE.value):
+        return strip_html_for_prompt(value)
+    return value
 
 
 def apply_audit_run_result(
