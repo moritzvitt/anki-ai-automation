@@ -78,6 +78,11 @@
       "id": "mlr-fix-only-whats-wrong",
       "name": "MLR Fix Only What's Wrong",
       "prompt": "You are fixing an Anki note ONLY if necessary.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTask:\n- If the card is GOOD -> output nothing\n- If not -> output ONLY changed fields\n\nOutput format (only include fields that change):\n\n--FieldName--\nnew content"
+    },
+    {
+      "id": "mlr-audit-prompt",
+      "name": "MLR Audit",
+      "prompt": "Review this Japanese Anki card for study quality.\n\nYour task is diagnostic and routing-only.\nDo not rewrite any field content.\nEvaluate whether the card is good as-is, fixable with limited support-field changes, too risky for limited automatic fixing, unsuitable for study, or should be skipped.\n\nUse these criteria:\n1. Clear learning focus\n2. Natural and comprehensible Japanese\n3. Good cloze design\n4. Correct and useful meaning/explanations\n5. Appropriate amount of information\n6. No misleading or major errors\n\nImportant rules:\n- Use GOOD only if the card is already study-ready.\n- Use FIXABLE_MINOR if only supporting fields need modest changes.\n- Use FIXABLE_MAJOR if the card may be repairable, but not safely through limited automatic changes.\n- Use REJECT if the card should not be learned in its current form.\n- Use SKIP if the card cannot be classified cleanly in this workflow.\n- fields_to_update may only include Japanese Notes, Notes, Word Definition, or Grammar.\n- Prefer minimal intervention.\n- Return JSON only.\n\nCard fields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\nGrammar: {{Grammar}}\n"
     }
   ],
   "saved_system_prompts": [
@@ -90,6 +95,11 @@
       "id": "delimited-field-sections",
       "name": "Delimited Field Sections",
       "prompt": "You improve Anki flashcards. Follow the user's requested delimiter-based output format exactly. Return only the field sections, keep the original meaning intact, stay concise, and do not include commentary before or after the delimited sections."
+    },
+    {
+      "id": "mlr-audit-system",
+      "name": "MLR Audit System",
+      "prompt": "You are auditing Japanese Anki cards for study quality. This stage is diagnostic only. Do not rewrite any card fields. Return only valid JSON that matches the requested schema."
     }
   ],
   "saved_processing_presets": [
@@ -208,6 +218,73 @@
     }
   ],
   "workflows": [
+    {
+      "id": "mlr-audit",
+      "name": "MLR Audit",
+      "query": "note:\"Moritz Language Reactor\" -tag:ai_done_today limit:15",
+      "workflow_type": "audit",
+      "enabled": true,
+      "prompt_id": "mlr-audit-prompt",
+      "target_field": "",
+      "mode": "overwrite",
+      "model": "gpt-5-mini",
+      "temperature": null,
+      "api_mode": "responses",
+      "system_prompt_id": "mlr-audit-system",
+      "multiple_target_fields": false,
+      "convert_markdown_to_html": false,
+      "response_delimiter": null,
+      "schema_preset": "mlr_audit",
+      "response_schema_json": null,
+      "note_type_filter": "Moritz Language Reactor",
+      "clear_status_tags": [
+        "ai_good",
+        "ai_fix_minor",
+        "ai_fix_major",
+        "ai_reject",
+        "ai_skip"
+      ],
+      "status_tag_map": {
+        "GOOD": "ai_good",
+        "FIXABLE_MINOR": "ai_fix_minor",
+        "FIXABLE_MAJOR": "ai_fix_major",
+        "REJECT": "ai_reject",
+        "SKIP": "ai_skip"
+      },
+      "extra_status_tags": {
+        "FIXABLE_MAJOR": [
+          "ai_manual_review"
+        ],
+        "REJECT": [
+          "ai_manual_review"
+        ]
+      },
+      "success_tags": [
+        "ai_checked",
+        "ai_done_today"
+      ],
+      "failure_tags": [
+        "ai_audit_failed",
+        "ai_done_today"
+      ],
+      "metadata_field_map": {
+        "status": "AI Audit Status",
+        "summary": "AI Audit Summary",
+        "confidence": "AI Audit Confidence",
+        "fields_to_update": "AI Fields To Update",
+        "last_checked": "AI Last Checked",
+        "raw": "AI Audit Raw"
+      },
+      "store_raw_output": true,
+      "trigger_on_startup": false,
+      "trigger_on_periodic": false,
+      "trigger_min_matches": 1,
+      "group_ids": [
+        "mlr-maintenance"
+      ],
+      "group_id": "mlr-maintenance",
+      "position": 14
+    },
     {
       "id": "workflow-card-quality-check",
       "name": "Card Quality Check",
@@ -440,7 +517,8 @@
       "steps": [
         {
           "id": "audit",
-          "type": "run_mlr_audit"
+          "type": "run_workflow",
+          "workflow_id": "mlr-audit"
         }
       ]
     }

@@ -4,9 +4,12 @@ from typing import Any
 
 from aqt import gui_hooks, mw
 from aqt.browser import Browser
+from aqt.operations import QueryOp
 from aqt.qt import QAction, QMenu
+from aqt.utils import showCritical, showInfo
 
-from ..core.audit_flow import run_browser_ai_audit
+from ..core.config import ConfigError, load_config
+from ..core.workflow_engine import execute_workflow_by_id
 from .automation import open_transform_dialog
 from .tooltips import show_tooltip
 
@@ -46,8 +49,36 @@ def _trigger_audit(browser: Browser) -> None:
     if not note_ids:
         show_tooltip("Select at least one card or note in the Browser.", parent=browser)
         return
+    try:
+        config = load_config()
+    except ConfigError as error:
+        showCritical(str(error), parent=browser)
+        return
 
-    run_browser_ai_audit(browser, note_ids)
+    workflow = next((item for item in config.workflows if item.workflow_id == "mlr-audit"), None)
+    if workflow is None:
+        showCritical("The workflow 'mlr-audit' is not configured.", parent=browser)
+        return
+
+    op = QueryOp(
+        parent=browser,
+        op=lambda _col: execute_workflow_by_id(config, "mlr-audit", note_ids=note_ids, show_feedback=False),
+        success=lambda result: _on_audit_workflow_finished(browser, result.workflow_name, result.updated_requests, result.failures),
+    )
+    op.with_progress(label=f"Running workflow: {workflow.name}")
+    op.run_in_background()
+
+
+def _on_audit_workflow_finished(browser: Browser, workflow_name: str, updated_requests: int, failures: list[str]) -> None:
+    show_tooltip(
+        f"{workflow_name} checked {updated_requests} note(s).",
+        parent=browser,
+    )
+    if failures:
+        showInfo(
+            "\n".join(["Audit workflow failures:"] + failures[:20]),
+            parent=browser,
+        )
 
 
 def _selected_note_ids(browser: Browser) -> list[int]:

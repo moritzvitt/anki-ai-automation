@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Callable
 
 from aqt import mw
+from aqt.operations import QueryOp
 from aqt.qt import (
     QAction,
     Qt,
@@ -27,6 +28,7 @@ from aqt.qt import (
     QPushButton,
     QPlainTextEdit,
     QPalette,
+    QSizePolicy,
     QScrollArea,
     QTimer,
     QVBoxLayout,
@@ -40,6 +42,7 @@ from .automation import (
     SavedPromptDialog,
     _preset_choices_from_saved_processing_presets,
 )
+from ..core.audit_prompts import AUDIT_SCHEMA_PRESET_MLR, available_audit_schema_presets
 from ..core.config import (
     ConfigError,
     ProcessingPreset,
@@ -53,14 +56,11 @@ from ..core.config import (
 )
 from ..services.model_catalog import fallback_model_options
 from ..core.processing import (
-    ManualProcessingSpec,
-    ProcessingResult,
     WRITE_MODE_APPEND,
     WRITE_MODE_OVERWRITE,
     WRITE_MODE_SKIP_NONEMPTY,
-    prepare_manual_ai_processing,
-    start_prepared_manual_processing,
 )
+from ..core.workflow_engine import WorkflowExecutionResult, execute_workflow
 from .tooltips import set_hover_help, show_tooltip
 
 
@@ -68,15 +68,19 @@ from .tooltips import set_hover_help, show_tooltip
 class WorkflowDraft:
     name: str
     query: str
+    workflow_type: str
+    enabled: bool
     prompt_id: str
     target_field: str
     mode: str
     model: str | None
     temperature: float | None
+    api_mode: str | None
     system_prompt_id: str | None
     multiple_target_fields: bool
     convert_markdown_to_html: bool
     response_delimiter: str | None
+    schema_preset: str | None
     trigger_on_startup: bool
     trigger_on_periodic: bool
     trigger_min_matches: int
@@ -135,7 +139,7 @@ class WorkflowManagerDialog(QDialog):
 
         intro = QLabel(
             "Manage reusable query-based AI workflows. Each workflow runs an Anki search, "
-            "uses a saved prompt, and writes to one target field."
+            "uses a saved prompt, and performs one atomic action such as a field update or an audit."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -154,7 +158,7 @@ class WorkflowManagerDialog(QDialog):
 
         layout.addWidget(QLabel("Workflows"))
         self.workflow_list.setMinimumHeight(320)
-        set_hover_help(self.workflow_list, "Saved query-based workflows. Each row shows the query, prompt, target field, and run mode.", enabled=self._config.show_tooltips)
+        set_hover_help(self.workflow_list, "Saved query-based workflows. Each row shows the query, workflow type, prompt, and core execution settings.", enabled=self._config.show_tooltips)
         layout.addWidget(self.workflow_list)
 
         button_row = QHBoxLayout()
@@ -209,6 +213,8 @@ class WorkflowManagerDialog(QDialog):
         self._workflows = sorted(self._config.workflows, key=lambda workflow: workflow.position)
 
     def _populate(self) -> None:
+        selected_workflow = self._selected_workflow()
+        selected_workflow_id = selected_workflow.workflow_id if selected_workflow is not None else None
         selected_group_id = self.group_run_combo.currentData()
         self.group_run_combo.blockSignals(True)
         self.group_run_combo.clear()
@@ -231,9 +237,15 @@ class WorkflowManagerDialog(QDialog):
 
         self.workflow_list.clear()
         for index, workflow in enumerate(self._visible_workflows):
-            item = QListWidgetItem(self._workflow_preview(workflow))
+            item = QListWidgetItem()
             item.setBackground(self._workflow_row_background(index))
             self.workflow_list.addItem(item)
+            row_widget = self._workflow_row_widget(workflow, index)
+            item.setSizeHint(row_widget.sizeHint())
+            self.workflow_list.setItemWidget(item, row_widget)
+
+        if selected_workflow_id is not None:
+            self._select_workflow_by_id(selected_workflow_id)
 
     def _workflow_row_background(self, index: int) -> QColor:
         palette = self.workflow_list.palette()
@@ -251,17 +263,60 @@ class WorkflowManagerDialog(QDialog):
         group_names = self._group_names(workflow.group_ids)
         group_summary = ", ".join(group_names) if group_names else "No groups"
         trigger_summary = _trigger_summary(workflow)
+        type_summary = "Audit" if workflow.workflow_type == "audit" else "Field update"
+        target_summary = (
+            f"Schema: {workflow.schema_preset or 'custom'}"
+            if workflow.workflow_type == "audit"
+            else (
+                workflow.target_field if not workflow.multiple_target_fields else "Delimited multi-field mode"
+            )
+        )
         return (
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
-            f"Prompt: {prompt_name} | Target: "
-            f"{workflow.target_field if not workflow.multiple_target_fields else 'Delimited multi-field mode'} | "
+            f"Enabled: {'Yes' if workflow.enabled else 'No'} | Type: {type_summary} | Prompt: {prompt_name} | Target: {target_summary} | "
             f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
             f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'} | "
             f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
             f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
             f"Delimiter: {workflow.response_delimiter or '-'} | Trigger: {trigger_summary} | Groups: {group_summary}"
         )
+
+    def _workflow_row_widget(self, workflow: Workflow, index: int) -> QWidget:
+        row = QWidget(self.workflow_list)
+        row.setAutoFillBackground(True)
+        palette = row.palette()
+        palette.setColor(QPalette.ColorRole.Window, self._workflow_row_background(index))
+        row.setPalette(palette)
+
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(10)
+
+        enabled_check = QCheckBox("Enabled")
+        enabled_check.setChecked(workflow.enabled)
+        enabled_check.setToolTip("Toggle whether this workflow is active without opening the editor.")
+        enabled_check.stateChanged.connect(
+            lambda _state, workflow_id=workflow.workflow_id: self._toggle_workflow_enabled(workflow_id)
+        )
+        layout.addWidget(enabled_check, alignment=Qt.AlignmentFlag.AlignTop)
+
+        preview = QLabel(self._workflow_preview(workflow))
+        preview.setWordWrap(True)
+        preview.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addWidget(preview, stretch=1)
+
+        return row
+
+    def _toggle_workflow_enabled(self, workflow_id: str) -> None:
+        for index, workflow in enumerate(self._workflows):
+            if workflow.workflow_id != workflow_id:
+                continue
+            self._workflows[index] = replace(workflow, enabled=not workflow.enabled)
+            self._save_state()
+            self._select_workflow_by_id(workflow_id)
+            return
 
     def _prompt_name(self, prompt_id: str) -> str:
         for prompt in self._prompts:
@@ -294,15 +349,28 @@ class WorkflowManagerDialog(QDialog):
                 "id": workflow.workflow_id,
                 "name": workflow.name,
                 "query": workflow.query,
+                "workflow_type": workflow.workflow_type,
+                "enabled": workflow.enabled,
                 "prompt_id": workflow.prompt_id,
                 "target_field": workflow.target_field,
                 "mode": workflow.mode,
                 "model": workflow.model,
                 "temperature": workflow.temperature,
+                "api_mode": workflow.api_mode,
                 "system_prompt_id": workflow.system_prompt_id,
                 "multiple_target_fields": workflow.multiple_target_fields,
                 "convert_markdown_to_html": workflow.convert_markdown_to_html,
                 "response_delimiter": workflow.response_delimiter,
+                "schema_preset": workflow.schema_preset,
+                "response_schema_json": workflow.response_schema_json,
+                "note_type_filter": workflow.note_type_filter,
+                "clear_status_tags": workflow.clear_status_tags,
+                "status_tag_map": workflow.status_tag_map,
+                "extra_status_tags": workflow.extra_status_tags,
+                "success_tags": workflow.success_tags,
+                "failure_tags": workflow.failure_tags,
+                "metadata_field_map": workflow.metadata_field_map,
+                "store_raw_output": workflow.store_raw_output,
                 "trigger_on_startup": workflow.trigger_on_startup,
                 "trigger_on_periodic": workflow.trigger_on_periodic,
                 "trigger_min_matches": workflow.trigger_min_matches,
@@ -344,15 +412,19 @@ class WorkflowManagerDialog(QDialog):
             workflow_id=new_object_id("workflow"),
             name=draft.name,
             query=draft.query,
+            workflow_type=draft.workflow_type,
+            enabled=draft.enabled,
             prompt_id=draft.prompt_id,
             target_field=draft.target_field,
             mode=draft.mode,
             model=draft.model,
             temperature=draft.temperature,
+            api_mode=draft.api_mode,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
+            schema_preset=draft.schema_preset,
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
@@ -388,15 +460,19 @@ class WorkflowManagerDialog(QDialog):
             workflow,
             name=draft.name,
             query=draft.query,
+            workflow_type=draft.workflow_type,
+            enabled=draft.enabled,
             prompt_id=draft.prompt_id,
             target_field=draft.target_field,
             mode=draft.mode,
             model=draft.model,
             temperature=draft.temperature,
+            api_mode=draft.api_mode,
             system_prompt_id=draft.system_prompt_id,
             multiple_target_fields=draft.multiple_target_fields,
             convert_markdown_to_html=draft.convert_markdown_to_html,
             response_delimiter=draft.response_delimiter,
+            schema_preset=draft.schema_preset,
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
@@ -468,6 +544,9 @@ class WorkflowManagerDialog(QDialog):
         if workflow is None:
             show_tooltip("Select a workflow to run.", parent=self)
             return
+        if not workflow.enabled:
+            show_tooltip("Enable the workflow before running it.", parent=self)
+            return
         self._run_workflow_sequence([workflow], run_label=workflow.name)
 
     def _run_selected_group(self) -> None:
@@ -475,7 +554,7 @@ class WorkflowManagerDialog(QDialog):
         if not isinstance(group_id, str) or not group_id:
             show_tooltip("Choose a workflow group to run.", parent=self)
             return
-        workflows = [workflow for workflow in self._workflows if group_id in (workflow.group_ids or [])]
+        workflows = [workflow for workflow in self._workflows if workflow.enabled and group_id in (workflow.group_ids or [])]
         if not workflows:
             show_tooltip("This group does not contain any workflows.", parent=self)
             return
@@ -504,7 +583,7 @@ class WorkflowManagerDialog(QDialog):
         prompt_lookup = {prompt.prompt_id: prompt for prompt in config.saved_prompts}
         query_counts: list[tuple[Workflow, int]] = []
         for workflow in workflows:
-            if workflow.prompt_id not in prompt_lookup:
+            if workflow.prompt_id not in prompt_lookup and workflow.workflow_type != "audit":
                 showCritical(
                     f"Workflow '{workflow.name}' references a missing saved prompt.",
                     parent=self,
@@ -563,8 +642,7 @@ class WorkflowManagerDialog(QDialog):
             return
 
         workflow = workflows[index]
-        prompt = prompt_lookup.get(workflow.prompt_id)
-        if prompt is None:
+        if workflow.workflow_type != "audit" and prompt_lookup.get(workflow.prompt_id) is None:
             summary.failures.append(f"- Workflow '{workflow.name}': saved prompt is missing.")
             self._run_workflow_at_index(
                 workflows=workflows,
@@ -605,48 +683,10 @@ class WorkflowManagerDialog(QDialog):
             )
             return
 
-        spec = ManualProcessingSpec(
-            prompt_name=prompt.name,
-            prompt_template=prompt.prompt_text,
-            target_field=workflow.target_field,
-            system_prompt_name=self._system_prompt_name(workflow.system_prompt_id),
-            system_prompt=self._system_prompt_text(workflow.system_prompt_id),
-            write_mode=workflow.mode,
-            model=workflow.model or config.model,
-            temperature=workflow.temperature,
-            multiple_target_fields=workflow.multiple_target_fields,
-            convert_markdown_to_html=workflow.convert_markdown_to_html,
-            response_delimiter=workflow.response_delimiter or "",
-        )
-        prepared = prepare_manual_ai_processing(
-            config,
-            note_ids,
-            spec,
-            include_estimate=False,
-        )
-        if not prepared.snapshots:
-            summary.workflow_reports.append(f"{workflow.name}: 0 processed, {len(prepared.failures)} skipped.")
-            summary.failures.extend(
-                [f"- Workflow '{workflow.name}': {failure.reason}" for failure in prepared.failures]
-            )
-            self._run_workflow_at_index(
-                workflows=workflows,
-                index=index + 1,
-                config=config,
-                prompt_lookup=prompt_lookup,
-                summary=summary,
-                show_summary_dialog=show_summary_dialog,
-                on_done=on_done,
-            )
-            return
-
-        start_prepared_manual_processing(
-            self,
-            config,
-            prepared,
-            progress_label=f"Running workflow {index + 1}/{len(workflows)}: {workflow.name}",
-            show_feedback=False,
-            on_done=lambda result: self._on_workflow_finished(
+        op = QueryOp(
+            parent=self,
+            op=lambda _col: execute_workflow(config, workflow, note_ids=note_ids, show_feedback=False),
+            success=lambda result: self._on_workflow_finished(
                 workflows=workflows,
                 index=index,
                 config=config,
@@ -658,6 +698,8 @@ class WorkflowManagerDialog(QDialog):
                 on_done=on_done,
             ),
         )
+        op.with_progress(label=f"Running workflow {index + 1}/{len(workflows)}: {workflow.name}")
+        op.run_in_background()
 
     def _on_workflow_finished(
         self,
@@ -668,29 +710,15 @@ class WorkflowManagerDialog(QDialog):
         prompt_lookup: dict[str, SavedPrompt],
         summary: WorkflowSequenceSummary,
         workflow: Workflow,
-        result: ProcessingResult,
+        result: WorkflowExecutionResult,
         show_summary_dialog: bool,
         on_done: Callable[[WorkflowSequenceSummary], None] | None,
     ) -> None:
-        summary.updated_requests += len(result.updates)
+        summary.updated_requests += result.updated_requests
         summary.workflow_reports.append(
-            f"{workflow.name}: {len(result.updates)} processed, {len(result.failures)} skipped."
+            f"{workflow.name}: {len(result.succeeded_note_ids)} processed, {len(result.failed_note_ids) + len(result.skipped_note_ids)} skipped."
         )
-        summary.failures.extend(
-            [
-                f"- Workflow '{workflow.name}' note {failure.note_id} ({failure.note_type_name}): {failure.reason}"
-                for failure in result.failures
-            ]
-        )
-        if result.was_cancelled:
-            summary.skipped.append(
-                f"- Interrupted while running '{workflow.name}'. Remaining workflows were not started."
-            )
-            self.setEnabled(True)
-            self._show_workflow_sequence_summary(summary, show_dialog=show_summary_dialog)
-            if on_done is not None:
-                on_done(summary)
-            return
+        summary.failures.extend([f"- Workflow '{workflow.name}' {failure}" for failure in result.failures])
         self._run_workflow_at_index(
             workflows=workflows,
             index=index + 1,
@@ -795,7 +823,10 @@ class WorkflowDialog(QDialog):
         self.name_edit = QLineEdit()
         self.query_edit = QLineEdit()
         self.query_count_label = QLabel("Click Refresh Count to check the query.")
+        self.workflow_type_combo = QComboBox()
+        self.enabled_check = QCheckBox("Enabled")
         self.model_combo = QComboBox()
+        self.api_mode_combo = QComboBox()
         self.use_global_temperature_check = QCheckBox("Use global temperature")
         self.temperature_spin = QDoubleSpinBox()
         self.preset_combo = QComboBox()
@@ -811,6 +842,7 @@ class WorkflowDialog(QDialog):
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
+        self.schema_preset_combo = QComboBox()
         self.trigger_on_startup_check = QCheckBox("Run automatically on startup")
         self.trigger_on_periodic_check = QCheckBox("Run automatically when the condition becomes true")
         self.trigger_min_matches_spin = QSpinBox()
@@ -842,6 +874,8 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.name_edit, "Friendly workflow name shown in the manager and run confirmations.", enabled=self._show_tooltips)
         set_hover_help(self.query_edit, "Anki Browser search query used to find notes for this workflow.", enabled=self._show_tooltips)
         set_hover_help(self.query_count_label, "Shows how many notes currently match the workflow query.", enabled=self._show_tooltips)
+        set_hover_help(self.workflow_type_combo, "Atomic workflow behavior type. Field update writes note fields, while audit validates structured output and applies tags/metadata.", enabled=self._show_tooltips)
+        set_hover_help(self.enabled_check, "Disabled workflows stay in the registry but are skipped in normal manual/group runs.", enabled=self._show_tooltips)
 
         prompt_row = QWidget()
         prompt_layout = QHBoxLayout(prompt_row)
@@ -893,6 +927,14 @@ class WorkflowDialog(QDialog):
         query_layout.addLayout(refresh_row)
 
         self._populate_model_combo()
+        self.workflow_type_combo.addItem("Field update", "field_update")
+        self.workflow_type_combo.addItem("Audit", "audit")
+        self.api_mode_combo.addItem("Global default", "global_default")
+        self.api_mode_combo.addItem("Responses API", "responses")
+        self.api_mode_combo.addItem("Chat Completions API", "chat_completions")
+        for preset in available_audit_schema_presets():
+            self.schema_preset_combo.addItem(preset.name, preset.preset_id)
+        self.workflow_type_combo.currentIndexChanged.connect(self._refresh_workflow_type_ui)
         self._populate_preset_combo()
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
         self.mode_combo.addItem("Append to target field", WRITE_MODE_APPEND)
@@ -915,6 +957,8 @@ class WorkflowDialog(QDialog):
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
+        form.addRow("Workflow type", self.workflow_type_combo)
+        form.addRow("", self.enabled_check)
 
         preset_row = QWidget()
         preset_layout = QHBoxLayout(preset_row)
@@ -938,6 +982,7 @@ class WorkflowDialog(QDialog):
         preset_layout.addWidget(update_preset_button)
         preset_layout.addWidget(delete_preset_button)
         set_hover_help(self.model_combo, "Model used by this workflow. Leave it on the current selection to follow the global default.", enabled=self._show_tooltips)
+        set_hover_help(self.api_mode_combo, "Per-workflow API preference. Audit workflows currently require the Responses API for structured validation.", enabled=self._show_tooltips)
         set_hover_help(self.use_global_temperature_check, "Use the global temperature from settings instead of a workflow-specific value.", enabled=self._show_tooltips)
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect delimited response sections that map to multiple note fields.", enabled=self._show_tooltips)
@@ -957,6 +1002,7 @@ class WorkflowDialog(QDialog):
         preset_form = QFormLayout()
         preset_form.addRow("Preset", preset_row)
         preset_form.addRow("Model", self.model_combo)
+        preset_form.addRow("API mode", self.api_mode_combo)
         temperature_row = QWidget()
         temperature_layout = QHBoxLayout(temperature_row)
         temperature_layout.setContentsMargins(0, 0, 0, 0)
@@ -968,6 +1014,7 @@ class WorkflowDialog(QDialog):
         preset_form.addRow("Response delimiter", self.delimiter_edit)
         preset_form.addRow("Target field", self.target_field_combo)
         preset_form.addRow("Mode", self.mode_combo)
+        preset_form.addRow("Schema preset", self.schema_preset_combo)
         preset_form.addRow("", self.trigger_on_startup_check)
         preset_form.addRow("", self.trigger_on_periodic_check)
         preset_form.addRow("Trigger min matches", self.trigger_min_matches_spin)
@@ -1070,17 +1117,25 @@ class WorkflowDialog(QDialog):
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
         self._refresh_temperature_ui()
+        self.enabled_check.setChecked(True)
+        self._set_combo_to_data(self.api_mode_combo, "global_default")
+        self._set_combo_to_data(self.schema_preset_combo, AUDIT_SCHEMA_PRESET_MLR)
+        self._refresh_workflow_type_ui()
 
         if workflow is None:
             return
 
         self.name_edit.setText(workflow.name)
         self.query_edit.setText(workflow.query)
+        self._set_combo_to_data(self.workflow_type_combo, workflow.workflow_type)
+        self.enabled_check.setChecked(workflow.enabled)
         self.target_field_combo.setEditText(workflow.target_field)
         self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
         self._set_temperature(workflow.temperature)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
+        self._set_combo_to_data(self.api_mode_combo, workflow.api_mode or "global_default")
+        self._set_combo_to_data(self.schema_preset_combo, workflow.schema_preset or AUDIT_SCHEMA_PRESET_MLR)
         self.trigger_on_startup_check.setChecked(workflow.trigger_on_startup)
         self.trigger_on_periodic_check.setChecked(workflow.trigger_on_periodic)
         self.trigger_min_matches_spin.setValue(workflow.trigger_min_matches)
@@ -1100,12 +1155,14 @@ class WorkflowDialog(QDialog):
         self.group_edit.setText(", ".join(self._current_group_names))
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
+        self._refresh_workflow_type_ui()
         self._refresh_target_mode_ui()
         self._refresh_query_count()
 
     def workflow_draft(self) -> WorkflowDraft | None:
         name = self.name_edit.text().strip()
         query = self.query_edit.text().strip()
+        workflow_type = str(self.workflow_type_combo.currentData() or "field_update")
         model = self.model_combo.currentData() or self.model_combo.currentText().strip()
         prompt_id = self.prompt_combo.currentData() or self.prompt_combo.currentText().strip()
         system_prompt_id = self.system_prompt_combo.currentData() or ""
@@ -1116,15 +1173,19 @@ class WorkflowDialog(QDialog):
         return WorkflowDraft(
             name=name,
             query=query,
+            workflow_type=workflow_type,
+            enabled=self.enabled_check.isChecked(),
             model=str(model) or None,
             temperature=self._selected_temperature(),
+            api_mode=str(self.api_mode_combo.currentData() or "global_default"),
             prompt_id=prompt_id,
             system_prompt_id=str(system_prompt_id) or None,
-            target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
+            target_field="" if workflow_type == "audit" or self.multiple_target_fields_check.isChecked() else target_field,
             mode=str(mode),
-            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
+            multiple_target_fields=workflow_type != "audit" and self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
-            response_delimiter=self.delimiter_edit.text().strip() or None,
+            response_delimiter=None if workflow_type == "audit" else (self.delimiter_edit.text().strip() or None),
+            schema_preset=str(self.schema_preset_combo.currentData() or AUDIT_SCHEMA_PRESET_MLR) if workflow_type == "audit" else None,
             trigger_on_startup=self.trigger_on_startup_check.isChecked(),
             trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
             trigger_min_matches=int(self.trigger_min_matches_spin.value()),
@@ -1243,6 +1304,20 @@ class WorkflowDialog(QDialog):
         self.delimiter_edit.setEnabled(is_multi)
         if is_multi and self.mode_combo.currentData() == WRITE_MODE_SKIP_NONEMPTY:
             self._set_combo_to_data(self.mode_combo, WRITE_MODE_OVERWRITE)
+
+    def _refresh_workflow_type_ui(self) -> None:
+        is_audit = (self.workflow_type_combo.currentData() or "field_update") == "audit"
+        self.preset_combo.setEnabled(not is_audit)
+        self.multiple_target_fields_check.setEnabled(not is_audit)
+        self.convert_markdown_to_html_check.setEnabled(not is_audit)
+        self.target_field_combo.setEnabled(not is_audit and not self.multiple_target_fields_check.isChecked())
+        self.mode_combo.setEnabled(not is_audit)
+        self.delimiter_edit.setEnabled(not is_audit and self.multiple_target_fields_check.isChecked())
+        self.schema_preset_combo.setEnabled(is_audit)
+        if is_audit:
+            self.multiple_target_fields_check.setChecked(False)
+            self._set_combo_to_data(self.api_mode_combo, "responses")
+        self._refresh_target_mode_ui()
 
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
@@ -1663,6 +1738,15 @@ class WorkflowDialog(QDialog):
             return
         if not draft.prompt_id:
             showCritical("Choose a saved prompt for this workflow.", parent=self)
+            return
+        if draft.workflow_type == "audit":
+            if not draft.schema_preset:
+                showCritical("Choose an audit schema preset.", parent=self)
+                return
+            if draft.api_mode == "chat_completions":
+                showCritical("Audit workflows currently require the Responses API.", parent=self)
+                return
+            self.accept()
             return
         if draft.multiple_target_fields and not draft.response_delimiter:
             showCritical("Enter the response delimiter for multiple target field mode.", parent=self)

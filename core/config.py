@@ -66,14 +66,27 @@ class Workflow:
     name: str
     query: str
     prompt_id: str
-    target_field: str
-    mode: str
+    workflow_type: str = "field_update"
+    enabled: bool = True
+    target_field: str = ""
+    mode: str = "overwrite"
     model: str | None = None
     temperature: float | None = None
+    api_mode: str | None = None
     system_prompt_id: str | None = None
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
     response_delimiter: str | None = None
+    schema_preset: str | None = None
+    response_schema_json: str | None = None
+    note_type_filter: str | None = None
+    clear_status_tags: list[str] | None = None
+    status_tag_map: dict[str, str] | None = None
+    extra_status_tags: dict[str, list[str]] | None = None
+    success_tags: list[str] | None = None
+    failure_tags: list[str] | None = None
+    metadata_field_map: dict[str, str] | None = None
+    store_raw_output: bool = True
     trigger_on_startup: bool = False
     trigger_on_periodic: bool = False
     trigger_min_matches: int = 1
@@ -373,6 +386,58 @@ def _read_optional_choice(source: dict[str, Any], key: str, *, allowed: set[str]
     return value
 
 
+def _read_legacy_compatible_string(
+    source: dict[str, Any],
+    key: str,
+    *,
+    aliases: tuple[str, ...] = (),
+    default: str | None = None,
+    allow_empty: bool = False,
+) -> str:
+    """Read a string config value while tolerating older key spellings.
+
+    Older add-on versions used slightly different key names in persisted config.
+    We keep the parser lenient here so saved presets/workflows do not block the UI
+    from opening after schema refactors.
+    """
+    if key in source:
+        return _read_string(source, key, default=default, allow_empty=allow_empty)
+    for alias in aliases:
+        if alias in source:
+            return _read_string(source, alias, default=default, allow_empty=allow_empty)
+    return _read_string(source, key, default=default, allow_empty=allow_empty)
+
+
+def _read_optional_string_map(source: dict[str, Any], key: str) -> dict[str, str] | None:
+    value = source.get(key)
+    if value in (None, {}):
+        return None
+    if not isinstance(value, dict):
+        raise ConfigError(f"Config key '{key}' must be an object.")
+    parsed: dict[str, str] = {}
+    for item_key, item_value in value.items():
+        if not isinstance(item_key, str) or not item_key.strip():
+            raise ConfigError(f"Config key '{key}' must only use non-empty string keys.")
+        if not isinstance(item_value, str):
+            raise ConfigError(f"Config key '{key}' must only contain string values.")
+        parsed[item_key] = item_value
+    return parsed
+
+
+def _read_optional_string_list_map(source: dict[str, Any], key: str) -> dict[str, list[str]] | None:
+    value = source.get(key)
+    if value in (None, {}):
+        return None
+    if not isinstance(value, dict):
+        raise ConfigError(f"Config key '{key}' must be an object.")
+    parsed: dict[str, list[str]] = {}
+    for item_key, item_value in value.items():
+        if not isinstance(item_key, str) or not item_key.strip():
+            raise ConfigError(f"Config key '{key}' must only use non-empty string keys.")
+        parsed[item_key] = _read_optional_string_list(item_value, f"{key}.{item_key}")
+    return parsed
+
+
 def _read_saved_prompts(value: Any, *, fallback_prompt_template: str) -> list[SavedPrompt]:
     if value in (None, []):
         return [
@@ -533,9 +598,10 @@ def _read_processing_presets(
                     maximum=2.0,
                 ),
                 system_prompt_id=system_prompt_id,
-                target_field=_read_string(
+                target_field=_read_legacy_compatible_string(
                     item,
                     "target_field",
+                    aliases=("targetfield", "targetField"),
                     default="",
                     allow_empty=multiple_target_fields,
                 ),
@@ -567,6 +633,8 @@ def _read_workflows(
     }
     allowed_group_ids = {group.group_id for group in workflow_groups}
     allowed_modes = {"append", "overwrite", "skip_nonempty"}
+    allowed_workflow_types = {"field_update", "audit"}
+    allowed_api_modes = {"global_default", "responses", "chat_completions"}
     workflows: list[Workflow] = []
     seen_ids: set[str] = set()
 
@@ -585,7 +653,13 @@ def _read_workflows(
                 f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
             )
 
-        mode = _read_string(item, "mode")
+        workflow_type = _read_string(item, "workflow_type", default="field_update")
+        if workflow_type not in allowed_workflow_types:
+            raise ConfigError(
+                "Workflow type must be 'field_update' or 'audit'."
+            )
+
+        mode = _read_string(item, "mode", default="overwrite")
         if mode not in allowed_modes:
             raise ConfigError(
                 "Workflow mode must be 'append', 'overwrite', or 'skip_nonempty'."
@@ -593,6 +667,11 @@ def _read_workflows(
 
         group_ids = _read_workflow_group_ids(item, allowed_group_ids=allowed_group_ids, index=index)
         model = _read_optional_string(item, "model")
+        api_mode = _read_optional_choice(
+            item,
+            "api_mode",
+            allowed=allowed_api_modes,
+        ) or "global_default"
         temperature = _read_optional_float(
             item,
             "temperature",
@@ -614,12 +693,18 @@ def _read_workflows(
         trigger_on_periodic = _read_bool(item, "trigger_on_periodic", default=False)
         trigger_min_matches = _read_int(item, "trigger_min_matches", minimum=1, default=1)
 
-        target_field = _read_string(
+        allow_empty_target_field = multiple_target_fields or workflow_type == "audit"
+        target_field = _read_legacy_compatible_string(
             item,
             "target_field",
+            aliases=("targetfield", "targetField"),
             default="",
-            allow_empty=multiple_target_fields,
+            allow_empty=allow_empty_target_field,
         )
+        schema_preset = _read_optional_string(item, "schema_preset")
+        response_schema_json = _read_optional_string(item, "response_schema_json")
+        if workflow_type == "audit" and schema_preset is None and response_schema_json is None:
+            schema_preset = "mlr_audit"
 
         workflows.append(
             Workflow(
@@ -627,14 +712,27 @@ def _read_workflows(
                 name=_read_string(item, "name"),
                 query=_read_string(item, "query"),
                 prompt_id=prompt_id,
+                workflow_type=workflow_type,
+                enabled=_read_bool(item, "enabled", default=True),
                 target_field=target_field,
                 mode=mode,
                 model=model,
                 temperature=temperature,
+                api_mode=api_mode,
                 system_prompt_id=system_prompt_id,
                 multiple_target_fields=multiple_target_fields,
                 convert_markdown_to_html=_read_bool(item, "convert_markdown_to_html", default=False),
                 response_delimiter=response_delimiter,
+                schema_preset=schema_preset,
+                response_schema_json=response_schema_json,
+                note_type_filter=_read_optional_string(item, "note_type_filter"),
+                clear_status_tags=_read_optional_string_list(item.get("clear_status_tags"), f"workflows[{index}].clear_status_tags") or None,
+                status_tag_map=_read_optional_string_map(item, "status_tag_map"),
+                extra_status_tags=_read_optional_string_list_map(item, "extra_status_tags"),
+                success_tags=_read_optional_string_list(item.get("success_tags"), f"workflows[{index}].success_tags") or None,
+                failure_tags=_read_optional_string_list(item.get("failure_tags"), f"workflows[{index}].failure_tags") or None,
+                metadata_field_map=_read_optional_string_map(item, "metadata_field_map"),
+                store_raw_output=_read_bool(item, "store_raw_output", default=True),
                 trigger_on_startup=trigger_on_startup,
                 trigger_on_periodic=trigger_on_periodic,
                 trigger_min_matches=trigger_min_matches,
@@ -690,7 +788,7 @@ def _read_pipelines(
 
     allowed_workflow_ids = {workflow.workflow_id for workflow in workflows}
     allowed_group_ids = {group.group_id for group in workflow_groups}
-    allowed_step_types = {"run_workflow", "run_group", "run_mlr_audit", "tag", "stop"}
+    allowed_step_types = {"run_workflow", "run_group", "tag", "stop", "run_mlr_audit"}
     parsed_pipelines: list[Pipeline] = []
     seen_pipeline_ids: set[str] = set()
 
@@ -738,6 +836,9 @@ def _read_pipelines(
 
             workflow_id = _read_optional_string(step_raw, "workflow_id")
             group_id = _read_optional_string(step_raw, "group_id")
+            if step_type == "run_mlr_audit" and workflow_id is None:
+                workflow_id = "mlr-audit"
+                step_type = "run_workflow"
             if workflow_id is not None and workflow_id not in allowed_workflow_ids:
                 raise ConfigError(
                     f"pipelines[{index}].steps[{step_index}] references unknown workflow_id '{workflow_id}'."

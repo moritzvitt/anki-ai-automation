@@ -5,21 +5,8 @@ from typing import Any
 
 from aqt import mw
 
-from .audit_flow import (
-    AuditRunResult,
-    apply_audit_run_result,
-    audit_success_artifact,
-    execute_mlr_audit,
-)
-from .config import AddonConfig, Pipeline, PipelineStep, SavedPrompt, Workflow
-from .processing import (
-    ManualProcessingSpec,
-    NoteFailure,
-    PreparedManualProcessing,
-    ProcessingResult,
-    execute_prepared_manual_processing,
-    prepare_manual_ai_processing,
-)
+from .config import AddonConfig, Pipeline, PipelineStep, Workflow
+from .workflow_engine import WorkflowExecutionResult, execute_workflow
 
 
 @dataclass
@@ -69,7 +56,6 @@ def execute_pipeline(config: AddonConfig, pipeline: Pipeline) -> PipelineRunResu
     )
     contexts = _build_note_contexts(selected_note_ids)
     workflow_lookup = {workflow.workflow_id: workflow for workflow in config.workflows}
-    prompt_lookup = {prompt.prompt_id: prompt for prompt in config.saved_prompts}
 
     step_reports: list[PipelineStepReport] = []
     for step in pipeline.steps:
@@ -92,19 +78,11 @@ def execute_pipeline(config: AddonConfig, pipeline: Pipeline) -> PipelineRunResu
             )
             continue
 
-        if step.step_type == "run_mlr_audit":
-            report = _execute_audit_step(config, step, matched_contexts)
-        elif step.step_type == "run_workflow":
+        if step.step_type == "run_workflow":
             workflow = workflow_lookup[step.workflow_id or ""]
-            prompt = prompt_lookup.get(workflow.prompt_id)
-            if prompt is None:
-                raise RuntimeError(
-                    f"Pipeline step '{step.step_id}' references workflow '{workflow.name}' "
-                    "but its saved prompt could not be found."
-                )
-            report = _execute_workflow_step(config, step, workflow, prompt, matched_contexts)
+            report = _execute_workflow_step(config, step, workflow, matched_contexts)
         elif step.step_type == "run_group":
-            report = _execute_group_step(config, step, matched_contexts, workflow_lookup, prompt_lookup)
+            report = _execute_group_step(config, step, matched_contexts, workflow_lookup)
         elif step.step_type == "tag":
             report = _execute_tag_step(step, matched_contexts)
         elif step.step_type == "stop":
@@ -214,98 +192,39 @@ def _resolve_artifact_path(artifacts: dict[str, Any], path: str) -> Any:
     return current
 
 
-def _execute_audit_step(
-    config: AddonConfig,
-    step: PipelineStep,
-    contexts: list[PipelineNoteContext],
-) -> PipelineStepReport:
-    note_ids = [context.note_id for context in contexts]
-    result = execute_mlr_audit(config, note_ids, max_notes=None)
-    apply_audit_run_result(result, show_feedback=False)
-
-    success_by_note_id = {item.note_id: item for item in result.successes}
-    failure_by_note_id = {item.note_id: item for item in result.failures}
-    succeeded_note_ids: list[int] = []
-    failed_note_ids: list[int] = []
-
-    for context in contexts:
-        success = success_by_note_id.get(context.note_id)
-        failure = failure_by_note_id.get(context.note_id)
-        if success is not None:
-            context.artifacts["audit"] = audit_success_artifact(success)
-            context.step_results[step.step_id] = "success"
-            succeeded_note_ids.append(context.note_id)
-            _refresh_context(context)
-        elif failure is not None:
-            context.step_results[step.step_id] = "failed"
-            context.failures.append(failure.reason)
-            failed_note_ids.append(context.note_id)
-            _refresh_context(context)
-        else:
-            context.step_results[step.step_id] = "skipped"
-
-    details = []
-    if result.skipped_before_run:
-        details.extend(result.skipped_before_run)
-    return PipelineStepReport(
-        step_id=step.step_id,
-        step_type=step.step_type,
-        matched_note_ids=note_ids,
-        succeeded_note_ids=succeeded_note_ids,
-        failed_note_ids=failed_note_ids,
-        skipped_note_ids=[
-            context.note_id
-            for context in contexts
-            if context.note_id not in succeeded_note_ids and context.note_id not in failed_note_ids
-        ],
-        details=details,
-    )
-
-
 def _execute_workflow_step(
     config: AddonConfig,
     step: PipelineStep,
     workflow: Workflow,
-    prompt: SavedPrompt,
     contexts: list[PipelineNoteContext],
 ) -> PipelineStepReport:
     note_ids = [context.note_id for context in contexts]
-    run_config, prepared = _prepare_workflow_run(config, workflow, prompt, note_ids)
-    result = execute_prepared_manual_processing(run_config, prepared)
-
-    failed_note_ids = {failure.note_id for failure in prepared.failures}
-    failed_note_ids.update(failure.note_id for failure in result.failures)
-    succeeded_note_ids: list[int] = []
+    execution = execute_workflow(config, workflow, note_ids=note_ids, show_feedback=False)
 
     for context in contexts:
-        if context.note_id in failed_note_ids:
+        if context.note_id in execution.failed_note_ids:
             context.step_results[step.step_id] = "failed"
-            reasons = [
-                failure.reason
-                for failure in [*prepared.failures, *result.failures]
-                if failure.note_id == context.note_id
-            ]
-            context.failures.extend(reasons)
+            context.failures.extend(
+                [line.removeprefix("- ").strip() for line in execution.failures if f"note {context.note_id} " in line]
+            )
             _refresh_context(context)
             continue
-        context.step_results[step.step_id] = "success"
-        context.artifacts.setdefault("workflow", {})[workflow.workflow_id] = {
-            "name": workflow.name,
-            "target_field": workflow.target_field,
-            "mode": workflow.mode,
-        }
-        succeeded_note_ids.append(context.note_id)
+        if context.note_id in execution.succeeded_note_ids:
+            context.step_results[step.step_id] = "success"
+            for key, value in execution.artifacts_by_note_id.get(context.note_id, {}).items():
+                context.artifacts[key] = value
+        else:
+            context.step_results[step.step_id] = "skipped"
         _refresh_context(context)
 
-    details = [failure.reason for failure in [*prepared.failures, *result.failures][:20]]
     return PipelineStepReport(
         step_id=step.step_id,
         step_type=step.step_type,
         matched_note_ids=note_ids,
-        succeeded_note_ids=succeeded_note_ids,
-        failed_note_ids=sorted(failed_note_ids),
-        skipped_note_ids=[],
-        details=details,
+        succeeded_note_ids=execution.succeeded_note_ids,
+        failed_note_ids=execution.failed_note_ids,
+        skipped_note_ids=execution.skipped_note_ids,
+        details=execution.failures[:20],
     )
 
 
@@ -314,7 +233,6 @@ def _execute_group_step(
     step: PipelineStep,
     contexts: list[PipelineNoteContext],
     workflow_lookup: dict[str, Workflow],
-    prompt_lookup: dict[str, SavedPrompt],
 ) -> PipelineStepReport:
     workflows = sorted(
         [workflow for workflow in workflow_lookup.values() if step.group_id in (workflow.group_ids or [])],
@@ -335,18 +253,10 @@ def _execute_group_step(
     all_failed: set[int] = set()
     details: list[str] = []
     for workflow in workflows:
-        prompt = prompt_lookup.get(workflow.prompt_id)
-        if prompt is None:
-            details.append(f"Workflow '{workflow.name}' is missing its saved prompt.")
-            for context in contexts:
-                context.step_results[step.step_id] = "failed"
-                context.failures.append(f"Workflow '{workflow.name}' is missing its saved prompt.")
-                all_failed.add(context.note_id)
-            continue
         active_contexts = [context for context in contexts if not context.stopped]
         if not active_contexts:
             break
-        nested_report = _execute_workflow_step(config, step, workflow, prompt, active_contexts)
+        nested_report = _execute_workflow_step(config, step, workflow, active_contexts)
         all_succeeded.update(nested_report.succeeded_note_ids)
         all_failed.update(nested_report.failed_note_ids)
         details.extend(f"{workflow.name}: {detail}" for detail in nested_report.details)
@@ -421,46 +331,6 @@ def _execute_stop_step(step: PipelineStep, contexts: list[PipelineNoteContext]) 
         skipped_note_ids=[],
         details=["Stopped matched notes from continuing through the pipeline."],
     )
-
-
-def _prepare_workflow_run(
-    config: AddonConfig,
-    workflow: Workflow,
-    prompt: SavedPrompt,
-    note_ids: list[int],
-) -> tuple[AddonConfig, PreparedManualProcessing]:
-    system_prompt_text = config.system_prompt
-    if workflow.system_prompt_id is not None:
-        system_prompt = next(
-            (item for item in config.saved_system_prompts if item.prompt_id == workflow.system_prompt_id),
-            None,
-        )
-        if system_prompt is not None:
-            system_prompt_text = system_prompt.prompt_text
-
-    run_config = replace(
-        config,
-        model=workflow.model or config.model,
-        system_prompt=system_prompt_text,
-        temperature=workflow.temperature if workflow.temperature is not None else config.temperature,
-    )
-
-    spec = ManualProcessingSpec(
-        prompt_name=prompt.name,
-        prompt_template=prompt.prompt_text,
-        target_field=workflow.target_field,
-        system_prompt_name=workflow.system_prompt_id or "",
-        system_prompt=system_prompt_text,
-        write_mode=workflow.mode,
-        model=run_config.model,
-        temperature=workflow.temperature,
-        multiple_target_fields=workflow.multiple_target_fields,
-        convert_markdown_to_html=workflow.convert_markdown_to_html,
-        response_delimiter=workflow.response_delimiter or "",
-    )
-    return run_config, prepare_manual_ai_processing(run_config, note_ids, spec, include_estimate=False)
-
-
 def _refresh_context(context: PipelineNoteContext) -> None:
     assert mw is not None and mw.col is not None
     note = mw.col.get_note(context.note_id)
