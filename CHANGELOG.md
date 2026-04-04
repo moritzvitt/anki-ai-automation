@@ -9,6 +9,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Added
 
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
+- A branch naming convention doc under `docs/release/branch-naming.md` so future work can use short, consistent branch names like `feature/browser-prompt-library-picker`.
 - Browser context-menu actions to run enabled workflows or whole workflow groups directly on the current Browser selection instead of relying on each workflow's saved query matches.
 - A separate `browser_extensions` Browser module with a direct `Quick Add Existing Tag` Browser submenu for applying already-existing collection tags to the selected Browser notes, making that feature easier to split into its own add-on later.
 - A determinate progress bar with interrupt support for Browser audits, workflow runs, and Browser prompt/preset runs so note-processing jobs always show visible progress while they work.
@@ -30,6 +31,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
+- Prompt selection in the Browser AI dialog and workflow editor now uses a prompt-library file picker instead of a flat dropdown, and prompt loading/saving now supports nested folders under `prompt_library/default_prompts` and `prompt_library/user_prompts`.
 - The built-in fallback OpenAI model catalog now includes the current GPT-5 chat/pro aliases plus manual fallback entries for `gpt-5.3-chat-latest` and `gpt-5.4-chat-latest`, so those models can be selected even when the live model fetch is unavailable.
 - Workflow membership is single-group again across config loading, the workflow editor, group filters, Browser group runs, and pipeline group dispatch; older `group_ids` data is still tolerated by collapsing it to the first valid group on load.
 - The shipped MLR audit prompt and its follow-up prompts were refreshed to match the newer cloze-focused audit criteria, narrower support-field update scope, and current `FIXABLE_MINOR` follow-up flow.

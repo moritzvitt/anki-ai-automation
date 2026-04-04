@@ -1177,8 +1177,8 @@ def _load_prompt_files() -> tuple[dict[str, SavedPrompt], list[str]]:
     for directory in (DEFAULT_PROMPTS_DIR, USER_PROMPTS_DIR):
         if not directory.exists():
             continue
-        for path in sorted(directory.glob("*.md")):
-            prompt_id = path.stem
+        for path in sorted(directory.rglob("*.md")):
+            prompt_id = path.relative_to(directory).with_suffix("").as_posix()
             name, prompt_text = read_prompt_markdown(path)
             merged[prompt_id] = SavedPrompt(
                 prompt_id=prompt_id,
@@ -1200,24 +1200,39 @@ def _import_legacy_prompts_to_files(
         current = file_prompts.get(prompt.prompt_id)
         if current is not None and current.name == prompt.name and current.prompt_text == prompt.prompt_text:
             continue
-        write_prompt_markdown(USER_PROMPTS_DIR / f"{prompt.prompt_id}.md", prompt.name, prompt.prompt_text)
+        write_prompt_markdown(_prompt_path_for_id(USER_PROMPTS_DIR, prompt.prompt_id), prompt.name, prompt.prompt_text)
         imported = True
     return imported
 
 
 def _target_prompt_path(prompt_id: str) -> Path:
-    default_path = DEFAULT_PROMPTS_DIR / f"{prompt_id}.md"
+    default_path = _prompt_path_for_id(DEFAULT_PROMPTS_DIR, prompt_id)
     if default_path.exists():
         return default_path
-    return USER_PROMPTS_DIR / f"{prompt_id}.md"
+    return _prompt_path_for_id(USER_PROMPTS_DIR, prompt_id)
 
 
 def _prune_removed_user_prompt_files(active_prompt_ids: set[str]) -> None:
     if not USER_PROMPTS_DIR.exists():
         return
-    for path in USER_PROMPTS_DIR.glob("*.md"):
-        if path.stem not in active_prompt_ids:
+    for path in USER_PROMPTS_DIR.rglob("*.md"):
+        prompt_id = path.relative_to(USER_PROMPTS_DIR).with_suffix("").as_posix()
+        if prompt_id not in active_prompt_ids:
             path.unlink()
+    for directory in sorted(USER_PROMPTS_DIR.rglob("*"), reverse=True):
+        if directory.is_dir():
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+
+
+def _prompt_path_for_id(root: Path, prompt_id: str) -> Path:
+    cleaned_id = prompt_id.strip().replace("\\", "/")
+    if not cleaned_id:
+        return root / "prompt.md"
+    parts = [part for part in cleaned_id.split("/") if part and part not in {".", ".."}]
+    return root.joinpath(*parts).with_suffix(".md")
 
 
 def _prompt_config_scope(raw_config: dict[str, Any]) -> dict[str, Any]:

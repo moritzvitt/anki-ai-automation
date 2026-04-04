@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from aqt import mw
 from aqt.browser import Browser
@@ -10,12 +11,14 @@ from aqt.qt import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QInputDialog,
     QPushButton,
     QPlainTextEdit,
     QVBoxLayout,
@@ -26,9 +29,11 @@ from aqt.utils import showCritical
 from ..core.config import (
     ConfigError,
     DEFAULT_PROMPTS_DIR,
+    PROMPT_LIBRARY_ROOT,
     ProcessingPreset,
     SavedPrompt,
     SavedSystemPrompt,
+    USER_PROMPTS_DIR,
     load_config,
     load_raw_config,
     new_object_id,
@@ -153,6 +158,10 @@ class TransformWithAIDialog(QDialog):
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.prompt_combo = QComboBox()
+        self.prompt_combo.setVisible(False)
+        self.prompt_choice_label = QLabel()
+        self.prompt_choice_label.setWordWrap(True)
+        self.prompt_browse_button = QPushButton("Browse Library")
         self.system_prompt_combo = QComboBox()
         self.mode_combo = QComboBox()
         self.prompt_preview = QPlainTextEdit()
@@ -164,8 +173,6 @@ class TransformWithAIDialog(QDialog):
         self.run_button.clicked.connect(self._validate_and_accept)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
-        self.prompt_preview.textChanged.connect(self._sync_prompt_from_editor)
-        self.system_prompt_preview.textChanged.connect(self._sync_system_prompt_from_editor)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
 
         self._build_ui()
@@ -246,15 +253,18 @@ class TransformWithAIDialog(QDialog):
         prompt_row = QWidget()
         prompt_layout = QHBoxLayout(prompt_row)
         prompt_layout.setContentsMargins(0, 0, 0, 0)
-        prompt_layout.addWidget(self.prompt_combo, stretch=1)
+        prompt_layout.addWidget(self.prompt_choice_label, stretch=1)
+        prompt_layout.addWidget(self.prompt_browse_button)
 
         new_button = QPushButton("New")
         edit_button = QPushButton("Edit")
         delete_button = QPushButton("Delete")
-        set_hover_help(self.prompt_combo, "Choose the saved user prompt for this run.", enabled=self._config.show_tooltips)
+        set_hover_help(self.prompt_choice_label, "Current user prompt selected for this run.", enabled=self._config.show_tooltips)
+        set_hover_help(self.prompt_browse_button, "Browse the prompt library folders and select a markdown prompt file.", enabled=self._config.show_tooltips)
         set_hover_help(new_button, "Create a new saved user prompt.", enabled=self._config.show_tooltips)
         set_hover_help(edit_button, "Edit the selected saved user prompt.", enabled=self._config.show_tooltips)
         set_hover_help(delete_button, "Delete the selected saved user prompt.", enabled=self._config.show_tooltips)
+        self.prompt_browse_button.clicked.connect(self._browse_prompt_library)
         new_button.clicked.connect(self._create_prompt)
         edit_button.clicked.connect(self._edit_prompt)
         delete_button.clicked.connect(self._delete_prompt)
@@ -299,8 +309,8 @@ class TransformWithAIDialog(QDialog):
         set_hover_help(self.delimiter_edit, "Delimiter used to split a multi-field response, for example --Notes-- or --{field}--.", enabled=self._config.show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field that should receive the generated output.", enabled=self._config.show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether generated text overwrites, appends, or skips already-filled target fields.", enabled=self._config.show_tooltips)
-        set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Changes are saved back to that prompt.", enabled=self._config.show_tooltips)
-        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Changes are saved back to that prompt.", enabled=self._config.show_tooltips)
+        set_hover_help(self.prompt_preview, "Editable text of the selected user prompt. Use Save Prompt to store changes.", enabled=self._config.show_tooltips)
+        set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Use Save System Prompt to store changes.", enabled=self._config.show_tooltips)
         set_hover_help(self.run_button, "Start processing the selected notes with the current settings.", enabled=self._config.show_tooltips)
 
         options_form.addRow("Preset", preset_row)
@@ -321,9 +331,26 @@ class TransformWithAIDialog(QDialog):
         options_form.addRow("Write mode", self.mode_combo)
         layout.addWidget(options_group)
 
-        layout.addWidget(QLabel("Prompt"))
+        prompt_header = QWidget()
+        prompt_header_layout = QHBoxLayout(prompt_header)
+        prompt_header_layout.setContentsMargins(0, 0, 0, 0)
+        prompt_header_layout.addWidget(QLabel("Prompt"))
+        prompt_header_layout.addStretch(1)
+        save_prompt_button = QPushButton("Save Prompt")
+        save_prompt_button.clicked.connect(self._save_prompt_preview)
+        prompt_header_layout.addWidget(save_prompt_button)
+        layout.addWidget(prompt_header)
         layout.addWidget(self.prompt_preview)
-        layout.addWidget(QLabel("System prompt"))
+
+        system_prompt_header = QWidget()
+        system_prompt_header_layout = QHBoxLayout(system_prompt_header)
+        system_prompt_header_layout.setContentsMargins(0, 0, 0, 0)
+        system_prompt_header_layout.addWidget(QLabel("System prompt"))
+        system_prompt_header_layout.addStretch(1)
+        save_system_prompt_button = QPushButton("Save System Prompt")
+        save_system_prompt_button.clicked.connect(self._save_system_prompt_preview)
+        system_prompt_header_layout.addWidget(save_system_prompt_button)
+        layout.addWidget(system_prompt_header)
         layout.addWidget(self.system_prompt_preview)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -392,6 +419,9 @@ class TransformWithAIDialog(QDialog):
             index = self.prompt_combo.findData(selected_prompt_id)
             if index >= 0:
                 self.prompt_combo.setCurrentIndex(index)
+        if self.prompt_combo.currentIndex() < 0 and self.prompt_combo.count() > 0:
+            self.prompt_combo.setCurrentIndex(0)
+        self._refresh_prompt_selection_label()
 
     def _selected_prompt(self) -> PromptChoice | None:
         prompt_id = self.prompt_combo.currentData()
@@ -422,6 +452,7 @@ class TransformWithAIDialog(QDialog):
         self.prompt_preview.blockSignals(True)
         self.prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
         self.prompt_preview.blockSignals(False)
+        self._refresh_prompt_selection_label()
 
     def _refresh_system_prompt_preview(self) -> None:
         prompt = self._selected_system_prompt()
@@ -442,11 +473,17 @@ class TransformWithAIDialog(QDialog):
             counter += 1
         return candidate
 
-    def _sync_prompt_from_editor(self) -> None:
+    def _save_prompt_preview(self) -> bool:
         prompt = self._selected_prompt()
         if prompt is None:
-            return
+            showCritical("Choose a saved prompt before saving.", parent=self)
+            return False
         updated_text = self.prompt_preview.toPlainText().strip()
+        if not updated_text:
+            showCritical("Prompt text must not be empty.", parent=self)
+            return False
+        if updated_text == prompt.prompt_text:
+            return True
         if self._is_default_prompt(prompt.prompt_id) and updated_text != prompt.prompt_text:
             replacement = PromptChoice(
                 prompt_id=new_object_id("prompt"),
@@ -461,7 +498,7 @@ class TransformWithAIDialog(QDialog):
                 self.prompt_combo.setCurrentIndex(index)
             self._refresh_prompt_preview()
             show_tooltip(f"Saved as new user prompt '{replacement.name}'.", parent=self)
-            return
+            return True
         for index, current in enumerate(self._prompts):
             if current.prompt_id == prompt.prompt_id:
                 self._prompts[index] = PromptChoice(
@@ -470,22 +507,42 @@ class TransformWithAIDialog(QDialog):
                     prompt_text=updated_text,
                 )
                 self._save_prompts()
-                return
+                self._populate_prompt_combo()
+                combo_index = self.prompt_combo.findData(current.prompt_id)
+                if combo_index >= 0:
+                    self.prompt_combo.setCurrentIndex(combo_index)
+                self._refresh_prompt_preview()
+                show_tooltip(f"Saved prompt '{current.name}'.", parent=self)
+                return True
+        return False
 
-    def _sync_system_prompt_from_editor(self) -> None:
+    def _save_system_prompt_preview(self) -> bool:
         prompt = self._selected_system_prompt()
         if prompt is None:
-            return
+            showCritical("Choose a saved system prompt before saving.", parent=self)
+            return False
         updated_text = self.system_prompt_preview.toPlainText().strip()
+        if not updated_text:
+            showCritical("System prompt text must not be empty.", parent=self)
+            return False
         for index, current in enumerate(self._system_prompts):
             if current.prompt_id == prompt.prompt_id:
+                if updated_text == current.prompt_text:
+                    return True
                 self._system_prompts[index] = PromptChoice(
                     prompt_id=current.prompt_id,
                     name=current.name,
                     prompt_text=updated_text,
                 )
                 self._save_system_prompts()
-                return
+                self._populate_system_prompt_combo()
+                combo_index = self.system_prompt_combo.findData(current.prompt_id)
+                if combo_index >= 0:
+                    self.system_prompt_combo.setCurrentIndex(combo_index)
+                self._refresh_system_prompt_preview()
+                show_tooltip(f"Saved system prompt '{current.name}'.", parent=self)
+                return True
+        return False
 
     def _refresh_target_mode_ui(self) -> None:
         is_multi = self.multiple_target_fields_check.isChecked()
@@ -524,6 +581,19 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
+
+    def _browse_prompt_library(self) -> None:
+        selected = _choose_prompt_from_library(
+            self,
+            prompts=self._prompts,
+            current_prompt_id=str(self.prompt_combo.currentData() or ""),
+        )
+        if selected is None:
+            return
+        index = self.prompt_combo.findData(selected.prompt_id)
+        if index >= 0:
+            self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
 
     def _save_current_as_preset(self) -> None:
         dialog = SavedPromptDialog(
@@ -721,20 +791,25 @@ class TransformWithAIDialog(QDialog):
         self.target_field_combo.setEditText(field_name)
 
     def _create_prompt(self) -> None:
-        dialog = SavedPromptDialog(
-            parent=self,
-            window_title="Saved Prompt",
-            prompt_label="Prompt",
-            placeholder_text="Use placeholders like {{Front}}, {{Back}}, {{NoteType}}",
-            help_text="Prompt names appear in the picker. The full prompt text is still stored and used during processing.",
-            id_prefix="prompt",
+        prompt_text = self.prompt_preview.toPlainText().strip()
+        if not prompt_text:
+            showCritical("Prompt text must not be empty.", parent=self)
+            return
+        current_prompt = self._selected_prompt()
+        suggested_name = current_prompt.name if current_prompt is not None else "New prompt"
+        name, accepted = QInputDialog.getText(
+            self,
+            "New Prompt",
+            "Name",
+            text=suggested_name,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not accepted or not name.strip():
             return
-
-        choice = dialog.prompt_choice()
-        if choice is None:
-            return
+        choice = PromptChoice(
+            prompt_id=new_object_id("prompt"),
+            name=name.strip(),
+            prompt_text=prompt_text,
+        )
         self._prompts.append(choice)
         self._save_prompts()
         self._populate_prompt_combo()
@@ -742,6 +817,7 @@ class TransformWithAIDialog(QDialog):
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
         self._refresh_prompt_preview()
+        show_tooltip(f"Created prompt '{choice.name}'.", parent=self)
 
     def _edit_prompt(self) -> None:
         prompt = self._selected_prompt()
@@ -786,20 +862,25 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
 
     def _create_system_prompt(self) -> None:
-        dialog = SavedPromptDialog(
-            parent=self,
-            window_title="Saved System Prompt",
-            prompt_label="System prompt",
-            placeholder_text="You improve Anki flashcards...",
-            help_text="System prompt names appear in the picker. Use this to keep reusable instruction sets with clear names.",
-            id_prefix="system-prompt",
+        prompt_text = self.system_prompt_preview.toPlainText().strip()
+        if not prompt_text:
+            showCritical("System prompt text must not be empty.", parent=self)
+            return
+        current_prompt = self._selected_system_prompt()
+        suggested_name = current_prompt.name if current_prompt is not None else "New system prompt"
+        name, accepted = QInputDialog.getText(
+            self,
+            "New System Prompt",
+            "Name",
+            text=suggested_name,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not accepted or not name.strip():
             return
-
-        choice = dialog.prompt_choice()
-        if choice is None:
-            return
+        choice = PromptChoice(
+            prompt_id=new_object_id("system-prompt"),
+            name=name.strip(),
+            prompt_text=prompt_text,
+        )
         self._system_prompts.append(choice)
         self._save_system_prompts()
         self._populate_system_prompt_combo()
@@ -807,6 +888,7 @@ class TransformWithAIDialog(QDialog):
         if index >= 0:
             self.system_prompt_combo.setCurrentIndex(index)
         self._refresh_system_prompt_preview()
+        show_tooltip(f"Created system prompt '{choice.name}'.", parent=self)
 
     def _edit_system_prompt(self) -> None:
         prompt = self._selected_system_prompt()
@@ -915,7 +997,18 @@ class TransformWithAIDialog(QDialog):
         ]
         save_raw_config(self._raw_config)
 
+    def _refresh_prompt_selection_label(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            self.prompt_choice_label.setText("No prompt selected")
+            return
+        self.prompt_choice_label.setText(f"{prompt.name}  [{_prompt_relative_path_label(prompt.prompt_id)}]")
+
     def _validate_and_accept(self) -> None:
+        if not self._save_prompt_preview():
+            return
+        if not self._save_system_prompt_preview():
+            return
         is_multi = self.multiple_target_fields_check.isChecked()
         if not is_multi and not self._field_choices:
             showCritical("The selected notes do not share any common target field.", parent=self)
@@ -1046,6 +1139,69 @@ class SavedPromptDialog(QDialog):
             showCritical("Prompt text must not be empty.", parent=self)
             return
         self.accept()
+
+
+def _choose_prompt_from_library(
+    parent: QWidget,
+    *,
+    prompts: list[PromptChoice],
+    current_prompt_id: str,
+) -> PromptChoice | None:
+    start_directory = _prompt_start_directory(current_prompt_id)
+    selected_path, _ = QFileDialog.getOpenFileName(
+        parent,
+        "Choose Prompt from Library",
+        str(start_directory),
+        "Markdown files (*.md)",
+    )
+    if not selected_path:
+        return None
+    prompt_id = _prompt_id_from_library_path(Path(selected_path))
+    if not prompt_id:
+        showCritical(
+            "Choose a markdown file inside prompt_library/default_prompts or prompt_library/user_prompts.",
+            parent=parent,
+        )
+        return None
+    for prompt in prompts:
+        if prompt.prompt_id == prompt_id:
+            return prompt
+    showCritical("The selected prompt file is not loaded. Reopen the dialog if you recently added it.", parent=parent)
+    return None
+
+
+def _prompt_start_directory(current_prompt_id: str) -> Path:
+    current_path = _prompt_file_path(current_prompt_id)
+    if current_path is not None:
+        return current_path.parent
+    return PROMPT_LIBRARY_ROOT
+
+
+def _prompt_file_path(prompt_id: str) -> Path | None:
+    parts = [part for part in prompt_id.replace("\\", "/").split("/") if part]
+    if not parts:
+        return None
+    relative_path = Path(*parts).with_suffix(".md")
+    for root in (USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
+        candidate = root / relative_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _prompt_id_from_library_path(path: Path) -> str | None:
+    resolved_path = path.resolve()
+    for root in (USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
+        try:
+            relative_path = resolved_path.relative_to(root.resolve())
+        except ValueError:
+            continue
+        return relative_path.with_suffix("").as_posix()
+    return None
+
+
+def _prompt_relative_path_label(prompt_id: str) -> str:
+    return f"{prompt_id}.md"
 
 
 def _collect_common_fields(note_ids: list[int]) -> tuple[list[str], dict[str, str]]:

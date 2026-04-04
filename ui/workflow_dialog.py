@@ -32,7 +32,9 @@ from .automation import (
     ProcessingPresetChoice,
     PromptChoice,
     SavedPromptDialog,
+    _choose_prompt_from_library,
     _preset_choices_from_saved_processing_presets,
+    _prompt_relative_path_label,
 )
 from .tooltips import set_hover_help, show_tooltip
 from ..core.audit_prompts import AUDIT_SCHEMA_PRESET_MLR, available_audit_schema_presets
@@ -123,6 +125,10 @@ class WorkflowDialog(QDialog):
         self.success_tags_edit = QLineEdit()
         self.failure_tags_edit = QLineEdit()
         self.prompt_combo = QComboBox()
+        self.prompt_combo.setVisible(False)
+        self.prompt_choice_label = QLabel()
+        self.prompt_choice_label.setWordWrap(True)
+        self.prompt_browse_button = QPushButton("Browse Library")
         self.system_prompt_combo = QComboBox()
         self.prompt_preview = QPlainTextEdit()
         self.prompt_preview.setMinimumHeight(140)
@@ -176,14 +182,17 @@ class WorkflowDialog(QDialog):
         prompt_row = QWidget()
         prompt_layout = QHBoxLayout(prompt_row)
         prompt_layout.setContentsMargins(0, 0, 0, 0)
-        prompt_layout.addWidget(self.prompt_combo, stretch=1)
+        prompt_layout.addWidget(self.prompt_choice_label, stretch=1)
+        prompt_layout.addWidget(self.prompt_browse_button)
         new_button = QPushButton("New")
         edit_button = QPushButton("Edit")
         delete_button = QPushButton("Delete")
-        set_hover_help(self.prompt_combo, "Choose the saved user prompt for this workflow.", enabled=self._show_tooltips)
+        set_hover_help(self.prompt_choice_label, "Current user prompt selected for this workflow.", enabled=self._show_tooltips)
+        set_hover_help(self.prompt_browse_button, "Browse the prompt library folders and select a markdown prompt file.", enabled=self._show_tooltips)
         set_hover_help(new_button, "Create a new saved user prompt.", enabled=self._show_tooltips)
         set_hover_help(edit_button, "Edit the selected saved user prompt.", enabled=self._show_tooltips)
         set_hover_help(delete_button, "Delete the selected saved user prompt.", enabled=self._show_tooltips)
+        self.prompt_browse_button.clicked.connect(self._browse_prompt_library)
         new_button.clicked.connect(self._create_prompt)
         edit_button.clicked.connect(self._edit_prompt)
         delete_button.clicked.connect(self._delete_prompt)
@@ -548,6 +557,9 @@ class WorkflowDialog(QDialog):
             index = self.prompt_combo.findData(selected_prompt_id)
             if index >= 0:
                 self.prompt_combo.setCurrentIndex(index)
+        if self.prompt_combo.currentIndex() < 0 and self.prompt_combo.count() > 0:
+            self.prompt_combo.setCurrentIndex(0)
+        self._refresh_prompt_selection_label()
 
     def _populate_group_edit(self) -> None:
         known_group_names = ", ".join(group.name for group in sorted(self._groups, key=lambda item: item.name.lower()))
@@ -568,6 +580,7 @@ class WorkflowDialog(QDialog):
         self.prompt_preview.blockSignals(True)
         self.prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
         self.prompt_preview.blockSignals(False)
+        self._refresh_prompt_selection_label()
 
     def _populate_system_prompt_combo(self) -> None:
         self.system_prompt_combo.clear()
@@ -753,6 +766,19 @@ class WorkflowDialog(QDialog):
         if preset.target_field:
             self._set_target_field(preset.target_field)
         self._refresh_target_mode_ui()
+
+    def _browse_prompt_library(self) -> None:
+        selected = _choose_prompt_from_library(
+            self,
+            prompts=self._prompts,
+            current_prompt_id=str(self.prompt_combo.currentData() or ""),
+        )
+        if selected is None:
+            return
+        index = self.prompt_combo.findData(selected.prompt_id)
+        if index >= 0:
+            self.prompt_combo.setCurrentIndex(index)
+        self._refresh_prompt_preview()
 
     def _save_current_as_preset(self) -> None:
         dialog = SavedPromptDialog(
@@ -1060,6 +1086,13 @@ class WorkflowDialog(QDialog):
 
     def _save_prompts(self) -> None:
         save_saved_prompts(self._raw_config, self._prompts)
+
+    def _refresh_prompt_selection_label(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            self.prompt_choice_label.setText("No prompt selected")
+            return
+        self.prompt_choice_label.setText(f"{prompt.name}  [{_prompt_relative_path_label(prompt.prompt_id)}]")
 
     def _create_system_prompt(self) -> None:
         prompt_text = self.system_prompt_preview.toPlainText().strip()

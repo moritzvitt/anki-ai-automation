@@ -1,7 +1,5 @@
 # 03.04 japanese
 
-You improve Anki flashcards.
-
 Formatting guidance:
 - Write in clean Markdown.
 - Use short paragraphs.
