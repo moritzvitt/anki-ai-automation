@@ -157,6 +157,28 @@ def _resolved_system_prompt_id(
     )
 
 
+def _resolved_prompt_id(
+    prompt_id: str,
+    *,
+    allowed_prompt_ids: set[str],
+) -> str | None:
+    if prompt_id in allowed_prompt_ids:
+        return prompt_id
+
+    legacy_basename = prompt_id.strip().split("/")[-1]
+    if not legacy_basename:
+        return None
+
+    matching_ids = sorted(
+        candidate_id
+        for candidate_id in allowed_prompt_ids
+        if candidate_id.split("/")[-1] == legacy_basename
+    )
+    if len(matching_ids) == 1:
+        return matching_ids[0]
+    return None
+
+
 @dataclass(frozen=True)
 class PipelineStep:
     step_id: str
@@ -629,7 +651,11 @@ def _read_processing_presets(
         seen_ids.add(preset_id)
 
         prompt_id = _read_string(item, "prompt_id")
-        if prompt_id not in allowed_prompt_ids:
+        resolved_prompt_id = _resolved_prompt_id(
+            prompt_id,
+            allowed_prompt_ids=allowed_prompt_ids,
+        )
+        if resolved_prompt_id is None:
             raise ConfigError(
                 f"saved_processing_presets[{index}] references unknown prompt_id '{prompt_id}'."
             )
@@ -656,7 +682,7 @@ def _read_processing_presets(
             ProcessingPreset(
                 preset_id=preset_id,
                 name=_read_string(item, "name"),
-                prompt_id=prompt_id,
+                prompt_id=resolved_prompt_id,
                 description=_read_optional_string(item, "description"),
                 model=_read_optional_string(item, "model"),
                 temperature=_read_optional_float(
@@ -753,7 +779,11 @@ def _parse_workflow_entry(
     workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
 
     prompt_id = _read_string(item, "prompt_id")
-    if prompt_id not in allowed_prompt_ids:
+    resolved_prompt_id = _resolved_prompt_id(
+        prompt_id,
+        allowed_prompt_ids=allowed_prompt_ids,
+    )
+    if resolved_prompt_id is None:
         raise ConfigError(
             f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
         )
@@ -815,7 +845,7 @@ def _parse_workflow_entry(
         workflow_id=workflow_id,
         name=_read_string(item, "name"),
         query=_read_string(item, "query"),
-        prompt_id=prompt_id,
+        prompt_id=resolved_prompt_id,
         workflow_type=workflow_type,
         enabled=_read_bool(item, "enabled", default=True),
         target_field=target_field,
