@@ -63,7 +63,9 @@ def _load_prompt_library_text(relative_path: str) -> str:
 
 
 MLR_AUDIT_SYSTEM_PROMPT = _load_prompt_library_text("system_prompts/mlr-audit-system.md")
-MLR_AUDIT_USER_PROMPT_TEMPLATE = _load_prompt_library_text("default_prompts/mlr-audit.md")
+MLR_AUDIT_USER_PROMPT_TEMPLATE = _load_prompt_library_text(
+    "default_prompts/mlr/audit/mlr-audit.md"
+)
 
 
 def mlr_audit_response_schema() -> dict[str, Any]:
