@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from threading import Event
 from typing import Callable
 
 from aqt import mw
@@ -45,6 +46,7 @@ from ..core.workflow_engine import (
     apply_field_update_result,
     execute_workflow,
 )
+from ..core.processing import ProcessingInterruptDialog
 from .tooltips import set_hover_help, show_tooltip
 
 
@@ -203,7 +205,7 @@ class WorkflowManagerDialog(QDialog):
             self._visible_workflows = [workflow for workflow in self._workflows if not workflow.enabled]
         elif isinstance(current_group_id, str) and current_group_id:
             self._visible_workflows = [
-                workflow for workflow in self._workflows if current_group_id in (workflow.group_ids or [])
+                workflow for workflow in self._workflows if current_group_id == workflow.group_id
             ]
         else:
             self._visible_workflows = list(self._workflows)
@@ -239,8 +241,8 @@ class WorkflowManagerDialog(QDialog):
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
-        group_names = self._group_names(workflow.group_ids)
-        group_summary = ", ".join(group_names) if group_names else "No groups"
+        group_name = self._group_name(workflow.group_id)
+        group_summary = group_name or "No group"
         trigger_summary = _trigger_summary(workflow)
         type_summary = "Audit" if workflow.workflow_type == "audit" else "Field update"
         target_summary = (
@@ -315,11 +317,11 @@ class WorkflowManagerDialog(QDialog):
                 return prompt.name
         return "Missing prompt"
 
-    def _group_names(self, group_ids: list[str] | None) -> list[str]:
-        if not group_ids:
-            return []
+    def _group_name(self, group_id: str | None) -> str | None:
+        if not group_id:
+            return None
         name_lookup = {group.group_id: group.name for group in self._groups}
-        return [name_lookup[group_id] for group_id in group_ids if group_id in name_lookup]
+        return name_lookup.get(group_id)
 
     def _system_prompt_name(self, prompt_id: str | None) -> str:
         if prompt_id is None:
@@ -386,7 +388,7 @@ class WorkflowManagerDialog(QDialog):
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
-            group_ids=self._group_ids_for_names(draft.group_names),
+            group_id=self._group_id_for_name(draft.group_name),
             position=len(self._workflows),
         )
         self._workflows.append(workflow)
@@ -406,7 +408,7 @@ class WorkflowManagerDialog(QDialog):
             current_model=self._config.model,
             model_pricing=self._config.model_pricing,
             workflow=workflow,
-            current_group_names=self._group_names(workflow.group_ids),
+            current_group_names=[self._group_name(workflow.group_id)] if self._group_name(workflow.group_id) else [],
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -436,7 +438,7 @@ class WorkflowManagerDialog(QDialog):
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
-            group_ids=self._group_ids_for_names(draft.group_names),
+            group_id=self._group_id_for_name(draft.group_name),
         )
         self._save_state()
         self._select_workflow_by_id(workflow.workflow_id)
@@ -514,11 +516,11 @@ class WorkflowManagerDialog(QDialog):
         if not isinstance(group_id, str) or not group_id:
             show_tooltip("Choose a workflow group to run.", parent=self)
             return
-        workflows = [workflow for workflow in self._workflows if workflow.enabled and group_id in (workflow.group_ids or [])]
+        workflows = [workflow for workflow in self._workflows if workflow.enabled and group_id == workflow.group_id]
         if not workflows:
             show_tooltip("This group does not contain any workflows.", parent=self)
             return
-        group_name = self._group_names([group_id])[0] if self._group_names([group_id]) else "Selected group"
+        group_name = self._group_name(group_id) or "Selected group"
         self._run_workflow_sequence(workflows, run_label=group_name)
 
     def _run_workflow_sequence(
@@ -658,9 +660,42 @@ class WorkflowManagerDialog(QDialog):
             )
             return
 
+        cancel_event = Event()
+        progress_dialog = ProcessingInterruptDialog(
+            self,
+            note_count=len(note_ids),
+            window_title="AI Workflow Progress",
+            action_label=f"Running workflow '{workflow.name}' for",
+        )
+        progress_dialog.interrupt_button.clicked.connect(
+            lambda: _request_progress_interrupt(progress_dialog, cancel_event)
+        )
+        progress_dialog.show()
+
+        def report_progress(completed_count: int) -> None:
+            if mw is None or not hasattr(mw, "taskman"):
+                return
+            mw.taskman.run_on_main(
+                lambda: progress_dialog.set_progress(min(completed_count, len(note_ids)))
+            )
+
+        def run_workflow_operation():
+            try:
+                return execute_workflow(
+                    config,
+                    workflow,
+                    note_ids=note_ids,
+                    show_feedback=False,
+                    cancel_event=cancel_event,
+                    progress_callback=report_progress,
+                )
+            finally:
+                if mw is not None and hasattr(mw, "taskman"):
+                    mw.taskman.run_on_main(progress_dialog.close)
+
         op = QueryOp(
             parent=self,
-            op=lambda _col: execute_workflow(config, workflow, note_ids=note_ids, show_feedback=False),
+            op=lambda _col: run_workflow_operation(),
             success=lambda result: self._on_workflow_finished(
                 workflows=workflows,
                 index=index,
@@ -741,26 +776,20 @@ class WorkflowManagerDialog(QDialog):
                 report_lines.append(f"- ...and {len(summary.failures) - 40} more")
         showInfo("\n".join(report_lines), parent=self)
 
-    def _group_ids_for_names(self, group_names: list[str]) -> list[str]:
-        resolved_group_ids: list[str] = []
-        seen_names: set[str] = set()
-        for group_name in group_names:
-            normalized = group_name.strip()
-            if not normalized or normalized.lower() in seen_names:
-                continue
-            seen_names.add(normalized.lower())
-            existing_group = next((group for group in self._groups if group.name == normalized), None)
-            if existing_group is not None:
-                resolved_group_ids.append(existing_group.group_id)
-                continue
-            new_group = WorkflowGroup(group_id=new_object_id("group"), name=normalized)
-            self._groups.append(new_group)
-            self._groups.sort(key=lambda group: group.name.lower())
-            resolved_group_ids.append(new_group.group_id)
-        return resolved_group_ids
+    def _group_id_for_name(self, group_name: str | None) -> str | None:
+        normalized = (group_name or "").strip()
+        if not normalized:
+            return None
+        existing_group = next((group for group in self._groups if group.name == normalized), None)
+        if existing_group is not None:
+            return existing_group.group_id
+        new_group = WorkflowGroup(group_id=new_object_id("group"), name=normalized)
+        self._groups.append(new_group)
+        self._groups.sort(key=lambda group: group.name.lower())
+        return new_group.group_id
 
     def _remove_unused_groups(self) -> None:
-        used_group_ids = {group_id for workflow in self._workflows for group_id in (workflow.group_ids or [])}
+        used_group_ids = {workflow.group_id for workflow in self._workflows if workflow.group_id}
         self._groups = [group for group in self._groups if group.group_id in used_group_ids]
 
     def _select_workflow_by_id(self, workflow_id: str) -> None:
@@ -844,3 +873,8 @@ def _find_note_ids_for_query(query: str) -> list[int]:
     except Exception as error:
         raise RuntimeError(str(error)) from error
     return [int(note_id) for note_id in note_ids]
+
+
+def _request_progress_interrupt(dialog: ProcessingInterruptDialog, cancel_event: Event) -> None:
+    cancel_event.set()
+    dialog.set_interrupt_requested()

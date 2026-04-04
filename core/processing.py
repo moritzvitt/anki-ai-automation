@@ -113,17 +113,25 @@ class PromptRenderPlan:
 
 
 class ProcessingInterruptDialog(QDialog):
-    def __init__(self, parent: QWidget, *, note_count: int) -> None:
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        note_count: int,
+        window_title: str = "AI Processing",
+        action_label: str = "Processing",
+        can_interrupt: bool = True,
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("AI Processing")
+        self.setWindowTitle(window_title)
         self.setModal(False)
         self.resize(380, 180)
         self._note_count = note_count
+        self._action_label = action_label
 
         layout = QVBoxLayout(self)
         self.status_label = QLabel(
-            f"Processing {note_count} note(s) with AI.\n\n"
-            "Click Interrupt to stop after the current in-flight request(s)."
+            self._status_text(0, interrupted=False)
         )
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
@@ -135,15 +143,30 @@ class ProcessingInterruptDialog(QDialog):
         layout.addWidget(self.progress_bar)
 
         self.interrupt_button = QPushButton("Interrupt")
+        self.interrupt_button.setVisible(can_interrupt)
         layout.addWidget(self.interrupt_button)
 
     def set_progress(self, completed_count: int) -> None:
         self.progress_bar.setValue(completed_count)
+        self.status_label.setText(self._status_text(completed_count, interrupted=False))
+
+    def set_interrupt_requested(self) -> None:
+        self.interrupt_button.setEnabled(False)
+        self.interrupt_button.setText("Interrupt Requested")
         self.status_label.setText(
-            f"Processing {self._note_count} note(s) with AI.\n\n"
-            f"Completed {completed_count}/{self._note_count} note(s). "
-            "Click Interrupt to stop after the current in-flight request(s)."
+            self._status_text(self.progress_bar.value(), interrupted=True)
         )
+
+    def _status_text(self, completed_count: int, *, interrupted: bool) -> str:
+        status = (
+            f"{self._action_label} {self._note_count} note(s) with AI.\n\n"
+            f"Completed {completed_count}/{self._note_count} note(s)."
+        )
+        if not self.interrupt_button.isVisible():
+            return status
+        if interrupted:
+            return status + " Waiting for the current in-flight request(s) to finish."
+        return status + " Click Interrupt to stop after the current in-flight request(s)."
 
 
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
@@ -242,7 +265,10 @@ def start_prepared_manual_processing(
     on_done: Callable[[ProcessingResult], None] | None = None,
 ) -> None:
     cancel_event = Event()
-    interrupt_dialog = ProcessingInterruptDialog(browser, note_count=len(prepared.snapshots))
+    interrupt_dialog = ProcessingInterruptDialog(
+        browser,
+        note_count=len(prepared.snapshots),
+    )
     interrupt_dialog.interrupt_button.clicked.connect(lambda: _request_processing_interrupt(interrupt_dialog, cancel_event))
     interrupt_dialog.show()
     total_snapshots = len(prepared.snapshots)
@@ -291,6 +317,9 @@ def start_prepared_manual_processing(
 def execute_prepared_manual_processing(
     config: AddonConfig,
     prepared: PreparedManualProcessing,
+    *,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> ProcessingResult:
     """Synchronous workflow execution hook used by higher-level pipeline orchestration.
 
@@ -301,7 +330,13 @@ def execute_prepared_manual_processing(
     if mw is None or mw.col is None:
         raise OpenAIClientError("Anki collection is not available.")
 
-    result = _process_snapshots(config, prepared.snapshots, prepared.failures)
+    result = _process_snapshots(
+        config,
+        prepared.snapshots,
+        prepared.failures,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
+    )
 
     usage_totals = _aggregate_usage(result.updates)
     if usage_totals["request_count"]:
@@ -523,6 +558,7 @@ def _process_snapshots(
     initial_failures: list[NoteFailure],
     *,
     cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> ProcessingResult:
     return asyncio.run(
         _process_snapshots_async(
@@ -530,6 +566,7 @@ def _process_snapshots(
             snapshots,
             initial_failures,
             cancel_event=cancel_event,
+            progress_callback=progress_callback,
         )
     )
 
@@ -1066,8 +1103,7 @@ def _finish_prepared_processing(
 
 def _request_processing_interrupt(dialog: ProcessingInterruptDialog, cancel_event: Event) -> None:
     cancel_event.set()
-    dialog.interrupt_button.setEnabled(False)
-    dialog.interrupt_button.setText("Interrupt Requested")
+    dialog.set_interrupt_requested()
 
 
 def _markdown_to_html(value: str) -> str:

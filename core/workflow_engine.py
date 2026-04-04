@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event
+from typing import Callable
 
 from aqt import mw
 
@@ -65,10 +67,18 @@ def execute_workflow(
     note_ids: list[int] | None = None,
     show_feedback: bool = False,
     skip_already_processed_today: bool = True,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
     matched_note_ids = list(note_ids) if note_ids is not None else _find_note_ids_for_query(workflow.query)
     if workflow.workflow_type == "field_update":
-        return _execute_field_update_workflow(config, workflow, matched_note_ids)
+        return _execute_field_update_workflow(
+            config,
+            workflow,
+            matched_note_ids,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
     if workflow.workflow_type == "audit":
         return _execute_audit_workflow(
             config,
@@ -76,6 +86,8 @@ def execute_workflow(
             matched_note_ids,
             show_feedback=show_feedback,
             skip_already_processed_today=skip_already_processed_today,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
         )
     raise RuntimeError(f"Unsupported workflow type '{workflow.workflow_type}'.")
 
@@ -87,6 +99,8 @@ def execute_workflow_by_id(
     note_ids: list[int] | None = None,
     show_feedback: bool = False,
     skip_already_processed_today: bool = True,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
     workflow = next((item for item in config.workflows if item.workflow_id == workflow_id), None)
     if workflow is None:
@@ -97,6 +111,8 @@ def execute_workflow_by_id(
         note_ids=note_ids,
         show_feedback=show_feedback,
         skip_already_processed_today=skip_already_processed_today,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
     )
 
 
@@ -104,6 +120,9 @@ def _execute_field_update_workflow(
     config: AddonConfig,
     workflow: Workflow,
     note_ids: list[int],
+    *,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
     ordered_note_ids = [int(note_id) for note_id in note_ids]
     prompt = next((item for item in config.saved_prompts if item.prompt_id == workflow.prompt_id), None)
@@ -126,7 +145,12 @@ def _execute_field_update_workflow(
         response_delimiter=workflow.response_delimiter or "",
     )
     prepared = prepare_manual_ai_processing(config, note_ids, spec, include_estimate=False)
-    result = execute_prepared_manual_processing(_workflow_run_config(config, workflow), prepared)
+    result = execute_prepared_manual_processing(
+        _workflow_run_config(config, workflow),
+        prepared,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
+    )
 
     failed_note_ids = {failure.note_id for failure in prepared.failures}
     failed_note_ids.update(failure.note_id for failure in result.failures)
@@ -181,6 +205,8 @@ def _execute_audit_workflow(
     *,
     show_feedback: bool,
     skip_already_processed_today: bool,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
     ordered_note_ids = [int(note_id) for note_id in note_ids]
     result = execute_audit_workflow(
@@ -189,6 +215,8 @@ def _execute_audit_workflow(
         note_ids,
         max_notes=None,
         skip_already_processed_today=skip_already_processed_today,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
     )
 
     succeeded_note_ids = [item.note_id for item in result.successes]

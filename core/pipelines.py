@@ -291,7 +291,7 @@ def _execute_group_step(
     workflow_lookup: dict[str, Workflow],
 ) -> PipelineStepReport:
     workflows = sorted(
-        [workflow for workflow in workflow_lookup.values() if step.group_id in (workflow.group_ids or [])],
+        [workflow for workflow in workflow_lookup.values() if step.group_id == workflow.group_id],
         key=lambda workflow: workflow.position,
     )
     if not workflows:

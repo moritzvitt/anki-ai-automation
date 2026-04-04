@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Event
 from typing import Any
 
 from aqt import gui_hooks, mw
@@ -10,6 +11,7 @@ from aqt.utils import showCritical
 
 from ..core.audit_flow import apply_audit_run_result
 from ..core.config import ConfigError, load_config
+from ..core.processing import ProcessingInterruptDialog
 from ..core.workflow_engine import execute_workflow_by_id
 from .automation import open_transform_dialog
 from .tooltips import show_tooltip
@@ -64,15 +66,43 @@ def _trigger_audit(browser: Browser) -> None:
         showCritical("The workflow 'mlr-audit' is not configured.", parent=browser)
         return
 
+    cancel_event = Event()
+    progress_dialog = ProcessingInterruptDialog(
+        browser,
+        note_count=len(note_ids),
+        window_title="AI Audit Progress",
+        action_label=f"Auditing",
+    )
+    progress_dialog.interrupt_button.clicked.connect(
+        lambda: _request_progress_interrupt(progress_dialog, cancel_event)
+    )
+    progress_dialog.show()
+
+    def report_progress(completed_count: int) -> None:
+        if mw is None or not hasattr(mw, "taskman"):
+            return
+        mw.taskman.run_on_main(
+            lambda: progress_dialog.set_progress(min(completed_count, len(note_ids)))
+        )
+
+    def run_audit_operation():
+        try:
+            return execute_workflow_by_id(
+                config,
+                "mlr-audit",
+                note_ids=note_ids,
+                show_feedback=False,
+                skip_already_processed_today=False,
+                cancel_event=cancel_event,
+                progress_callback=report_progress,
+            )
+        finally:
+            if mw is not None and hasattr(mw, "taskman"):
+                mw.taskman.run_on_main(progress_dialog.close)
+
     op = QueryOp(
         parent=browser,
-        op=lambda _col: execute_workflow_by_id(
-            config,
-            "mlr-audit",
-            note_ids=note_ids,
-            show_feedback=False,
-            skip_already_processed_today=False,
-        ),
+        op=lambda _col: run_audit_operation(),
         success=lambda result: _on_audit_workflow_finished(browser, workflow, config, result),
     )
     op.with_progress(label=f"Running workflow: {workflow.name}")
@@ -97,7 +127,7 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
     enabled_groups = [
         group
         for group in sorted(config.workflow_groups, key=lambda item: item.name.lower())
-        if any(group.group_id in (workflow.group_ids or []) for workflow in enabled_workflows)
+        if any(group.group_id == workflow.group_id for workflow in enabled_workflows)
     ]
     if not enabled_workflows:
         empty_action = QAction("No enabled workflows", browser)
@@ -172,7 +202,7 @@ def _trigger_browser_group(browser: Browser, group_id: str, note_ids: list[int])
     workflows = [
         workflow
         for workflow in sorted(config.workflows, key=lambda item: item.position)
-        if workflow.enabled and group_id in (workflow.group_ids or [])
+        if workflow.enabled and group_id == workflow.group_id
     ]
     if not workflows:
         show_tooltip("This workflow group does not contain any enabled workflows.", parent=browser)
@@ -282,3 +312,8 @@ def _refresh_open_browser_note(browser: Browser, *, changed_note_ids: list[int])
             editor.set_note(note, hide=False)
     except Exception:
         return
+
+
+def _request_progress_interrupt(dialog: ProcessingInterruptDialog, cancel_event: Event) -> None:
+    cancel_event.set()
+    dialog.set_interrupt_requested()

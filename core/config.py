@@ -114,7 +114,7 @@ class Workflow:
     trigger_on_startup: bool = False
     trigger_on_periodic: bool = False
     trigger_min_matches: int = 1
-    group_ids: list[str] | None = None
+    group_id: str | None = None
     position: int = 0
 
 
@@ -770,7 +770,7 @@ def _parse_workflow_entry(
             "Workflow mode must be 'append', 'overwrite', or 'skip_nonempty'."
         )
 
-    group_ids = _read_workflow_group_ids(item, allowed_group_ids=allowed_group_ids, index=index)
+    group_id = _read_workflow_group_id(item, allowed_group_ids=allowed_group_ids, index=index)
     model = _read_optional_string(item, "model")
     api_mode = _read_optional_choice(
         item,
@@ -840,40 +840,36 @@ def _parse_workflow_entry(
         trigger_on_startup=trigger_on_startup,
         trigger_on_periodic=trigger_on_periodic,
         trigger_min_matches=trigger_min_matches,
-        group_ids=group_ids,
+        group_id=group_id,
         position=_read_int(item, "position", minimum=0, default=index),
     )
 
 
-def _read_workflow_group_ids(
+def _read_workflow_group_id(
     item: dict[str, Any],
     *,
     allowed_group_ids: set[str],
     index: int,
-) -> list[str]:
+) -> str | None:
     raw_group_ids = item.get("group_ids")
     if raw_group_ids in (None, []):
         legacy_group_id = _read_optional_string(item, "group_id")
         if legacy_group_id is None:
-            return []
+            return None
         if legacy_group_id not in allowed_group_ids:
             raise ConfigError(f"workflows[{index}] references unknown group_id '{legacy_group_id}'.")
-        return [legacy_group_id]
+        return legacy_group_id
 
     if not isinstance(raw_group_ids, list):
         raise ConfigError(f"workflows[{index}].group_ids must be a list.")
 
-    parsed_group_ids: list[str] = []
-    seen_group_ids: set[str] = set()
     for group_id in raw_group_ids:
         if not isinstance(group_id, str) or not group_id.strip():
             raise ConfigError(f"workflows[{index}].group_ids must only contain non-empty strings.")
         if group_id not in allowed_group_ids:
             raise ConfigError(f"workflows[{index}] references unknown group_id '{group_id}'.")
-        if group_id not in seen_group_ids:
-            parsed_group_ids.append(group_id)
-            seen_group_ids.add(group_id)
-    return parsed_group_ids
+        return group_id
+    return None
 
 
 def _read_pipelines(
@@ -1335,8 +1331,8 @@ def _automation_item_to_dict(item: Any) -> dict[str, Any]:
             "trigger_on_startup": item.trigger_on_startup,
             "trigger_on_periodic": item.trigger_on_periodic,
             "trigger_min_matches": item.trigger_min_matches,
-            "group_ids": item.group_ids or [],
-            "group_id": (item.group_ids or [None])[0],
+            "group_ids": [item.group_id] if item.group_id else [],
+            "group_id": item.group_id,
             "position": item.position,
         }
     if isinstance(item, Pipeline):

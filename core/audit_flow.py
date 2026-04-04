@@ -5,7 +5,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from threading import Event
+from typing import Any, Callable
 
 from aqt import mw
 from aqt.browser import Browser
@@ -289,12 +290,17 @@ def _run_audit(
     updatable_fields: tuple[str, ...],
     allowed_statuses: tuple[str, ...],
     allowed_severities: tuple[str, ...],
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> AuditRunResult:
     successes: list[AuditSuccess] = []
     failures: list[AuditFailure] = []
     pricing = resolve_model_pricing(config.model, config.model_pricing)
+    completed_count = 0
 
     for candidate in candidates:
+        if cancel_event is not None and cancel_event.is_set():
+            break
         checked_at = _timestamp_now()
         raw_output: str | None = None
         usage: TokenUsage | None = None
@@ -352,6 +358,9 @@ def _run_audit(
                     estimated_cost_usd=estimated_cost,
                 )
             )
+        completed_count += 1
+        if progress_callback is not None:
+            progress_callback(completed_count)
 
     return AuditRunResult(
         successes=successes,
@@ -367,6 +376,8 @@ def execute_audit_workflow(
     *,
     max_notes: int | None = MAX_AUDIT_NOTES_PER_RUN,
     skip_already_processed_today: bool = True,
+    cancel_event: Event | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> AuditRunResult:
     if mw is None or mw.col is None:
         raise OpenAIClientError("Anki collection is not available.")
@@ -416,6 +427,8 @@ def execute_audit_workflow(
         updatable_fields=preset.updatable_fields,
         allowed_statuses=preset.allowed_statuses,
         allowed_severities=preset.allowed_severities,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
     )
 
 

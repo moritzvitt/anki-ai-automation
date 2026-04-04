@@ -76,7 +76,7 @@ class WorkflowDraft:
     trigger_on_startup: bool
     trigger_on_periodic: bool
     trigger_min_matches: int
-    group_names: list[str]
+    group_name: str | None
 
 class WorkflowDialog(QDialog):
     def __init__(
@@ -291,7 +291,7 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
-        set_hover_help(self.group_edit, "Optional comma-separated workflow groups used to organize and batch-run related workflows.", enabled=self._show_tooltips)
+        set_hover_help(self.group_edit, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
 
         content_layout.addLayout(form)
 
@@ -471,7 +471,7 @@ class WorkflowDialog(QDialog):
         mode_index = self.mode_combo.findData(workflow.mode)
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
-        self.group_edit.setText(", ".join(self._current_group_names))
+        self.group_edit.setText(self._current_group_names[0] if self._current_group_names else "")
         self.success_tags_edit.setText(", ".join(workflow.success_tags or []))
         self.failure_tags_edit.setText(", ".join(workflow.failure_tags or []))
         self._refresh_prompt_preview()
@@ -512,7 +512,7 @@ class WorkflowDialog(QDialog):
             trigger_on_startup=self.trigger_on_startup_check.isChecked(),
             trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
             trigger_min_matches=int(self.trigger_min_matches_spin.value()),
-            group_names=_parse_group_names(self.group_edit.text()),
+            group_name=_parse_group_name(self.group_edit.text()),
         )
 
     def _populate_model_combo(self) -> None:
@@ -551,9 +551,9 @@ class WorkflowDialog(QDialog):
     def _populate_group_edit(self) -> None:
         known_group_names = ", ".join(group.name for group in sorted(self._groups, key=lambda item: item.name.lower()))
         if known_group_names:
-            self.group_edit.setPlaceholderText(f"Comma-separated, e.g. {known_group_names}")
+            self.group_edit.setPlaceholderText(f"Single group name, e.g. {known_group_names}")
         else:
-            self.group_edit.setPlaceholderText("Comma-separated group names")
+            self.group_edit.setPlaceholderText("Single group name")
 
     def _selected_prompt(self) -> PromptChoice | None:
         prompt_id = self.prompt_combo.currentData()
@@ -1209,16 +1209,6 @@ def _common_fields_for_notes(note_ids: list[int]) -> list[str]:
     return common_fields or []
 
 
-def _parse_group_names(value: str) -> list[str]:
-    parsed: list[str] = []
-    seen: set[str] = set()
-    for item in value.split(","):
-        normalized = item.strip()
-        if not normalized:
-            continue
-        lowered = normalized.lower()
-        if lowered in seen:
-            continue
-        seen.add(lowered)
-        parsed.append(normalized)
-    return parsed
+def _parse_group_name(value: str) -> str | None:
+    normalized = value.strip()
+    return normalized or None
