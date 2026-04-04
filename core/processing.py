@@ -128,6 +128,7 @@ class ProcessingInterruptDialog(QDialog):
         self.resize(380, 180)
         self._note_count = note_count
         self._action_label = action_label
+        self._can_interrupt = can_interrupt
 
         layout = QVBoxLayout(self)
         self.status_label = QLabel(
@@ -143,7 +144,7 @@ class ProcessingInterruptDialog(QDialog):
         layout.addWidget(self.progress_bar)
 
         self.interrupt_button = QPushButton("Interrupt")
-        self.interrupt_button.setVisible(can_interrupt)
+        self.interrupt_button.setVisible(self._can_interrupt)
         layout.addWidget(self.interrupt_button)
 
     def set_progress(self, completed_count: int) -> None:
@@ -162,7 +163,7 @@ class ProcessingInterruptDialog(QDialog):
             f"{self._action_label} {self._note_count} note(s) with AI.\n\n"
             f"Completed {completed_count}/{self._note_count} note(s)."
         )
-        if not self.interrupt_button.isVisible():
+        if not self._can_interrupt:
             return status
         if interrupted:
             return status + " Waiting for the current in-flight request(s) to finish."

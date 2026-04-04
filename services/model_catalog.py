@@ -20,6 +20,12 @@ class ModelOption:
     owned_by: str | None
 
 
+EXTRA_FALLBACK_MODEL_IDS = {
+    "gpt-5.3-chat-latest",
+    "gpt-5.4-chat-latest",
+}
+
+
 def fetch_model_options(*, api_key: str, pricing_overrides: dict[str, ModelPricing]) -> list[ModelOption]:
     if not api_key.strip():
         raise ModelCatalogError("Enter an API key to load the current OpenAI model list.")
@@ -85,6 +91,7 @@ def fallback_model_options(*, current_model: str, pricing_overrides: dict[str, M
         for model_id in BUILTIN_MODEL_PRICING.keys()
         if _is_relevant_text_model(model_id)
     }
+    candidates.update(EXTRA_FALLBACK_MODEL_IDS)
     if current_model:
         candidates.add(current_model)
     options = [

@@ -17,6 +17,7 @@ from aqt.qt import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QInputDialog,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -968,20 +969,25 @@ class WorkflowDialog(QDialog):
             self.target_field_combo.setEditText(current_target)
 
     def _create_prompt(self) -> None:
-        dialog = SavedPromptDialog(
-            parent=self,
-            window_title="Saved Prompt",
-            prompt_label="Prompt",
-            placeholder_text="Use placeholders like {{Front}}, {{Back}}, {{NoteType}}",
-            help_text="Prompt names appear in the picker. The full prompt text is stored for workflow runs.",
-            id_prefix="prompt",
+        prompt_text = self.prompt_preview.toPlainText().strip()
+        if not prompt_text:
+            showCritical("Prompt text must not be empty.", parent=self)
+            return
+        current_prompt = self._selected_prompt()
+        suggested_name = current_prompt.name if current_prompt is not None else "New prompt"
+        name, accepted = QInputDialog.getText(
+            self,
+            "New Prompt",
+            "Name",
+            text=suggested_name,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not accepted or not name.strip():
             return
-
-        choice = dialog.prompt_choice()
-        if choice is None:
-            return
+        choice = PromptChoice(
+            prompt_id=new_object_id("prompt"),
+            name=name.strip(),
+            prompt_text=prompt_text,
+        )
         self._prompts.append(choice)
         self._save_prompts()
         self._populate_prompt_combo()
@@ -989,6 +995,7 @@ class WorkflowDialog(QDialog):
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
         self._refresh_prompt_preview()
+        show_tooltip(f"Created prompt '{choice.name}'.", parent=self)
 
     def _edit_prompt(self) -> None:
         prompt = self._selected_prompt()
@@ -1055,20 +1062,25 @@ class WorkflowDialog(QDialog):
         save_saved_prompts(self._raw_config, self._prompts)
 
     def _create_system_prompt(self) -> None:
-        dialog = SavedPromptDialog(
-            parent=self,
-            window_title="Saved System Prompt",
-            prompt_label="System prompt",
-            placeholder_text="You improve Anki flashcards...",
-            help_text="System prompt names appear in the picker. The full system prompt text is stored for workflow runs.",
-            id_prefix="system-prompt",
+        prompt_text = self.system_prompt_preview.toPlainText().strip()
+        if not prompt_text:
+            showCritical("System prompt text must not be empty.", parent=self)
+            return
+        current_prompt = self._selected_system_prompt()
+        suggested_name = current_prompt.name if current_prompt is not None else "New system prompt"
+        name, accepted = QInputDialog.getText(
+            self,
+            "New System Prompt",
+            "Name",
+            text=suggested_name,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not accepted or not name.strip():
             return
-
-        choice = dialog.prompt_choice()
-        if choice is None:
-            return
+        choice = PromptChoice(
+            prompt_id=new_object_id("system-prompt"),
+            name=name.strip(),
+            prompt_text=prompt_text,
+        )
         self._system_prompts.append(choice)
         self._save_system_prompts()
         self._populate_system_prompt_combo()
@@ -1076,6 +1088,7 @@ class WorkflowDialog(QDialog):
         if index >= 0:
             self.system_prompt_combo.setCurrentIndex(index)
         self._refresh_system_prompt_preview()
+        show_tooltip(f"Created system prompt '{choice.name}'.", parent=self)
 
     def _edit_system_prompt(self) -> None:
         prompt = self._selected_system_prompt()

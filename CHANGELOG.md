@@ -30,6 +30,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
+- The built-in fallback OpenAI model catalog now includes the current GPT-5 chat/pro aliases plus manual fallback entries for `gpt-5.3-chat-latest` and `gpt-5.4-chat-latest`, so those models can be selected even when the live model fetch is unavailable.
 - Workflow membership is single-group again across config loading, the workflow editor, group filters, Browser group runs, and pipeline group dispatch; older `group_ids` data is still tolerated by collapsing it to the first valid group on load.
 - The shipped MLR audit prompt and its follow-up prompts were refreshed to match the newer cloze-focused audit criteria, narrower support-field update scope, and current `FIXABLE_MINOR` follow-up flow.
 - Browser audits can now be re-run on already-audited notes, verify persisted audit tags more reliably, refresh the currently open Browser note after a successful audit, and no longer show the temporary audit debug report popup.

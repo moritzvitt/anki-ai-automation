@@ -12,8 +12,13 @@ class ModelPricing:
 
 BUILTIN_MODEL_PRICING: dict[str, ModelPricing] = {
     "gpt-5.2": ModelPricing(input_per_million_usd=1.75, cached_input_per_million_usd=0.175, output_per_million_usd=14.0),
+    "gpt-5.2-chat-latest": ModelPricing(input_per_million_usd=1.75, cached_input_per_million_usd=0.175, output_per_million_usd=14.0),
+    "gpt-5.2-pro": ModelPricing(input_per_million_usd=21.0, cached_input_per_million_usd=None, output_per_million_usd=168.0),
     "gpt-5.1": ModelPricing(input_per_million_usd=1.25, cached_input_per_million_usd=0.125, output_per_million_usd=10.0),
+    "gpt-5.1-chat-latest": ModelPricing(input_per_million_usd=1.25, cached_input_per_million_usd=0.125, output_per_million_usd=10.0),
     "gpt-5": ModelPricing(input_per_million_usd=1.25, cached_input_per_million_usd=0.125, output_per_million_usd=10.0),
+    "gpt-5-chat-latest": ModelPricing(input_per_million_usd=1.25, cached_input_per_million_usd=0.125, output_per_million_usd=10.0),
+    "gpt-5-pro": ModelPricing(input_per_million_usd=15.0, cached_input_per_million_usd=None, output_per_million_usd=120.0),
     "gpt-5-mini": ModelPricing(input_per_million_usd=0.25, cached_input_per_million_usd=0.025, output_per_million_usd=2.0),
     "gpt-5-nano": ModelPricing(input_per_million_usd=0.05, cached_input_per_million_usd=0.005, output_per_million_usd=0.4),
     "gpt-4.1": ModelPricing(input_per_million_usd=2.0, cached_input_per_million_usd=0.5, output_per_million_usd=8.0),
