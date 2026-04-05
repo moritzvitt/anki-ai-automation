@@ -1,0 +1,10 @@
+id: "workflow-mlr-tag-ai-status"
+name: "MLR Tag AI Status"
+query: ""
+workflow_type: "script"
+enabled: true
+script_command: "python3 scripts/add_ai_status_tags.py"
+group_ids:
+  - "group-31e40653b478"
+group_id: "group-31e40653b478"
+position: 6

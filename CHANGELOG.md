@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- A visible `MLR Tag AI Status` script workflow plus `scripts/add_ai_status_tags.py`, so the `MLR` group can derive uppercase `AI_STATUS::...` tags from the `AI Status` field after stripping HTML.
 - An optional `Convert field HTML to Markdown for placeholders` setting for Browser runs, presets, and workflows, so prompt placeholders can send cleaner Markdown text to the model instead of raw HTML.
 - Workflow groups can now include explicit custom script steps that appear in the normal workflow list and run in sequence like any other workflow, making post-processing automation visible and orderable instead of hidden behind a separate group hook.
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
