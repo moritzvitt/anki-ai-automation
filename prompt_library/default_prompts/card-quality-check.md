@@ -5,7 +5,6 @@ You are evaluating an Anki card for efficient learning.
 Card:
 Front: {{Front}}
 Back: {{Back}}
-Japanese Notes: {{Japanese Notes}}
 Notes: {{Notes}}
 
 Tasks:

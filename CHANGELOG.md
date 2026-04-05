@@ -33,6 +33,10 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Browser and workflow preset pickers now tolerate deleted prompt references while opening normally, label those presets as missing, and only show an error if you actually try to run or apply one of the stale presets.
+- The packaging flow now uses `tools/package_ankiaddon.py`, and `.ankiaddon` builds keep `prompt_library/user_prompts/` present as an empty folder while still excluding user prompt files, local `user_data`, and `meta.json`.
+- The docs index and prompt-library docs were refreshed so the repo structure and file-backed prompt model are easier to discover from the top-level README.
+- The bundled `card-audit` and `card-quality-check` default prompts were narrowed to the fields still used by the current prompt flow.
 - The tracked prompt library was simplified to a smaller top-level default set (`default-prompt`, `card-quality-check`, `full-card-optimization`, and `card-audit`), and the older nested MLR/default prompt bundles were removed from the repo in favor of a much lighter shipped library.
 - Release-facing packaging and listing metadata were tightened up: `.ankiaddon` builds now exclude local `meta.json`, `user_data`, and `prompt_library/user_prompts`, the manifest name now reads `Anki AI Automation`, and a shorter emoji-friendly AnkiWeb product-page draft was added under `docs/release/`.
 - Tooltips and hover help now cover more menus and workflow controls, and several outdated texts were rewritten to match the current prompt-library, script-workflow, Browser-selected-note, and query-optional behavior.

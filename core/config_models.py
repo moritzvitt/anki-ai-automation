@@ -37,6 +37,7 @@ class ProcessingPreset:
     preset_id: str
     name: str
     prompt_id: str
+    invalid_reason: str | None = None
     description: str | None = None
     model: str | None = None
     temperature: float | None = None

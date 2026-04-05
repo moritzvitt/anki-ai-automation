@@ -23,24 +23,30 @@ You can select Browser rows and choose `Transform with AI`, or build reusable wo
 
 ```text
 ai-automation/
+├── __init__.py
 ├── addon.py
-├── browser_extensions/
 ├── core/
 │   ├── config.py
 │   ├── config_models.py
 │   ├── config_parsing.py
 │   ├── config_prompt_library.py
+│   ├── automation_files.py
 │   ├── processing.py
 │   ├── processing_models.py
 │   ├── processing_support.py
 │   ├── processing_text.py
+│   ├── prompt_files.py
 │   ├── prompting.py
+│   ├── usage_stats.py
 │   ├── workflow_engine.py
 │   └── workflow_triggers.py
-├── prompt_library/
 ├── services/
+├── scripts/
+├── prompt_library/
 ├── ui/
 ├── docs/
+├── tools/
+├── user_data/
 └── CHANGELOG.md
 ```
 
@@ -120,20 +126,15 @@ The same menu also attempts to fetch official OpenAI spend for today, last 7 day
 To build a `.ankiaddon` archive manually:
 
 ```bash
-zip -r ai-automation.ankiaddon . \
-  -x './.git/*' \
-     './.vscode/*' \
-     './__pycache__/*' \
-     './.DS_Store' \
-     './meta.json' \
-     './user_data/*' \
-     './prompt_library/user_prompts/*'
+python3 tools/package_ankiaddon.py
 ```
+
+The packaging script excludes local `user_data`, `meta.json`, and all files under `prompt_library/user_prompts/`, while still creating an empty `prompt_library/user_prompts/` directory inside the archive.
 
 ## Docs
 
+- Docs index: [`docs/README.md`](./docs/README.md)
 - Config reference: [`config.md`](./config.md)
 - Issue reporting and future issue ideas: [`ISSUES.md`](./ISSUES.md)
-- Overview: [`docs/README.md`](./docs/README.md)
 - Architecture notes: [`docs/architecture/overview.md`](./docs/architecture/overview.md)
 - Release text draft: [`docs/release/release-description.md`](./docs/release/release-description.md)

@@ -616,7 +616,8 @@ class ScriptWorkflowDialog(QDialog):
         self.preset_combo.clear()
         self.preset_combo.addItem("Choose a preset", "")
         for preset in self._presets:
-            self.preset_combo.addItem(preset.name, preset.preset_id)
+            label = preset.name if not preset.invalid_reason else f"{preset.name} (missing prompt)"
+            self.preset_combo.addItem(label, preset.preset_id)
         if selected_preset_id:
             index = self.preset_combo.findData(selected_preset_id)
             if index >= 0:
@@ -821,6 +822,8 @@ class ScriptWorkflowDialog(QDialog):
         self._apply_preset(preset)
 
     def _apply_preset(self, preset: ProcessingPresetChoice) -> None:
+        if preset.invalid_reason:
+            return
         self._set_combo_to_data(self.model_combo, preset.model)
         self._set_combo_to_data(self.prompt_combo, preset.prompt_id)
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
@@ -868,6 +871,7 @@ class ScriptWorkflowDialog(QDialog):
             preset_id=choice.prompt_id,
             name=choice.name,
             prompt_id=str(self.prompt_combo.currentData() or ""),
+            invalid_reason=None,
             description=choice.prompt_text or None,
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
             temperature=self._selected_temperature(),
@@ -918,8 +922,9 @@ class ScriptWorkflowDialog(QDialog):
                 self._presets[index] = ProcessingPresetChoice(
                     preset_id=current.preset_id,
                     name=choice.name,
-                    description=choice.prompt_text or None,
                     prompt_id=current.prompt_id,
+                    invalid_reason=current.invalid_reason,
+                    description=choice.prompt_text or None,
                     model=current.model,
                     temperature=current.temperature,
                     system_prompt_id=current.system_prompt_id,
@@ -1003,8 +1008,9 @@ class ScriptWorkflowDialog(QDialog):
         return ProcessingPresetChoice(
             preset_id=preset_id,
             name=name,
-            description=existing_preset.description if existing_preset is not None and existing_preset.preset_id == preset_id else None,
             prompt_id=str(self.prompt_combo.currentData() or ""),
+            invalid_reason=None,
+            description=existing_preset.description if existing_preset is not None and existing_preset.preset_id == preset_id else None,
             model=str(self.model_combo.currentData() or self.model_combo.currentText().strip()) or None,
             temperature=self._selected_temperature(),
             system_prompt_id=str(self.system_prompt_combo.currentData() or "") or None,

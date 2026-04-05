@@ -474,8 +474,10 @@ def _read_processing_presets(
 
         prompt_id = read_string(item, "prompt_id")
         resolved_preset_prompt_id = resolved_prompt_id(prompt_id, allowed_prompt_ids=allowed_prompt_ids)
+        invalid_reason = None
         if resolved_preset_prompt_id is None:
-            raise ConfigError(f"saved_processing_presets[{index}] references unknown prompt_id '{prompt_id}'.")
+            resolved_preset_prompt_id = prompt_id
+            invalid_reason = f"Missing saved prompt: '{prompt_id}'."
 
         system_prompt_id = resolved_system_prompt_id(
             read_optional_string(item, "system_prompt_id"),
@@ -498,6 +500,7 @@ def _read_processing_presets(
                 preset_id=preset_id,
                 name=read_string(item, "name"),
                 prompt_id=resolved_preset_prompt_id,
+                invalid_reason=invalid_reason,
                 description=read_optional_string(item, "description"),
                 model=read_optional_string(item, "model"),
                 temperature=read_optional_float(item, "temperature", minimum=0.0, maximum=2.0),

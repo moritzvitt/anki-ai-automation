@@ -46,8 +46,6 @@ Field update constraints:
 
 Card fields:
 Cloze: {{Cloze}}
-Lemma: {{Lemma}}
 Subtitle: {{Subtitle}}
-Japanese Notes: {{Japanese Notes}}
 Notes: {{Notes}}
-Grammar: {{Grammar}}
+
