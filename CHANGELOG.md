@@ -69,6 +69,10 @@ The format is based on Keep a Changelog and this project follows semantic versio
 - Shipped default prompts used by the Browser prompt picker now all follow the normal markdown `# Heading` prompt-file format, so runtime-only defaults do not break the saved-prompt loader.
 - Split the bulky workflow/config implementation into smaller helper modules so automation file storage, prompt file handling, YAML parsing, and the workflow editor dialog are easier to maintain, and fixed the per-file automation loader so workflow triggers can parse YAML-backed groups/workflows at startup again.
 
+### Removed
+
+- Removed the older shipped MLR maintenance, audit-follow-up, and card-optimization workflow/group YAML definitions plus the corresponding `FIXABLE_MAJOR` rework workflow YAMLs from `user_data`, reducing the prompt-focused branch back down to the automation set that is still actively used.
+
 ## 1.1.0 - 2026-04-03
 
 ### Added
