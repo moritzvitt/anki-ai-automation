@@ -1,23 +1,7 @@
 graph TD
-    A[Pipeline MLR Audit First 15] --> B[Select MLR notes]
-    B --> C[Limit to 15]
-    C --> D[Run workflow mlr-audit]
-    D --> E[Audit validates structured JSON]
-    E --> F{audit.status}
-
-    F -->|GOOD| G[Keep tags and metadata only]
-    F -->|SKIP| H[Keep skip tags and stop]
-    F -->|FIXABLE_MAJOR| I[Add manual review tags]
-    F -->|REJECT| J[Add tag ai review mark]
-    J --> K[Suspend note cards]
-    F -->|FIXABLE_MINOR| L{fields_to_update}
-
-    L -->|Japanese Notes| M[Run workflow fix minor Japanese Notes]
-    L -->|Notes| N[Run workflow fix minor Notes]
-    L -->|Word Definition| O[Run workflow fix minor Word Definition]
-    L -->|Grammar| P[Run workflow fix minor Grammar]
-
-    M --> Q[Write updated field]
-    N --> Q
-    O --> Q
-    P --> Q
+    A[Selected Browser notes or saved query] --> B[Workflow group]
+    B --> C[Field update workflow]
+    C --> D[Another field update workflow]
+    D --> E[Script workflow]
+    E --> F[Optional later workflow]
+    F --> G[Main-thread note writeback and Browser refresh]

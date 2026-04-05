@@ -1,4 +1,4 @@
-# Japanese Notes in Japanese
+# Japanese Notes
 
 「文「{{Subtitle}}」を説明してください。特に「{{Lemma}}」に注目してください。日本語で答えて下さい。
 必要であれば、追加の例も示してください。初心者向けの余計な説明は避けてください。」

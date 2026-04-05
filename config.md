@@ -40,7 +40,7 @@ In the custom settings dialog, this is presented as a dropdown that refreshes fr
 
 ### `system_prompt`
 
-The default system prompt sent with every request. Keep this aligned with the JSON-only output requirement.
+The default system prompt sent with every request.
 
 ### `prompt_template`
 
@@ -84,11 +84,11 @@ Optional Responses API reasoning effort. Supported values in this add-on are `mi
 
 ### `show_estimate_before_sending`
 
-Currently not shown in the UI and effectively disabled in the runtime flow. The add-on goes straight to the normal confirmation step without a pre-flight token estimate popup.
+Controls whether Browser/manual runs show a pre-flight usage estimate before the normal confirmation step.
 
 ### `estimated_output_tokens_per_note`
 
-Reserved for future estimate UI work.
+Used for rough cost and token estimates before a run starts.
 
 ### `usage_history_limit`
 
@@ -117,9 +117,20 @@ Each mapping supports:
 
 Atomic executable units. Each workflow performs one action and remains independently runnable and editable in the workflow UI.
 
-Workflows should stay focused on one task, such as running one prompt against one target field or one delimited multi-field output mode.
+Workflows should stay focused on one task, such as:
+
+- running one prompt against one target field
+- running one delimited multi-field output mode
+- running one custom script step
+
+Current workflow types:
+
+- `field_update`
+- `script`
 
 If you also use the `limit-search-results` add-on, workflow queries can include `limit:x` to cap the matched notes directly in the Anki search string, for example `note:"Moritz Language Reactor" tag:ai_fix_minor limit:15`.
+
+Queries can also be empty for workflows that are mainly intended to be run from the Browser on selected notes.
 
 ### `workflow_groups`
 
@@ -127,47 +138,7 @@ Organizational collections of workflows used for categorization, filtering, and 
 
 Groups do not contain branching or orchestration logic.
 
-### `pipelines`
-
-Declarative orchestration layer above workflows and groups.
-
-Pipelines are config-only for now and support:
-
-- selecting notes with a query and optional limit
-- running an atomic workflow
-- running all workflows in a group
-- running the dedicated MLR audit step
-- adding/removing tags
-- suspending cards that belong to matched notes
-- stopping matched notes from continuing
-- per-note branching through declarative `when` conditions
-
-Pipeline note-selector queries can also use `limit:x` when the separate `limit-search-results` add-on is installed, although pipelines also support their own dedicated `limit` field.
-
-Supported step types:
-
-- `run_workflow`
-- `run_group`
-- `run_mlr_audit`
-- `tag`
-- `suspend_cards`
-- `stop`
-
-Supported condition operators include:
-
-- `all`
-- `any`
-- `not`
-- `artifact_equals`
-- `artifact_in`
-- `artifact_contains`
-- `tag_present`
-- `tag_absent`
-- `field_empty`
-- `field_not_empty`
-- `note_type_is`
-- `previous_step_succeeded`
-- `previous_step_failed`
+If a group needs a custom external action, that action is now modeled as a normal `script` workflow inside the group so its run order stays visible in the workflow list.
 
 ## Example
 
@@ -177,7 +148,7 @@ Supported condition operators include:
   "show_tooltips": true,
   "openai_api_key": "sk-...",
   "model": "gpt-5-mini",
-  "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema.",
+  "system_prompt": "You improve Anki flashcards.",
   "prompt_template": "Improve the following flashcard content:\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}",
   "batch_size": 20,
   "max_parallel_requests": 4,

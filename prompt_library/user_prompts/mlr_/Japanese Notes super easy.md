@@ -1,4 +1,4 @@
-# Japanese Notes Super Easy
+# Japanese Notes Easy
 
 「文「{{Subtitle}}」と「{{Lemma}}」を、とても簡単な日本語で説明してください。難しい言葉や文法用語は使わないでください。簡単な漢字は使ってもいいです。」
 

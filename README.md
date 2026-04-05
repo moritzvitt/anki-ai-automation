@@ -1,13 +1,14 @@
 # AI Automation
 
-AI Automation is an Anki add-on for running OpenAI-powered note updates from the Browser or from saved query-based workflows.
+AI Automation is an Anki add-on for running OpenAI-powered note updates from the Browser or from saved workflows.
 
-You can select Browser rows and choose `Transform with AI`, or build reusable workflows that run against Anki searches, workflow groups, and startup/query triggers. The add-on renders prompts from note fields, sends them to OpenAI, and writes the result back into one or more note fields with configurable safety checks.
+You can select Browser rows and choose `Transform with AI`, or build reusable workflows that run against Anki searches, workflow groups, Browser selections, and startup/query triggers. The add-on renders prompts from note fields, sends them to OpenAI, and writes the result back into one or more note fields with configurable safety checks.
 
 ## Features
 
 - Browser right-click action for selected notes or cards
 - Workflow manager for saved query-based runs and workflow groups
+- Visible custom script steps that can run inside workflow groups in normal execution order
 - Optional workflow triggers on startup or when query counts reach a threshold
 - Saved prompt, system prompt, and processing preset libraries
 - Browser and workflow settings dialogs for managing prompts, presets, and defaults outside active runs
@@ -22,30 +23,25 @@ You can select Browser rows and choose `Transform with AI`, or build reusable wo
 
 ```text
 ai-automation/
-├── __init__.py
 ├── addon.py
+├── browser_extensions/
 ├── core/
 │   ├── config.py
+│   ├── config_models.py
+│   ├── config_parsing.py
+│   ├── config_prompt_library.py
 │   ├── processing.py
+│   ├── processing_models.py
+│   ├── processing_support.py
+│   ├── processing_text.py
 │   ├── prompting.py
-│   └── usage_stats.py
+│   ├── workflow_engine.py
+│   └── workflow_triggers.py
+├── prompt_library/
 ├── services/
-│   ├── billing.py
-│   ├── model_catalog.py
-│   ├── openai_client.py
-│   └── pricing.py
 ├── ui/
-│   ├── automation.py
-│   ├── browser_menu.py
-│   ├── config_dialog.py
-│   ├── tooltips.py
-│   ├── usage_menu.py
-│   └── workflow.py
-├── manifest.json
-├── config.json
-├── config.md
-├── CHANGELOG.md
-└── docs/
+├── docs/
+└── CHANGELOG.md
 ```
 
 ## Installation
@@ -87,7 +83,7 @@ Important keys:
 - `estimated_output_tokens_per_note`: used to forecast output tokens before the request is sent
 - `model_pricing`: optional overrides for cost estimation when you use a model not covered by built-in pricing
 - `saved_prompts`, `saved_system_prompts`, `processing_presets`: reusable building blocks for Browser runs and workflows
-- `workflows`, `workflow_groups`: reusable query-based automations
+- `workflows`, `workflow_groups`: reusable automations and group organization
 
 Example mapping:
 
@@ -111,9 +107,9 @@ The prompt can reference any field that exists on the note, plus `{{NoteType}}`.
 For rule-based runs:
 
 1. Open `Tools -> Process specific cards with AI`.
-2. Create workflows with a name, Anki query, prompts, target field settings, optional presets, groups, and optional trigger conditions.
+2. Create workflows with a name, optional Anki query, prompts, target field settings, optional presets, groups, and optional trigger conditions.
 3. Use `Refresh Count` while editing to preview how many notes the query currently matches.
-4. Run one workflow or an entire group in the stored execution order.
+4. Run one workflow or an entire group in the stored execution order, or launch them directly from the Browser on the current selection.
 
 Open `Tools -> AI Automation Usage` to review tracked totals and recent runs. These spend figures are local add-on estimates based on model pricing, not billing-invoice truth.
 
@@ -132,4 +128,4 @@ zip -r ai-automation.ankiaddon . -x './.git/*' './.vscode/*' './__pycache__/*' '
 - Config reference: [`config.md`](./config.md)
 - Overview: [`docs/README.md`](./docs/README.md)
 - Architecture notes: [`docs/architecture/overview.md`](./docs/architecture/overview.md)
-- Release text draft: [`docs/release-description.md`](./docs/release-description.md)
+- Release text draft: [`docs/release/release-description.md`](./docs/release/release-description.md)

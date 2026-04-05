@@ -1,183 +1,94 @@
-# Audit Prompt Construction
+# Prompt Construction
 
-This note explains how an `audit` workflow turns note data into the final OpenAI request.
+This page used to describe the structured audit prompt path. The current add-on no longer has that audit-specific flow.
 
-The short version:
+The active prompt construction path is now the shared field-update flow used by:
 
-- the prompt text lives in the prompt library
-- the schema preset lives in Python
-- the note fields are normalized before rendering
-- `audit_flow.py` combines all of that into one structured Responses API request
+- Browser `Transform with AI`
+- field-update workflows
+- group runs that include field-update workflows
 
 ## Pieces Involved
 
-- System prompt text:
-  - [`prompt_library/system_prompts/mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
-- User prompt template:
-  - [`prompt_library/default_prompts/mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
-- Audit preset registry and JSON schema:
-  - [`core/audit_prompts.py`](../../core/audit_prompts.py)
-- Audit execution:
-  - [`core/audit_flow.py`](../../core/audit_flow.py)
-- Shared prompt rendering and HTML stripping:
+- Saved prompt markdown:
+  - [`prompt_library/default_prompts`](../../prompt_library/default_prompts)
+  - [`prompt_library/user_prompts`](../../prompt_library/user_prompts)
+- Prompt discovery and path resolution:
+  - [`core/config_prompt_library.py`](../../core/config_prompt_library.py)
+- Placeholder extraction and rendering:
   - [`core/prompting.py`](../../core/prompting.py)
+- Processing orchestration:
+  - [`core/processing.py`](../../core/processing.py)
+- Request execution:
+  - [`services/openai_client.py`](../../services/openai_client.py)
 
 ## Mermaid Diagram
 
 ```mermaid
 graph TD
-    A[mlr-audit workflow config] --> B[audit_prompts.py preset lookup]
-    B --> C[System prompt markdown]
-    B --> D[User prompt markdown]
-    B --> E[JSON schema builder]
-
-    F[Selected note fields] --> G[audit_flow.py candidate preparation]
-    G --> H[prompting.py HTML stripping for Cloze and Subtitle]
-    H --> I[render_prompt user template]
-
-    C --> J[Structured audit request]
-    I --> J
-    E --> J
-
-    J --> K[Responses API]
-    K --> L[JSON parse and validation]
-    L --> M[tags plus metadata]
+    A[Saved prompt markdown] --> B[config_prompt_library.py]
+    C[Selected note fields] --> D[prompting.py build_prompt_values]
+    B --> E[processing.py snapshot preparation]
+    D --> F[render_prompt]
+    E --> F
+    F --> G[openai_client.py request]
+    G --> H[field updates]
+    H --> I[processing_support.py main-thread writeback]
 ```
 
 Related files:
 
-- [`core/audit_prompts.py`](../../core/audit_prompts.py)
-- [`core/audit_flow.py`](../../core/audit_flow.py)
+- [`core/config_prompt_library.py`](../../core/config_prompt_library.py)
 - [`core/prompting.py`](../../core/prompting.py)
-- [`prompt_library/system_prompts/mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md)
-- [`prompt_library/default_prompts/mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md)
+- [`core/processing.py`](../../core/processing.py)
+- [`core/processing_support.py`](../../core/processing_support.py)
+- [`services/openai_client.py`](../../services/openai_client.py)
 
-## 1. Workflow Config Chooses The Audit Preset
+## 1. Prompt Text Comes From Markdown Files
 
-The visible `mlr-audit` workflow is still just a workflow config entry.
+Saved prompts are discovered recursively from the prompt library folders.
 
-What makes it special is:
+- shipped prompts live under [`prompt_library/default_prompts`](../../prompt_library/default_prompts)
+- user prompts live under [`prompt_library/user_prompts`](../../prompt_library/user_prompts)
 
-- `workflow_type = "audit"`
-- a schema preset such as `mlr_audit`
-- optional prompt/model overrides
+The prompt library picker can therefore use nested folders without flattening everything into one dropdown list.
 
-At execution time, [`execute_audit_workflow()`](../../core/audit_flow.py) loads the workflow and asks [`get_audit_schema_preset()`](../../core/audit_prompts.py) for the matching preset.
+## 2. Placeholders Are Extracted Before Sending
 
-That preset defines:
+Before a request is sent:
 
-- relevant note fields
-- allowed audit statuses
-- allowed severities
-- allowed issue fields
-- allowed fields to update later
-- default system prompt text
-- default user prompt template
-- the JSON schema builder
+- placeholders are extracted from the prompt text
+- placeholders are checked against the note's actual fields
+- missing note fields are reported before any API request is made
 
-## 2. Prompt Text Comes From Markdown Files
+Literal cloze examples like `{{c1::...}}` are intentionally ignored during placeholder extraction so they stay usable inside prompts.
 
-The actual audit prompt wording does not live inline in the workflow config parser.
+## 3. Prompt Values Are Built From Note Data
 
-Instead:
+[`core/prompting.py`](../../core/prompting.py) builds the render context from note fields.
 
-- [`mlr-audit-system.md`](../../prompt_library/system_prompts/mlr-audit-system.md) contains the audit system prompt
-- [`mlr-audit.md`](../../prompt_library/default_prompts/mlr-audit.md) contains the user prompt template with placeholders like `{{Cloze}}` and `{{Subtitle}}`
+That includes:
 
-[`core/audit_prompts.py`](../../core/audit_prompts.py) loads those files once and exposes them as the preset defaults.
+- direct field substitution such as `{{Expression}}`
+- optional `{{NoteType}}`
+- HTML stripping for selected fields before prompt rendering
 
-That means the prompt content is easy to edit, while the response contract still stays in code.
+## 4. The Final Request Is Built In `processing.py`
 
-## 3. The Schema Is Added Separately
+For each note snapshot, the processing layer:
 
-The audit request is not just a plain prompt.
+1. chooses the effective prompt and system prompt
+2. renders the final user prompt
+3. sends either:
+   - a structured field-update request for single-target workflows
+   - a plain text request for multi-field delimited output mode
 
-It is:
+## 5. Returned Content Is Parsed And Applied
 
-- system prompt text
-- rendered user prompt text
-- schema name
-- JSON schema
+After the model returns:
 
-The schema currently comes from [`mlr_audit_response_schema()`](../../core/audit_prompts.py).
+- single-target field updates are applied directly
+- multi-field delimited output is parsed by [`processing_text.py`](../../core/processing_text.py)
+- note writes are applied on the main thread through [`processing_support.py`](../../core/processing_support.py)
 
-That schema defines the exact structured output shape, including:
-
-- `status`
-- `confidence`
-- `is_learnworthy`
-- `auto_fix_allowed`
-- `summary`
-- `issues`
-- `fields_to_update`
-- `recommended_tags`
-
-So the prompt tells the model what to evaluate, and the schema tells it how it must answer.
-
-## 4. Note Fields Are Normalized Before Rendering
-
-Before the user prompt is rendered, audit candidates are prepared in [`core/audit_flow.py`](../../core/audit_flow.py).
-
-During that step:
-
-- all relevant fields are collected from the note
-- `Cloze` is stripped down to plain text
-- `Subtitle` is also stripped down to plain text
-
-The stripping logic now uses the shared helper in [`core/prompting.py`](../../core/prompting.py), so the same sanitation rule is consistent across audit and normal generation flows.
-
-The current normalization removes:
-
-- HTML tags
-- `<script>` and `<style>` blocks
-- HTML entities
-- extra spacing/noisy line breaks
-
-This keeps HTML-heavy note content from leaking into the audit prompt.
-
-## 5. The Final Request Is Built In `audit_flow.py`
-
-Inside [`_run_audit()`](../../core/audit_flow.py), the add-on builds the final request like this:
-
-1. load the chosen workflow and preset
-2. choose the effective system prompt
-3. choose the effective user prompt template
-4. render the user prompt with the normalized note fields
-5. send the request through the structured Responses API helper
-
-Conceptually the request looks like:
-
-- `system_prompt = audit system prompt`
-- `user_prompt = rendered audit template with note fields`
-- `schema_name = <workflow-specific schema id>`
-- `schema = preset JSON schema`
-
-## 6. The Model Output Is Validated Before Use
-
-After the response comes back:
-
-1. the output text is parsed as JSON
-2. the JSON is validated against the audit contract
-3. only normalized validated values are used for:
-   - audit tags
-   - audit metadata fields
-   - audit log storage
-
-So the source of truth is not the raw model text. It is the validated parsed audit result.
-
-## Why This Is Split Across Markdown And Python
-
-This split is intentional:
-
-- Markdown files are good for prompt wording
-- Python is better for schema and validation rules
-
-If everything lived in Markdown only, the prompt would be editable but the execution contract would become much harder to validate and evolve safely.
-
-If everything lived in Python only, the prompt wording would be less discoverable and harder to iterate on.
-
-The current design keeps:
-
-- prompt content editable
-- schema/validation explicit
-- request construction predictable
+This keeps prompt rendering, request execution, response parsing, and writeback separate enough to maintain without reintroducing a special audit-only path.

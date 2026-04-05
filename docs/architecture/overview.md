@@ -1,57 +1,85 @@
 # Architecture Overview
 
-AI Automation is an Anki add-on that can process notes in three complementary ways:
+AI Automation is currently built around prompt-driven note processing inside Anki.
+
+The active execution surfaces are:
 
 - Browser-driven field updates with `Transform with AI`
-- independently runnable atomic workflows
-- config-defined pipelines that orchestrate workflows conditionally
+- reusable workflows that can be run from the workflow manager or directly from the Browser selection
+- workflow groups that run their member workflows in order
+- workflow triggers that can start enabled workflows automatically from saved queries
+
+Pipelines and the structured audit JSON flow are no longer part of the active architecture.
 
 ## Runtime Flow
 
 1. `__init__.py` imports [`addon.py`](../../addon.py), which calls `register()`.
-2. [`browser_menu.py`](../../ui/browser_menu.py) registers `gui_hooks.browser_will_show_context_menu`.
-3. [`workflow.py`](../../ui/workflow.py) registers the workflow manager and query-based workflow runner.
-4. [`pipelines.py`](../../ui/pipelines.py) registers the Tools menu pipeline runner.
-5. When the user right-clicks selected Browser rows, the add-on adds `Transform with AI` and `Audit with AI`.
-6. Triggering `Transform with AI` loads config from [`config.py`](../../core/config.py), resolves selected cards to note IDs, and opens the saved-prompt transform dialog in [`automation.py`](../../ui/automation.py).
-7. Triggering the workflow action opens a workflow manager in [`workflow.py`](../../ui/workflow.py), where workflows or groups can be run in order.
-8. Triggering the pipeline action opens [`pipelines.py`](../../ui/pipelines.py), which resolves the configured note selector once and then runs each pipeline step per note.
-9. [`workflow_engine.py`](../../core/workflow_engine.py) dispatches atomic workflows by `workflow_type`.
-10. `field_update` workflows use [`processing.py`](../../core/processing.py) to build note snapshots, validate prompt placeholders and target fields, and write returned content into note fields.
-11. `audit` workflows use [`audit_flow.py`](../../core/audit_flow.py) to build structured audit requests, strip HTML from `Cloze` before auditing, validate structured output, apply audit tags, and persist audit metadata.
-12. [`pipelines.py`](../../core/pipelines.py) branches declaratively on validated artifacts like `audit.status` and `audit.fields_to_update`, so later steps can run only for matching notes.
-13. Requests execute in a background `QueryOp`, but note mutations are applied back on the main Anki thread.
+2. [`addon.py`](../../addon.py) wires up Browser actions, workflow management, usage UI, tag migration, and workflow triggers.
+3. [`browser_menu.py`](../../ui/browser_menu.py) registers Browser context-menu actions for:
+   - `Transform with AI`
+   - `Run Workflow with AI`
+   - `Run Group`
+4. [`automation.py`](../../ui/automation.py) opens the manual Browser transform dialog and builds a `ManualProcessingSpec`.
+5. [`workflow.py`](../../ui/workflow.py) opens the workflow manager, lets users edit workflows and groups, and runs workflows or groups in order.
+6. [`workflow_engine.py`](../../core/workflow_engine.py) dispatches each workflow by `workflow_type`.
+7. `field_update` workflows use [`processing.py`](../../core/processing.py) to prepare note snapshots, validate prompt placeholders and target fields, send requests, and defer note writes back to the main thread.
+8. `script` workflows run a shell command once at their position in the workflow order and receive the current note ids through environment variables.
+9. Workflow triggers in [`workflow_triggers.py`](../../core/workflow_triggers.py) periodically reload config, resolve query matches, and launch eligible workflows through the same workflow runner.
+10. All note mutations still land back on the main Anki thread.
 
 ## Module Responsibilities
 
+- [`addon.py`](../../addon.py): top-level registration of add-on features
 - [`browser_menu.py`](../../ui/browser_menu.py): Browser integration and menu action wiring
 - [`automation.py`](../../ui/automation.py): Browser transform dialog and saved-prompt management UI
-- [`workflow.py`](../../ui/workflow.py): workflow manager UI, query preview, typed workflow editing, and ordered workflow/group execution
-- [`pipelines.py`](../../ui/pipelines.py): config-defined pipeline picker and runner UI
-- [`config.py`](../../core/config.py): config loading, validation, and typed access
-- [`workflow_engine.py`](../../core/workflow_engine.py): workflow dispatch by workflow type
-- [`pipelines.py`](../../core/pipelines.py): per-note pipeline orchestration and declarative branching
-- [`audit_flow.py`](../../core/audit_flow.py): structured audit execution, tag application, and audit metadata persistence
-- [`audit_prompts.py`](../../core/audit_prompts.py): audit schema presets and validation metadata
-- [`audit_storage.py`](../../core/audit_storage.py): persisted audit log storage
-- [`prompting.py`](../../core/prompting.py): prompt template interpolation
-- [`openai_client.py`](../../services/openai_client.py): OpenAI Responses and Chat Completions request handling
-- [`processing.py`](../../core/processing.py): note snapshot building, batching, failure handling, and note updates
-- [`pricing.py`](../../services/pricing.py): pricing lookup and cost estimation
-- [`usage_stats.py`](../../core/usage_stats.py): local usage persistence for the Tools menu monitor
+- [`workflow.py`](../../ui/workflow.py): workflow manager UI, Browser-selected workflow/group runs, and ordered sequence execution
+- [`workflow_dialog.py`](../../ui/workflow_dialog.py): field-update workflow editor and script-workflow editor
+- [`config.py`](../../core/config.py): high-level config orchestration
+- [`config_models.py`](../../core/config_models.py): typed config dataclasses and shared config IDs
+- [`config_parsing.py`](../../core/config_parsing.py): config value parsing and workflow/prompt validation helpers
+- [`config_prompt_library.py`](../../core/config_prompt_library.py): prompt-library file discovery and prompt-file path helpers
+- [`workflow_engine.py`](../../core/workflow_engine.py): workflow dispatch and result packaging
+- [`processing.py`](../../core/processing.py): note-processing orchestration, batching, and request execution
+- [`processing_models.py`](../../core/processing_models.py): note-processing dataclasses and the shared progress dialog
+- [`processing_support.py`](../../core/processing_support.py): writeback, result summaries, and usage aggregation
+- [`processing_text.py`](../../core/processing_text.py): Markdown-to-HTML conversion and delimited multi-field response parsing
+- [`prompting.py`](../../core/prompting.py): prompt placeholder extraction, field normalization, and template rendering
+- [`openai_client.py`](../../services/openai_client.py): OpenAI request handling
+- [`pricing.py`](../../services/pricing.py): model pricing lookup and cost estimation
+- [`usage_stats.py`](../../core/usage_stats.py): local usage persistence for the usage view
+
+## Execution Model
+
+### Browser Transform
+
+- The user selects notes in the Browser.
+- [`automation.py`](../../ui/automation.py) resolves a prompt, model, target field, and write mode.
+- [`processing.py`](../../core/processing.py) builds snapshots, confirms overwrites, runs requests in batches, and applies note updates.
+
+### Workflow Run
+
+- A workflow can be launched from the workflow manager or directly from the Browser selection.
+- [`workflow_engine.py`](../../core/workflow_engine.py) decides whether the workflow is a `field_update` or `script` workflow.
+- Field-update workflows reuse the same lower-level processing engine as Browser transforms.
+- Script workflows run once in sequence and can use the provided note IDs to call external tools or custom scripts.
+
+### Group Run
+
+- Groups are organizational containers for workflows.
+- A group run is just an ordered sequence of workflows that share the same `group_id`.
+- Custom scripts are modeled as normal `script` workflows inside the group, so execution order stays visible in the UI.
+
+## Safety
+
+- Browser actions only appear when selected notes exist.
+- Output fields and prompt placeholders are validated before requests are sent.
+- A confirmation dialog appears before overwriting existing field content.
+- Progress dialogs show visible batch progress and support interruption.
+- Script execution is explicit and visible as a workflow row instead of being hidden behind a separate group-only hook.
+- Failed notes are reported without blocking successful ones from being saved.
 
 ## Related Notes
 
 - [`workflows-groups-pipelines.md`](./workflows-groups-pipelines.md)
 - [`audit-prompt-construction.md`](./audit-prompt-construction.md)
 - [`sample-user-audit-pipeline.md`](./sample-user-audit-pipeline.md)
-
-## Safety
-
-- The action only appears when the Browser has selected notes.
-- Output fields are validated before any request is sent.
-- A confirmation dialog appears before overwriting existing field content.
-- Audit workflows do not rewrite study content fields directly.
-- Pipelines branch on validated artifacts instead of raw model text.
-- Rejected-note handling can tag and suspend cards without mixing that logic into prompt execution.
-- Failed notes are reported without blocking successful ones from being saved.

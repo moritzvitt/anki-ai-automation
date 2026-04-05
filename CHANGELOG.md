@@ -32,6 +32,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
+- The README, config guide, release descriptions, and architecture notes now describe the current Browser/workflow/script model instead of the removed pipeline and structured-audit architecture.
+- Several MLR user prompts were renamed and lightly cleaned up so their saved names better match the fields they target.
 - Split the oversized config implementation into focused helper modules for config models, config parsing, and prompt-library file handling, making workflow/prompt loading easier to maintain.
 - Split the oversized processing implementation into dedicated models, text helpers, and processing support modules while keeping the existing note-processing flow intact.
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
