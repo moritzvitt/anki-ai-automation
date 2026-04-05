@@ -1,5 +1,7 @@
 # AI Automation for Anki
 
+<img src="https://raw.githubusercontent.com/moritzvitt/ai-automation/refs/heads/main/images.webp" alt="AI Automation logo" width="128" />
+
 ✨ Improve lots of notes faster with AI-powered Browser actions and reusable workflows.
 
 AI Automation helps you clean up, rewrite, enrich, and standardize Anki note fields with OpenAI, without doing everything by hand.

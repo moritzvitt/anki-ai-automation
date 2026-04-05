@@ -48,4 +48,3 @@ Card fields:
 Cloze: {{Cloze}}
 Subtitle: {{Subtitle}}
 Notes: {{Notes}}
-
