@@ -242,10 +242,7 @@ class WorkflowManagerDialog(QDialog):
 
     def _workflow_preview(self, workflow: Workflow) -> str:
         prompt_name = self._prompt_name(workflow.prompt_id)
-        group_name = self._group_name(workflow.group_id)
-        group_summary = group_name or "No group"
         trigger_summary = _trigger_summary(workflow)
-        type_summary = "Audit" if workflow.workflow_type == "audit" else "Field update"
         target_summary = (
             f"Schema: {workflow.schema_preset or 'custom'}"
             if workflow.workflow_type == "audit"
@@ -253,15 +250,25 @@ class WorkflowManagerDialog(QDialog):
                 workflow.target_field if not workflow.multiple_target_fields else "Delimited multi-field mode"
             )
         )
+        summary_parts = []
+        if workflow.workflow_type == "audit":
+            summary_parts.append("Type: Audit")
+        summary_parts.extend(
+            [
+                f"Prompt: {prompt_name}",
+                f"Target: {target_summary}",
+                f"Mode: {workflow.mode}",
+                f"Model: {workflow.model or self._config.model}",
+                f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'}",
+                f"System: {self._system_prompt_name(workflow.system_prompt_id)}",
+            ]
+        )
+        if trigger_summary != "manual only":
+            summary_parts.append(f"Trigger: {trigger_summary}")
         return (
             f"{workflow.name}\n"
             f"Query: {workflow.query}\n"
-            f"Enabled: {'Yes' if workflow.enabled else 'No'} | Type: {type_summary} | Prompt: {prompt_name} | Target: {target_summary} | "
-            f"Mode: {workflow.mode} | Model: {workflow.model or self._config.model} | "
-            f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'} | "
-            f"System: {self._system_prompt_name(workflow.system_prompt_id)} | "
-            f"Markdown->HTML: {'Yes' if workflow.convert_markdown_to_html else 'No'} | "
-            f"Delimiter: {workflow.response_delimiter or '-'} | Trigger: {trigger_summary} | Groups: {group_summary}"
+            + " | ".join(summary_parts)
         )
 
     def _workflow_row_widget(self, workflow: Workflow, index: int) -> QWidget:
