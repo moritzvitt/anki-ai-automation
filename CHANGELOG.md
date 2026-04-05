@@ -33,6 +33,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Workflow loading now tolerates deleted prompt references, shows affected workflows as missing in the workflow UI, and only raises an error when you actually try to run one of those stale workflows.
+- The Tools entry for the workflow manager is now labeled `AI Automation: Workflow Configuration`, and the legacy tag-migration menu entry was removed from the active add-on UI.
 - Browser and workflow preset pickers now tolerate deleted prompt references while opening normally, label those presets as missing, and only show an error if you actually try to run or apply one of the stale presets.
 - The packaging flow now uses `tools/package_ankiaddon.py`, and `.ankiaddon` builds keep `prompt_library/user_prompts/` present as an empty folder while still excluding user prompt files, local `user_data`, and `meta.json`.
 - The docs index and prompt-library docs were refreshed so the repo structure and file-backed prompt model are easier to discover from the top-level README.

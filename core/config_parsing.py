@@ -302,16 +302,17 @@ def parse_workflow_entry(
     if workflow_type == "script":
         script_command = read_string(item, "script_command")
         resolved_workflow_prompt_id = ""
+        invalid_reason = None
     else:
         prompt_id = read_string(item, "prompt_id")
         resolved_workflow_prompt_id = resolved_prompt_id(
             prompt_id,
             allowed_prompt_ids=allowed_prompt_ids,
         )
+        invalid_reason = None
         if resolved_workflow_prompt_id is None:
-            raise ConfigError(
-                f"workflows[{index}] references unknown prompt_id '{prompt_id}'."
-            )
+            resolved_workflow_prompt_id = prompt_id
+            invalid_reason = f"Missing saved prompt: '{prompt_id}'."
         script_command = None
 
     mode = read_string(item, "mode", default="overwrite")
@@ -349,6 +350,7 @@ def parse_workflow_entry(
         name=read_string(item, "name"),
         query=read_string(item, "query", allow_empty=True),
         prompt_id=resolved_workflow_prompt_id,
+        invalid_reason=invalid_reason,
         workflow_type=workflow_type,
         enabled=read_bool(item, "enabled", default=True),
         script_command=script_command,

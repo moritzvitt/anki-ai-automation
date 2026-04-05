@@ -25,7 +25,7 @@ AI Automation helps you clean up, rewrite, enrich, and standardize Anki note fie
 
 - In the Browser, select notes or cards, right-click, and choose `Transform with AI` for a one-off run.
 - In the Browser, select notes or cards, right-click, and open `Run Workflow with AI` to run a saved workflow or workflow group on the current selection.
-- In the main Anki window, open `Tools -> Process specific cards with AI` to create, edit, and run reusable workflows.
+- In the main Anki window, open `Tools -> AI Automation: Workflow Configuration` to create, edit, and run reusable workflows.
 - In the add-on manager, open `AI Automation -> Config` to set your API key, model, prompts, presets, and workflow defaults.
 - In the main Anki window, open `Tools -> AI Automation Usage` to review tracked usage and recent runs.
 

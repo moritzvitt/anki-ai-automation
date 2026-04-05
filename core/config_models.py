@@ -62,6 +62,7 @@ class Workflow:
     name: str
     query: str
     prompt_id: str = ""
+    invalid_reason: str | None = None
     workflow_type: str = "field_update"
     enabled: bool = True
     script_command: str | None = None

@@ -67,7 +67,7 @@ def register_workflow_menu() -> None:
     if mw is None:
         return
 
-    action = QAction("Process specific cards with AI", mw)
+    action = QAction("AI Automation: Workflow Configuration", mw)
     set_action_hover_help(
         action,
         "Open the workflow manager for reusable field-update and script workflows.",
@@ -90,7 +90,7 @@ def _open_workflow_manager() -> None:
 class WorkflowManagerDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Process Specific Cards with AI")
+        self.setWindowTitle("AI Automation: Workflow Configuration")
         self.resize(860, 680)
 
         self._raw_config = load_raw_config()
@@ -357,6 +357,8 @@ class WorkflowManagerDialog(QDialog):
     def _workflow_display_name(self, workflow: Workflow) -> str:
         if workflow.workflow_type == "script":
             return f"</> {workflow.name}"
+        if workflow.invalid_reason:
+            return f"{workflow.name} (missing prompt)"
         return workflow.name
 
     def _group_name(self, group_id: str | None) -> str | None:
@@ -634,9 +636,9 @@ class WorkflowManagerDialog(QDialog):
         prompt_lookup = {prompt.prompt_id: prompt for prompt in config.saved_prompts}
         query_counts: list[tuple[Workflow, int]] = []
         for workflow in workflows:
-            if workflow.workflow_type != "script" and workflow.prompt_id not in prompt_lookup:
+            if workflow.workflow_type != "script" and workflow.invalid_reason:
                 showCritical(
-                    f"Workflow '{workflow.name}' references a missing saved prompt.",
+                    f"Cannot run workflow '{workflow.name}'. {workflow.invalid_reason}",
                     parent=self,
                 )
                 return
@@ -704,8 +706,8 @@ class WorkflowManagerDialog(QDialog):
             return
 
         workflow = workflows[index]
-        if workflow.workflow_type != "script" and prompt_lookup.get(workflow.prompt_id) is None:
-            summary.failures.append(f"- Workflow '{workflow.name}': saved prompt is missing.")
+        if workflow.workflow_type != "script" and workflow.invalid_reason:
+            summary.failures.append(f"- Workflow '{workflow.name}': {workflow.invalid_reason}")
             self._run_workflow_at_index(
                 workflows=workflows,
                 index=index + 1,

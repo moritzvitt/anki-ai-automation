@@ -14,7 +14,7 @@ Pipelines and the structured audit JSON flow are no longer part of the active ar
 ## Runtime Flow
 
 1. `__init__.py` imports [`addon.py`](../../addon.py), which calls `register()`.
-2. [`addon.py`](../../addon.py) wires up Browser actions, workflow management, usage UI, tag migration, and workflow triggers.
+2. [`addon.py`](../../addon.py) wires up Browser actions, workflow management, usage UI, and workflow triggers.
 3. [`browser_menu.py`](../../ui/browser_menu.py) registers Browser context-menu actions for:
    - `Transform with AI`
    - `Run Workflow with AI`

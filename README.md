@@ -56,7 +56,7 @@ ai-automation/
 2. Install the official OpenAI client into Anki's Python environment.
 3. Open Anki, go to `Tools -> Add-ons -> AI Automation -> Config`, and use the settings window to set your API key, choose a model, and open the dedicated Browser and workflow settings dialogs.
 
-To run reusable query-based rules, open `Tools -> Process specific cards with AI`.
+To run reusable query-based rules, open `Tools -> AI Automation: Workflow Configuration`.
 
 If you need to install the dependency manually, use Anki's bundled Python. The exact path varies by platform, but the command is equivalent to:
 
@@ -112,7 +112,7 @@ The prompt can reference any field that exists on the note, plus `{{NoteType}}`.
 
 For rule-based runs:
 
-1. Open `Tools -> Process specific cards with AI`.
+1. Open `Tools -> AI Automation: Workflow Configuration`.
 2. Create workflows with a name, optional Anki query, prompts, target field settings, optional presets, groups, and optional trigger conditions.
 3. Use `Refresh Count` while editing to preview how many notes the query currently matches.
 4. Run one workflow or an entire group in the stored execution order, or launch them directly from the Browser on the current selection.

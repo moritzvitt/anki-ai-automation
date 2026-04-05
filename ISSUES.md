@@ -6,7 +6,7 @@ This file is a lightweight guide for opening and tracking issues for AI Automati
 
 - Say what you were trying to do in plain language.
 - Include the exact place in Anki where it happened.
-  Examples: `Browser -> right click -> Transform with AI`, `Tools -> Process specific cards with AI`, `Tools -> Add-ons -> AI Automation -> Config`.
+  Examples: `Browser -> right click -> Transform with AI`, `Tools -> AI Automation: Workflow Configuration`, `Tools -> Add-ons -> AI Automation -> Config`.
 - Include the note type, target field, and whether you were using a one-off Browser run or a saved workflow.
 - Include the Anki version, add-on version, operating system, and model name.
 - Include the exact error message or traceback if one appeared.
