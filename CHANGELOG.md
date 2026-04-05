@@ -33,6 +33,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Release-facing packaging and listing metadata were tightened up: `.ankiaddon` builds now exclude local `meta.json`, `user_data`, and `prompt_library/user_prompts`, the manifest name now reads `Anki AI Automation`, and a shorter emoji-friendly AnkiWeb product-page draft was added under `docs/release/`.
 - Tooltips and hover help now cover more menus and workflow controls, and several outdated texts were rewritten to match the current prompt-library, script-workflow, Browser-selected-note, and query-optional behavior.
 - Script workflows now allow an empty `target_field`, are labeled with a visible `</>` marker in the workflow manager and Browser run menu, and the quick-tag Browser extension is now loaded from a separate sibling `browser_extensions` folder under `src/addons`.
 - Config and UI prompt handling now keep both normal prompts and system prompts in markdown files under `prompt_library/` instead of embedding prompt text in `config.json` / `meta.json`, while still importing older saved config prompts into files.

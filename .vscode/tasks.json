@@ -31,7 +31,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "repo_name=${PWD##*/}; rm -f ./$repo_name.ankiaddon; zip -r ./$repo_name.ankiaddon . -x './.git/*' './.vscode/*' './__pycache__/*' './.DS_Store'"
+        "repo_name=${PWD##*/}; rm -f ./$repo_name.ankiaddon; zip -r ./$repo_name.ankiaddon . -x './.git/*' './.vscode/*' './__pycache__/*' './.DS_Store' './meta.json' './user_data/*' './prompt_library/user_prompts/*'"
       ],
       "group": "build",
       "problemMatcher": []

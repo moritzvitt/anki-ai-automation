@@ -120,7 +120,14 @@ The same menu also attempts to fetch official OpenAI spend for today, last 7 day
 To build a `.ankiaddon` archive manually:
 
 ```bash
-zip -r ai-automation.ankiaddon . -x './.git/*' './.vscode/*' './__pycache__/*' './.DS_Store'
+zip -r ai-automation.ankiaddon . \
+  -x './.git/*' \
+     './.vscode/*' \
+     './__pycache__/*' \
+     './.DS_Store' \
+     './meta.json' \
+     './user_data/*' \
+     './prompt_library/user_prompts/*'
 ```
 
 ## Docs
