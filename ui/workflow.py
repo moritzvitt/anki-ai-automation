@@ -47,7 +47,7 @@ from ..core.workflow_engine import (
     execute_workflow,
 )
 from ..core.processing import ProcessingInterruptDialog
-from .tooltips import set_hover_help, show_tooltip
+from .tooltips import set_action_hover_help, set_hover_help, show_tooltip
 
 
 @dataclass
@@ -68,6 +68,10 @@ def register_workflow_menu() -> None:
         return
 
     action = QAction("Process specific cards with AI", mw)
+    set_action_hover_help(
+        action,
+        "Open the workflow manager for reusable field-update and script workflows.",
+    )
     action.triggered.connect(_open_workflow_manager)
     mw.form.menuTools.addAction(action)
 
@@ -113,21 +117,37 @@ class WorkflowManagerDialog(QDialog):
         group_layout = QHBoxLayout(group_box)
         group_layout.addWidget(QLabel("Workflow group"))
         group_layout.addWidget(self.group_run_combo, stretch=1)
-        set_hover_help(self.group_run_combo, "Filter the workflow list by group.", enabled=self._config.show_tooltips)
+        set_hover_help(
+            self.group_run_combo,
+            "Filter the list to enabled workflows, disabled workflows, all workflows, or one concrete workflow group.",
+            enabled=self._config.show_tooltips,
+        )
         self.group_run_combo.currentIndexChanged.connect(self._populate)
         add_script_button = QPushButton("Add Custom Script")
-        set_hover_help(add_script_button, "Create a script step inside the currently selected workflow group.", enabled=self._config.show_tooltips)
+        set_hover_help(
+            add_script_button,
+            "Create a script step inside the currently selected concrete workflow group. The special all/enabled/disabled filters cannot receive new script steps.",
+            enabled=self._config.show_tooltips,
+        )
         add_script_button.clicked.connect(self._add_group_script)
         group_layout.addWidget(add_script_button)
         run_group_button = QPushButton("Run Group")
-        set_hover_help(run_group_button, "Run every workflow in the currently selected group, in order.", enabled=self._config.show_tooltips)
+        set_hover_help(
+            run_group_button,
+            "Run every enabled workflow in the currently selected concrete group, in order.",
+            enabled=self._config.show_tooltips,
+        )
         run_group_button.clicked.connect(self._run_selected_group)
         group_layout.addWidget(run_group_button)
         layout.addWidget(group_box)
 
         layout.addWidget(QLabel("Workflows"))
         self.workflow_list.setMinimumHeight(320)
-        set_hover_help(self.workflow_list, "Saved query-based workflows. Each row shows the query, prompt, and core execution settings.", enabled=self._config.show_tooltips)
+        set_hover_help(
+            self.workflow_list,
+            "Saved workflows and script steps. Each row shows the current query, command or prompt, and the core execution settings.",
+            enabled=self._config.show_tooltips,
+        )
         layout.addWidget(self.workflow_list)
 
         button_row = QHBoxLayout()
@@ -194,7 +214,7 @@ class WorkflowManagerDialog(QDialog):
         self.group_run_combo.addItem("All workflows", "")
         for group in self._groups:
             self.group_run_combo.addItem(group.name, group.group_id)
-        if selected_group_id in (None, ""):
+        if selected_group_id is None:
             selected_group_id = _GROUP_FILTER_ENABLED_ONLY
         if isinstance(selected_group_id, str):
             index = self.group_run_combo.findData(selected_group_id)
@@ -290,7 +310,11 @@ class WorkflowManagerDialog(QDialog):
 
         enabled_check = QCheckBox("Enabled")
         enabled_check.setChecked(workflow.enabled)
-        enabled_check.setToolTip("Toggle whether this workflow is active without opening the editor.")
+        set_hover_help(
+            enabled_check,
+            "Toggle whether this workflow is active without opening the editor.",
+            enabled=self._config.show_tooltips,
+        )
         enabled_check.stateChanged.connect(
             lambda _state, workflow_id=workflow.workflow_id: self._toggle_workflow_enabled(workflow_id)
         )

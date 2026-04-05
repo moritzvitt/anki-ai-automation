@@ -111,12 +111,12 @@ class ConfigDialog(QDialog):
         )
         set_hover_help(
             self.use_chat_completions_checkbox,
-            "Use the Chat Completions API instead of the Responses API for text generation. Enabled by default for speed testing.",
+            "Use the Chat Completions API instead of the Responses API for generation. Leave this on unless you are comparing APIs or debugging a model-specific issue.",
             enabled=help_enabled,
         )
         set_hover_help(self.api_key_edit, "OpenAI API key used for live model loading and AI requests.", enabled=help_enabled)
         set_hover_help(self.model_combo, "Default model used unless a Browser run or workflow overrides it.", enabled=help_enabled)
-        set_hover_help(self.refresh_models_button, "Fetch the latest recommended model shortlist from OpenAI.", enabled=help_enabled)
+        set_hover_help(self.refresh_models_button, "Fetch the current curated model shortlist from OpenAI for the model dropdown.", enabled=help_enabled)
 
         model_row = QWidget()
         model_layout = QVBoxLayout(model_row)
@@ -151,7 +151,7 @@ class ConfigDialog(QDialog):
         self.open_live_config_button.clicked.connect(self._open_live_config)
         set_hover_help(
             self.open_workflows_button,
-            "Open the workflow manager to create, edit, group, and trigger reusable query-based runs.",
+            "Open the workflow manager to create, edit, group, and run reusable field-update or script workflows.",
             enabled=bool(self._config.get("show_tooltips", True)),
         )
         set_hover_help(

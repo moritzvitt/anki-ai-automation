@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from aqt import mw
 from aqt.qt import QWidget
 from aqt.utils import tooltip as anki_tooltip
@@ -24,6 +26,17 @@ def set_hover_help(widget: QWidget, text: str, *, enabled: bool | None = None) -
         enabled = hover_help_enabled()
     widget.setToolTip(text if enabled else "")
     return widget
+
+
+def set_action_hover_help(action: Any, text: str, *, enabled: bool | None = None) -> Any:
+    if enabled is None:
+        enabled = hover_help_enabled()
+    tooltip_text = text if enabled else ""
+    if hasattr(action, "setToolTip"):
+        action.setToolTip(tooltip_text)
+    if hasattr(action, "setStatusTip"):
+        action.setStatusTip(tooltip_text)
+    return action
 
 
 def show_tooltip(text: str, *, parent: QWidget | None = None, period: int = 3000) -> None:

@@ -6,6 +6,7 @@ from aqt.qt import QAction
 from aqt.utils import askUser, showCritical, showInfo
 
 from ..core.tag_migration import LEGACY_AI_TAG_MAP, TagMigrationResult, migrate_legacy_ai_tags
+from .tooltips import set_action_hover_help
 
 
 def register_tag_migration_menu() -> None:
@@ -13,6 +14,10 @@ def register_tag_migration_menu() -> None:
         return
 
     action = QAction("Migrate Legacy AI Tags", mw)
+    set_action_hover_help(
+        action,
+        "Rename older flat AI tags to the current Anki tag-tree format like ai::... .",
+    )
     action.triggered.connect(_migrate_legacy_tags)
     mw.form.menuTools.addAction(action)
 

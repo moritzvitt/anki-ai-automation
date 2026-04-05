@@ -8,6 +8,7 @@ from aqt.utils import showCritical, showInfo
 from ..services.billing import BillingError, fetch_billing_summary
 from ..core.config import ConfigError, load_config
 from ..core.usage_stats import build_usage_report, load_usage_stats
+from .tooltips import set_action_hover_help
 
 
 def register_usage_menu() -> None:
@@ -15,6 +16,10 @@ def register_usage_menu() -> None:
         return
 
     action = QAction("AI Automation Usage", mw)
+    set_action_hover_help(
+        action,
+        "Show local usage totals and, when available, official OpenAI organization cost data.",
+    )
     action.triggered.connect(_show_usage_report)
     mw.form.menuTools.addAction(action)
 

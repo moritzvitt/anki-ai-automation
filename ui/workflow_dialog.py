@@ -241,9 +241,21 @@ class ScriptWorkflowDialog(QDialog):
         self.query_edit.setMinimumWidth(760)
         self.name_edit.setMinimumWidth(760)
         set_hover_help(self.name_edit, "Friendly workflow name shown in the manager and run confirmations.", enabled=self._show_tooltips)
-        set_hover_help(self.query_edit, "Anki Browser search query used to find notes for this workflow.", enabled=self._show_tooltips)
-        set_hover_help(self.query_count_label, "Shows how many notes currently match the workflow query.", enabled=self._show_tooltips)
-        set_hover_help(self.workflow_type_combo, "Atomic workflow behavior type.", enabled=self._show_tooltips)
+        set_hover_help(
+            self.query_edit,
+            "Anki Browser search query used to find notes for this workflow. It can be left empty when you mainly run the workflow on selected Browser notes.",
+            enabled=self._show_tooltips,
+        )
+        set_hover_help(
+            self.query_count_label,
+            "Shows how many notes currently match the workflow query. Empty-query workflows are usually meant for selected Browser notes instead.",
+            enabled=self._show_tooltips,
+        )
+        set_hover_help(
+            self.workflow_type_combo,
+            "Choose whether this step writes model output into fields or runs a custom script command.",
+            enabled=self._show_tooltips,
+        )
         set_hover_help(self.enabled_check, "Disabled workflows stay in the registry but are skipped in normal manual/group runs.", enabled=self._show_tooltips)
 
         prompt_row = QWidget()
@@ -256,7 +268,7 @@ class ScriptWorkflowDialog(QDialog):
         delete_button = QPushButton("Delete")
         set_hover_help(self.prompt_choice_label, "Current user prompt selected for this workflow.", enabled=self._show_tooltips)
         set_hover_help(self.prompt_browse_button, "Browse the prompt library folders and select a markdown prompt file.", enabled=self._show_tooltips)
-        set_hover_help(new_button, "Create a new saved user prompt.", enabled=self._show_tooltips)
+        set_hover_help(new_button, "Create a new saved user prompt from the text currently shown in the prompt editor.", enabled=self._show_tooltips)
         set_hover_help(edit_button, "Edit the selected saved user prompt.", enabled=self._show_tooltips)
         set_hover_help(delete_button, "Delete the selected saved user prompt.", enabled=self._show_tooltips)
         self.prompt_browse_button.clicked.connect(self._browse_prompt_library)
@@ -275,7 +287,7 @@ class ScriptWorkflowDialog(QDialog):
         edit_system_button = QPushButton("Edit")
         delete_system_button = QPushButton("Delete")
         set_hover_help(self.system_prompt_combo, "Choose the saved system prompt for this workflow.", enabled=self._show_tooltips)
-        set_hover_help(new_system_button, "Create a new saved system prompt.", enabled=self._show_tooltips)
+        set_hover_help(new_system_button, "Create a new saved system prompt from the text currently shown in the system-prompt editor.", enabled=self._show_tooltips)
         set_hover_help(edit_system_button, "Edit the selected saved system prompt.", enabled=self._show_tooltips)
         set_hover_help(delete_system_button, "Delete the selected saved system prompt.", enabled=self._show_tooltips)
         new_system_button.clicked.connect(self._create_system_prompt)
@@ -292,7 +304,7 @@ class ScriptWorkflowDialog(QDialog):
         refresh_row = QHBoxLayout()
         refresh_row.setContentsMargins(0, 0, 0, 0)
         refresh_button = QPushButton("Refresh Count")
-        set_hover_help(refresh_button, "Run the Anki search query now and show the current match count.", enabled=self._show_tooltips)
+        set_hover_help(refresh_button, "Run the current Anki search query now and show the current match count.", enabled=self._show_tooltips)
         refresh_button.clicked.connect(self._refresh_query_count)
         refresh_row.addWidget(refresh_button)
         refresh_row.addWidget(self.query_count_label, stretch=1)
@@ -349,14 +361,14 @@ class ScriptWorkflowDialog(QDialog):
         preset_layout.addWidget(update_preset_button)
         preset_layout.addWidget(delete_preset_button)
         set_hover_help(self.model_combo, "Model used by this workflow. Leave it on the current selection to follow the global default.", enabled=self._show_tooltips)
-        set_hover_help(self.api_mode_combo, "Per-workflow API preference.", enabled=self._show_tooltips)
+        set_hover_help(self.api_mode_combo, "Per-workflow API preference. Global default uses the add-on-wide setting.", enabled=self._show_tooltips)
         set_hover_help(self.use_global_temperature_check, "Use the global temperature from settings instead of a workflow-specific value.", enabled=self._show_tooltips)
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect delimited response sections that map to multiple note fields.", enabled=self._show_tooltips)
         set_hover_help(self.convert_markdown_to_html_check, "Convert generated Markdown to HTML before saving it back into notes.", enabled=self._show_tooltips)
         set_hover_help(self.convert_field_html_to_markdown_check, "Convert placeholder field contents from HTML to Markdown before sending the prompt to the model.", enabled=self._show_tooltips)
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
-        set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
+        set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off. Script workflows ignore this field.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
         set_hover_help(self.success_tags_edit, "Comma-separated note tags to add when this field-update workflow succeeds for a note.", enabled=self._show_tooltips)
         set_hover_help(self.failure_tags_edit, "Comma-separated note tags to add when this field-update workflow fails for a note.", enabled=self._show_tooltips)
@@ -365,7 +377,7 @@ class ScriptWorkflowDialog(QDialog):
         set_hover_help(self.trigger_on_startup_check, "Run this workflow automatically when Anki opens the profile, if the query match threshold is met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
-        set_hover_help(self.group_edit, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
+        set_hover_help(self.group_edit, "Optional single workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
 
         content_layout.addLayout(form)
 
@@ -403,7 +415,7 @@ class ScriptWorkflowDialog(QDialog):
         prompt_preview_header_layout.addWidget(QLabel("Prompt"))
         prompt_preview_header_layout.addStretch(1)
         save_prompt_button = QPushButton("Save Prompt")
-        set_hover_help(save_prompt_button, "Save the edited prompt text. Shipped default prompts are forked into a new user prompt instead of being overwritten.", enabled=self._show_tooltips)
+        set_hover_help(save_prompt_button, "Save the edited prompt text to the selected prompt. Shipped default prompts are forked into a new user prompt instead of being overwritten.", enabled=self._show_tooltips)
         save_prompt_button.clicked.connect(self._save_prompt_preview)
         prompt_preview_header_layout.addWidget(save_prompt_button)
         prompt_layout_group.addWidget(prompt_preview_header)
@@ -415,7 +427,7 @@ class ScriptWorkflowDialog(QDialog):
         system_prompt_header_layout.addWidget(QLabel("System prompt"))
         system_prompt_header_layout.addStretch(1)
         save_system_prompt_button = QPushButton("Save System Prompt")
-        set_hover_help(save_system_prompt_button, "Save the edited system prompt text without waiting for the whole workflow dialog to be saved.", enabled=self._show_tooltips)
+        set_hover_help(save_system_prompt_button, "Save the edited system prompt text to the selected system prompt without waiting for the whole workflow dialog to be saved.", enabled=self._show_tooltips)
         save_system_prompt_button.clicked.connect(self._save_system_prompt_preview)
         system_prompt_header_layout.addWidget(save_system_prompt_button)
         prompt_layout_group.addWidget(system_prompt_header)

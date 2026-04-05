@@ -9,7 +9,7 @@ from aqt.utils import showCritical
 
 from ..core.config import ConfigError, load_config
 from .automation import open_transform_dialog
-from .tooltips import show_tooltip
+from .tooltips import set_action_hover_help, show_tooltip
 from .workflow import run_workflows_background
 
 
@@ -26,6 +26,10 @@ def _on_browser_context_menu(browser: Browser, menu: QMenu) -> None:
         return
 
     action = QAction("Transform with AI", browser)
+    set_action_hover_help(
+        action,
+        "Open the Browser AI dialog for the current selection and run a one-off prompt or preset.",
+    )
     action.triggered.connect(lambda: _trigger_processing(browser))
     workflows_menu = menu.addMenu("Run Workflow with AI")
     _populate_workflows_menu(browser, workflows_menu, note_ids)
@@ -48,7 +52,7 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
     except ConfigError as error:
         error_action = QAction("Workflow configuration error", browser)
         error_action.setEnabled(False)
-        error_action.setToolTip(str(error))
+        set_action_hover_help(error_action, str(error))
         menu.addAction(error_action)
         return
 
@@ -65,6 +69,7 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
     if not enabled_workflows:
         empty_action = QAction("No enabled workflows", browser)
         empty_action.setEnabled(False)
+        set_action_hover_help(empty_action, "Enable at least one workflow in the workflow manager to run it from the Browser.")
         menu.addAction(empty_action)
         return
 
@@ -72,6 +77,10 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
         groups_menu = menu.addMenu("Run Group")
         for group in enabled_groups:
             action = QAction(group.name, browser)
+            set_action_hover_help(
+                action,
+                "Run every enabled workflow in this group on the currently selected Browser notes.",
+            )
             action.triggered.connect(
                 lambda _checked=False, selected_group_id=group.group_id: _trigger_browser_group(
                     browser,
@@ -84,6 +93,10 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
 
     for workflow in enabled_workflows:
         action = QAction(_workflow_display_name(workflow), browser)
+        set_action_hover_help(
+            action,
+            "Run this saved workflow on the currently selected Browser notes instead of its saved query matches.",
+        )
         action.triggered.connect(
             lambda _checked=False, selected_workflow=workflow: _trigger_browser_workflow(
                 browser,
