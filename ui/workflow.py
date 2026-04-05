@@ -271,7 +271,7 @@ class WorkflowManagerDialog(QDialog):
         if trigger_summary != "manual only":
             summary_parts.append(f"Trigger: {trigger_summary}")
         return (
-            f"{workflow.name}\n"
+            f"{self._workflow_display_name(workflow)}\n"
             f"Query: {workflow.query}\n"
             + " | ".join(summary_parts)
         )
@@ -329,6 +329,11 @@ class WorkflowManagerDialog(QDialog):
             if prompt.prompt_id == prompt_id:
                 return prompt.name
         return "Missing prompt"
+
+    def _workflow_display_name(self, workflow: Workflow) -> str:
+        if workflow.workflow_type == "script":
+            return f"</> {workflow.name}"
+        return workflow.name
 
     def _group_name(self, group_id: str | None) -> str | None:
         if not group_id:

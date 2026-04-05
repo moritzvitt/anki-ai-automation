@@ -342,7 +342,7 @@ def parse_workflow_entry(
         "target_field",
         aliases=("targetfield", "targetField"),
         default="",
-        allow_empty=multiple_target_fields,
+        allow_empty=multiple_target_fields or workflow_type == "script",
     )
     return Workflow(
         workflow_id=workflow_id,

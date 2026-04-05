@@ -83,7 +83,7 @@ def _populate_workflows_menu(browser: Browser, menu: QMenu, note_ids: list[int])
         menu.addSeparator()
 
     for workflow in enabled_workflows:
-        action = QAction(workflow.name, browser)
+        action = QAction(_workflow_display_name(workflow), browser)
         action.triggered.connect(
             lambda _checked=False, selected_workflow=workflow: _trigger_browser_workflow(
                 browser,
@@ -115,7 +115,7 @@ def _trigger_browser_workflow(browser: Browser, workflow_id: str, note_ids: list
     run_workflows_background(
         browser,
         [workflow],
-        run_label=f"{workflow.name} (selected Browser notes)",
+        run_label=f"{_workflow_display_name(workflow)} (selected Browser notes)",
         note_ids_override=list(note_ids),
         show_summary_dialog=False,
         on_done=lambda _summary: _refresh_open_browser_note(browser, changed_note_ids=note_ids),
@@ -216,3 +216,9 @@ def _refresh_open_browser_note(browser: Browser, *, changed_note_ids: list[int])
             editor.set_note(note, hide=False)
     except Exception:
         return
+
+
+def _workflow_display_name(workflow: Any) -> str:
+    if getattr(workflow, "workflow_type", "") == "script":
+        return f"</> {workflow.name}"
+    return str(workflow.name)

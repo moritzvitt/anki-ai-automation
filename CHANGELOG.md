@@ -33,6 +33,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Script workflows now allow an empty `target_field`, are labeled with a visible `</>` marker in the workflow manager and Browser run menu, and the quick-tag Browser extension is now loaded from a separate sibling `browser_extensions` folder under `src/addons`.
 - Config and UI prompt handling now keep both normal prompts and system prompts in markdown files under `prompt_library/` instead of embedding prompt text in `config.json` / `meta.json`, while still importing older saved config prompts into files.
 - `Process specific cards with AI` presets now tolerate empty saved target fields, and workflow prompt rendering can optionally convert placeholder field HTML to Markdown before the model sees it.
 - Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
