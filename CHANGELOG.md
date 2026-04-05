@@ -33,6 +33,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- The tracked prompt library was simplified to a smaller top-level default set (`default-prompt`, `card-quality-check`, `full-card-optimization`, and `card-audit`), and the older nested MLR/default prompt bundles were removed from the repo in favor of a much lighter shipped library.
 - Release-facing packaging and listing metadata were tightened up: `.ankiaddon` builds now exclude local `meta.json`, `user_data`, and `prompt_library/user_prompts`, the manifest name now reads `Anki AI Automation`, and a shorter emoji-friendly AnkiWeb product-page draft was added under `docs/release/`.
 - Tooltips and hover help now cover more menus and workflow controls, and several outdated texts were rewritten to match the current prompt-library, script-workflow, Browser-selected-note, and query-optional behavior.
 - Script workflows now allow an empty `target_field`, are labeled with a visible `</>` marker in the workflow manager and Browser run menu, and the quick-tag Browser extension is now loaded from a separate sibling `browser_extensions` folder under `src/addons`.
