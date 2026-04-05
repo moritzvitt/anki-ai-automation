@@ -133,6 +133,7 @@ zip -r ai-automation.ankiaddon . \
 ## Docs
 
 - Config reference: [`config.md`](./config.md)
+- Issue reporting and future issue ideas: [`ISSUES.md`](./ISSUES.md)
 - Overview: [`docs/README.md`](./docs/README.md)
 - Architecture notes: [`docs/architecture/overview.md`](./docs/architecture/overview.md)
 - Release text draft: [`docs/release/release-description.md`](./docs/release/release-description.md)

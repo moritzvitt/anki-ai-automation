@@ -13,4 +13,12 @@ Select notes in the Browser and choose `Transform with AI`, or create workflows 
 - Chat Completions and Responses API support
 - Faster batch processing with retries, timeouts, progress feedback, and incremental Browser updates
 
+## Where To Find It In Anki
+
+- In the Browser, right-click selected notes or cards and choose `Transform with AI` for a one-off prompt or preset run.
+- In the Browser, right-click selected notes or cards and open `Run Workflow with AI` to launch a saved workflow or workflow group on that selection.
+- Open `Tools -> Process specific cards with AI` to manage reusable workflows and run them against saved Anki searches.
+- Open `Tools -> Add-ons -> AI Automation -> Config` to set your API key, choose a model, and manage prompts, presets, and workflow defaults.
+- Open `Tools -> AI Automation Usage` to review tracked usage and recent runs.
+
 Built for current Anki releases using modern `aqt.gui_hooks` integration.
