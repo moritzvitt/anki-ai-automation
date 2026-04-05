@@ -33,12 +33,13 @@ from ..core.config import (
     ProcessingPreset,
     SavedPrompt,
     SavedSystemPrompt,
+    SYSTEM_PROMPTS_DIR,
     USER_PROMPTS_DIR,
     load_config,
     load_raw_config,
     new_object_id,
     save_saved_prompts,
-    save_raw_config,
+    save_saved_system_prompts,
 )
 from ..services.model_catalog import fallback_model_options
 from ..core.processing import (
@@ -71,6 +72,7 @@ class ProcessingPresetChoice:
     mode: str
     multiple_target_fields: bool
     convert_markdown_to_html: bool
+    convert_field_html_to_markdown: bool
     response_delimiter: str | None
 
 
@@ -155,6 +157,7 @@ class TransformWithAIDialog(QDialog):
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
         self.convert_markdown_to_html_check.setChecked(True)
+        self.convert_field_html_to_markdown_check = QCheckBox("Convert field HTML to Markdown for placeholders")
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.prompt_combo = QComboBox()
@@ -200,6 +203,7 @@ class TransformWithAIDialog(QDialog):
             temperature=self._selected_temperature(),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip(),
         )
 
@@ -306,6 +310,7 @@ class TransformWithAIDialog(QDialog):
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._config.show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect the model response to contain delimited sections that map to multiple note fields.", enabled=self._config.show_tooltips)
         set_hover_help(self.convert_markdown_to_html_check, "Convert generated Markdown into Anki-friendly HTML before writing it back.", enabled=self._config.show_tooltips)
+        set_hover_help(self.convert_field_html_to_markdown_check, "Convert placeholder field contents from HTML to Markdown before sending the prompt to the model.", enabled=self._config.show_tooltips)
         set_hover_help(self.delimiter_edit, "Delimiter used to split a multi-field response, for example --Notes-- or --{field}--.", enabled=self._config.show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field that should receive the generated output.", enabled=self._config.show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether generated text overwrites, appends, or skips already-filled target fields.", enabled=self._config.show_tooltips)
@@ -323,6 +328,7 @@ class TransformWithAIDialog(QDialog):
         options_form.addRow("Temperature", temperature_row)
         options_form.addRow("", self.multiple_target_fields_check)
         options_form.addRow("", self.convert_markdown_to_html_check)
+        options_form.addRow("", self.convert_field_html_to_markdown_check)
         self.delimiter_edit.setPlaceholderText("--Notes-- or --{field}--")
         options_form.addRow("Response delimiter", self.delimiter_edit)
         options_form.addRow("Target field", self.target_field_combo)
@@ -575,6 +581,7 @@ class TransformWithAIDialog(QDialog):
         self._set_temperature(preset.temperature)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
+        self.convert_field_html_to_markdown_check.setChecked(preset.convert_field_html_to_markdown)
         self.delimiter_edit.setText(preset.response_delimiter or "")
         if preset.target_field:
             self._set_target_field(preset.target_field)
@@ -625,6 +632,7 @@ class TransformWithAIDialog(QDialog):
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
         self._presets.append(preset)
@@ -675,6 +683,7 @@ class TransformWithAIDialog(QDialog):
                     mode=current.mode,
                     multiple_target_fields=current.multiple_target_fields,
                     convert_markdown_to_html=current.convert_markdown_to_html,
+                    convert_field_html_to_markdown=current.convert_field_html_to_markdown,
                     response_delimiter=current.response_delimiter,
                 )
                 break
@@ -738,6 +747,7 @@ class TransformWithAIDialog(QDialog):
                 "mode": preset.mode,
                 "multiple_target_fields": preset.multiple_target_fields,
                 "convert_markdown_to_html": preset.convert_markdown_to_html,
+                "convert_field_html_to_markdown": preset.convert_field_html_to_markdown,
                 "response_delimiter": preset.response_delimiter,
             }
             for preset in self._presets
@@ -759,6 +769,7 @@ class TransformWithAIDialog(QDialog):
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
 
@@ -946,9 +957,9 @@ class TransformWithAIDialog(QDialog):
         if not self._prompts:
             self._prompts = [
                 PromptChoice(
-                    prompt_id="default-prompt",
+                    prompt_id="general/default-prompt",
                     name="Default prompt",
-                    prompt_text=str(self._raw_config.get("prompt_template", "")).strip(),
+                    prompt_text="",
                 )
             ]
         self._save_prompts()
@@ -980,7 +991,7 @@ class TransformWithAIDialog(QDialog):
                 PromptChoice(
                     prompt_id="default-system-prompt",
                     name="Default system prompt",
-                    prompt_text=str(self._raw_config.get("system_prompt", "")).strip(),
+                    prompt_text="",
                 )
             ]
         self._save_system_prompts()
@@ -991,11 +1002,7 @@ class TransformWithAIDialog(QDialog):
         save_saved_prompts(self._raw_config, self._prompts)
 
     def _save_system_prompts(self) -> None:
-        self._raw_config["saved_system_prompts"] = [
-            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
-            for prompt in self._system_prompts
-        ]
-        save_raw_config(self._raw_config)
+        save_saved_system_prompts(self._raw_config, self._system_prompts)
 
     def _refresh_prompt_selection_label(self) -> None:
         prompt = self._selected_prompt()
@@ -1067,6 +1074,7 @@ def _preset_choices_from_saved_processing_presets(
             mode=preset.mode,
             multiple_target_fields=preset.multiple_target_fields,
             convert_markdown_to_html=preset.convert_markdown_to_html,
+            convert_field_html_to_markdown=preset.convert_field_html_to_markdown,
             response_delimiter=preset.response_delimiter,
         )
         for preset in presets

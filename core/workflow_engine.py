@@ -13,6 +13,7 @@ from .config import AddonConfig, SavedPrompt, Workflow
 from .processing import (
     ManualProcessingSpec,
     ProcessingResult,
+    apply_processing_result_updates,
     execute_prepared_manual_processing,
     prepare_manual_ai_processing,
 )
@@ -127,6 +128,7 @@ def _execute_field_update_workflow(
         temperature=workflow.temperature,
         multiple_target_fields=workflow.multiple_target_fields,
         convert_markdown_to_html=workflow.convert_markdown_to_html,
+        convert_field_html_to_markdown=workflow.convert_field_html_to_markdown,
         response_delimiter=workflow.response_delimiter or "",
     )
     prepared = prepare_manual_ai_processing(config, note_ids, spec, include_estimate=False)

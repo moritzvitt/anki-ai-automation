@@ -23,6 +23,7 @@ class NoteSnapshot:
     write_mode: str = WRITE_MODE_OVERWRITE
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
+    convert_field_html_to_markdown: bool = False
     response_delimiter: str = ""
 
 
@@ -72,6 +73,7 @@ class ManualProcessingSpec:
     temperature: float | None = None
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = False
+    convert_field_html_to_markdown: bool = False
     response_delimiter: str = ""
 
 

@@ -40,13 +40,14 @@ from .tooltips import set_hover_help, show_tooltip
 from ..core.config import (
     DEFAULT_PROMPTS_DIR,
     ProcessingPreset,
+    SYSTEM_PROMPTS_DIR,
     Workflow,
     WorkflowGroup,
     load_config,
     load_raw_config,
     new_object_id,
-    save_raw_config,
     save_saved_prompts,
+    save_saved_system_prompts,
 )
 from ..core.processing import (
     WRITE_MODE_APPEND,
@@ -71,6 +72,7 @@ class WorkflowDraft:
     system_prompt_id: str | None
     multiple_target_fields: bool
     convert_markdown_to_html: bool
+    convert_field_html_to_markdown: bool
     response_delimiter: str | None
     success_tags: list[str] | None
     failure_tags: list[str] | None
@@ -144,6 +146,7 @@ class WorkflowDialog(QDialog):
         self.multiple_target_fields_check = QCheckBox("Multiple target fields")
         self.convert_markdown_to_html_check = QCheckBox("Convert Markdown to HTML")
         self.convert_markdown_to_html_check.setChecked(True)
+        self.convert_field_html_to_markdown_check = QCheckBox("Convert field HTML to Markdown for placeholders")
         self.delimiter_edit = QLineEdit()
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
@@ -351,6 +354,7 @@ class ScriptWorkflowDialog(QDialog):
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect delimited response sections that map to multiple note fields.", enabled=self._show_tooltips)
         set_hover_help(self.convert_markdown_to_html_check, "Convert generated Markdown to HTML before saving it back into notes.", enabled=self._show_tooltips)
+        set_hover_help(self.convert_field_html_to_markdown_check, "Convert placeholder field contents from HTML to Markdown before sending the prompt to the model.", enabled=self._show_tooltips)
         set_hover_help(self.delimiter_edit, "Delimiter used for multi-field responses, for example --Notes-- or --{field}--.", enabled=self._show_tooltips)
         set_hover_help(self.target_field_combo, "Single note field to update when multi-field mode is off.", enabled=self._show_tooltips)
         set_hover_help(self.mode_combo, "Choose whether the workflow overwrites, appends, or skips already-filled target fields.", enabled=self._show_tooltips)
@@ -378,6 +382,7 @@ class ScriptWorkflowDialog(QDialog):
         preset_form.addRow("Temperature", temperature_row)
         preset_form.addRow("", self.multiple_target_fields_check)
         preset_form.addRow("", self.convert_markdown_to_html_check)
+        preset_form.addRow("", self.convert_field_html_to_markdown_check)
         preset_form.addRow("Response delimiter", self.delimiter_edit)
         preset_form.addRow("Target field", self.target_field_combo)
         preset_form.addRow("Mode", self.mode_combo)
@@ -519,6 +524,7 @@ class ScriptWorkflowDialog(QDialog):
         self.target_field_combo.setEditText(workflow.target_field)
         self.multiple_target_fields_check.setChecked(workflow.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(workflow.convert_markdown_to_html)
+        self.convert_field_html_to_markdown_check.setChecked(workflow.convert_field_html_to_markdown)
         self._set_temperature(workflow.temperature)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
         self._set_combo_to_data(self.api_mode_combo, workflow.api_mode or "global_default")
@@ -571,6 +577,7 @@ class ScriptWorkflowDialog(QDialog):
             mode=str(mode),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
             success_tags=_parse_tag_list(self.success_tags_edit.text()),
             failure_tags=_parse_tag_list(self.failure_tags_edit.text()),
@@ -668,7 +675,7 @@ class ScriptWorkflowDialog(QDialog):
     def _refresh_system_prompt_preview(self) -> None:
         prompt = self._selected_system_prompt()
         self.system_prompt_preview.blockSignals(True)
-        self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else self._raw_config.get("system_prompt", ""))
+        self.system_prompt_preview.setPlainText(prompt.prompt_text if prompt else "")
         self.system_prompt_preview.blockSignals(False)
 
     def _save_prompt_preview(self) -> bool:
@@ -717,17 +724,13 @@ class ScriptWorkflowDialog(QDialog):
 
     def _save_system_prompt_preview(self) -> bool:
         prompt = self._selected_system_prompt()
+        if prompt is None:
+            showCritical("Choose a saved system prompt before saving.", parent=self)
+            return False
         updated_text = self.system_prompt_preview.toPlainText().strip()
         if not updated_text:
             showCritical("System prompt text must not be empty.", parent=self)
             return False
-        if prompt is None:
-            if updated_text == str(self._raw_config.get("system_prompt", "")).strip():
-                return True
-            self._raw_config["system_prompt"] = updated_text
-            save_raw_config(self._raw_config)
-            show_tooltip("Saved default system prompt.", parent=self)
-            return True
         for index, current in enumerate(self._system_prompts):
             if current.prompt_id == prompt.prompt_id:
                 if updated_text == current.prompt_text:
@@ -758,12 +761,14 @@ class ScriptWorkflowDialog(QDialog):
         self.preset_combo.setEnabled(True)
         self.multiple_target_fields_check.setEnabled(True)
         self.convert_markdown_to_html_check.setEnabled(True)
+        self.convert_field_html_to_markdown_check.setEnabled(True)
         self.target_field_combo.setEnabled(not self.multiple_target_fields_check.isChecked())
         self.mode_combo.setEnabled(True)
         self.delimiter_edit.setEnabled(self.multiple_target_fields_check.isChecked())
         self._set_preset_form_row_visible(self._preset_row, True)
         self._set_preset_form_row_visible(self.multiple_target_fields_check, True)
         self._set_preset_form_row_visible(self.convert_markdown_to_html_check, True)
+        self._set_preset_form_row_visible(self.convert_field_html_to_markdown_check, True)
         self._set_preset_form_row_visible(self.delimiter_edit, True)
         self._set_preset_form_row_visible(self.target_field_combo, True)
         self._set_preset_form_row_visible(self.mode_combo, True)
@@ -811,6 +816,7 @@ class ScriptWorkflowDialog(QDialog):
         self._set_temperature(preset.temperature)
         self.multiple_target_fields_check.setChecked(preset.multiple_target_fields)
         self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
+        self.convert_field_html_to_markdown_check.setChecked(preset.convert_field_html_to_markdown)
         self.delimiter_edit.setText(preset.response_delimiter or "")
         if preset.target_field:
             self._set_target_field(preset.target_field)
@@ -858,6 +864,7 @@ class ScriptWorkflowDialog(QDialog):
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
         self._presets.append(preset)
@@ -908,6 +915,7 @@ class ScriptWorkflowDialog(QDialog):
                     mode=current.mode,
                     multiple_target_fields=current.multiple_target_fields,
                     convert_markdown_to_html=current.convert_markdown_to_html,
+                    convert_field_html_to_markdown=current.convert_field_html_to_markdown,
                     response_delimiter=current.response_delimiter,
                 )
                 break
@@ -971,6 +979,7 @@ class ScriptWorkflowDialog(QDialog):
                 "mode": preset.mode,
                 "multiple_target_fields": preset.multiple_target_fields,
                 "convert_markdown_to_html": preset.convert_markdown_to_html,
+                "convert_field_html_to_markdown": preset.convert_field_html_to_markdown,
                 "response_delimiter": preset.response_delimiter,
             }
             for preset in self._presets
@@ -991,6 +1000,7 @@ class ScriptWorkflowDialog(QDialog):
             mode=str(self.mode_combo.currentData() or WRITE_MODE_OVERWRITE),
             multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
         )
 
@@ -1225,11 +1235,7 @@ class ScriptWorkflowDialog(QDialog):
         self._refresh_system_prompt_preview()
 
     def _save_system_prompts(self) -> None:
-        self._raw_config["saved_system_prompts"] = [
-            {"id": prompt.prompt_id, "name": prompt.name, "prompt": prompt.prompt_text}
-            for prompt in self._system_prompts
-        ]
-        save_raw_config(self._raw_config)
+        save_saved_system_prompts(self._raw_config, self._system_prompts)
 
     def _validate_and_accept(self) -> None:
         if not self._save_prompt_preview():
@@ -1259,6 +1265,57 @@ class ScriptWorkflowDialog(QDialog):
             showCritical("Target field must not be empty.", parent=self)
             return
         self.accept()
+
+
+class WorkflowDialog(WorkflowDialog):
+    _build_ui = ScriptWorkflowDialog._build_ui
+    _make_collapsible_section = ScriptWorkflowDialog._make_collapsible_section
+    _expand_window_to_fit_content = ScriptWorkflowDialog._expand_window_to_fit_content
+    _populate = ScriptWorkflowDialog._populate
+    workflow_draft = ScriptWorkflowDialog.workflow_draft
+    _populate_model_combo = ScriptWorkflowDialog._populate_model_combo
+    _populate_preset_combo = ScriptWorkflowDialog._populate_preset_combo
+    _populate_prompt_combo = ScriptWorkflowDialog._populate_prompt_combo
+    _populate_group_edit = ScriptWorkflowDialog._populate_group_edit
+    _selected_prompt = ScriptWorkflowDialog._selected_prompt
+    _refresh_prompt_preview = ScriptWorkflowDialog._refresh_prompt_preview
+    _populate_system_prompt_combo = ScriptWorkflowDialog._populate_system_prompt_combo
+    _selected_system_prompt = ScriptWorkflowDialog._selected_system_prompt
+    _is_default_prompt = ScriptWorkflowDialog._is_default_prompt
+    _forked_prompt_name = ScriptWorkflowDialog._forked_prompt_name
+    _refresh_system_prompt_preview = ScriptWorkflowDialog._refresh_system_prompt_preview
+    _save_prompt_preview = ScriptWorkflowDialog._save_prompt_preview
+    _save_system_prompt_preview = ScriptWorkflowDialog._save_system_prompt_preview
+    _refresh_target_mode_ui = ScriptWorkflowDialog._refresh_target_mode_ui
+    _refresh_workflow_type_ui = ScriptWorkflowDialog._refresh_workflow_type_ui
+    _set_preset_form_row_visible = ScriptWorkflowDialog._set_preset_form_row_visible
+    _update_preset_group_title = ScriptWorkflowDialog._update_preset_group_title
+    _refresh_temperature_ui = ScriptWorkflowDialog._refresh_temperature_ui
+    _selected_preset = ScriptWorkflowDialog._selected_preset
+    _on_preset_changed = ScriptWorkflowDialog._on_preset_changed
+    _apply_preset = ScriptWorkflowDialog._apply_preset
+    _browse_prompt_library = ScriptWorkflowDialog._browse_prompt_library
+    _save_current_as_preset = ScriptWorkflowDialog._save_current_as_preset
+    _edit_selected_preset_metadata = ScriptWorkflowDialog._edit_selected_preset_metadata
+    _update_selected_preset = ScriptWorkflowDialog._update_selected_preset
+    _delete_selected_preset = ScriptWorkflowDialog._delete_selected_preset
+    _save_processing_presets = ScriptWorkflowDialog._save_processing_presets
+    _current_preset_choice = ScriptWorkflowDialog._current_preset_choice
+    _set_combo_to_data = ScriptWorkflowDialog._set_combo_to_data
+    _selected_temperature = ScriptWorkflowDialog._selected_temperature
+    _set_temperature = ScriptWorkflowDialog._set_temperature
+    _set_target_field = ScriptWorkflowDialog._set_target_field
+    _refresh_query_count = ScriptWorkflowDialog._refresh_query_count
+    _create_prompt = ScriptWorkflowDialog._create_prompt
+    _edit_prompt = ScriptWorkflowDialog._edit_prompt
+    _delete_prompt = ScriptWorkflowDialog._delete_prompt
+    _save_prompts = ScriptWorkflowDialog._save_prompts
+    _refresh_prompt_selection_label = ScriptWorkflowDialog._refresh_prompt_selection_label
+    _create_system_prompt = ScriptWorkflowDialog._create_system_prompt
+    _edit_system_prompt = ScriptWorkflowDialog._edit_system_prompt
+    _delete_system_prompt = ScriptWorkflowDialog._delete_system_prompt
+    _save_system_prompts = ScriptWorkflowDialog._save_system_prompts
+    _validate_and_accept = ScriptWorkflowDialog._validate_and_accept
 
 
 def _find_note_ids_for_query(query: str) -> list[int]:

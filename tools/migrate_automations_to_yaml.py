@@ -12,16 +12,13 @@ META_JSON = ROOT / "meta.json"
 AUTOMATION_LIBRARY_ROOT = ROOT / "automation_library"
 DEFAULT_GROUPS_DIR = AUTOMATION_LIBRARY_ROOT / "groups"
 DEFAULT_WORKFLOWS_DIR = AUTOMATION_LIBRARY_ROOT / "workflows"
-DEFAULT_PIPELINES_DIR = AUTOMATION_LIBRARY_ROOT / "pipelines"
 
 USER_DATA_ROOT = ROOT / "user_data"
 USER_GROUPS_DIR = USER_DATA_ROOT / "groups"
 USER_WORKFLOWS_DIR = USER_DATA_ROOT / "workflows"
-USER_PIPELINES_DIR = USER_DATA_ROOT / "pipelines"
 
 WORKFLOW_GROUP_ORDER_KEY = "workflow_group_order"
 WORKFLOW_ORDER_KEY = "workflow_order"
-PIPELINE_ORDER_KEY = "pipeline_order"
 
 
 def main() -> None:
@@ -29,20 +26,16 @@ def main() -> None:
         CONFIG_JSON,
         groups_dir=DEFAULT_GROUPS_DIR,
         workflows_dir=DEFAULT_WORKFLOWS_DIR,
-        pipelines_dir=DEFAULT_PIPELINES_DIR,
         default_groups_dir=None,
         default_workflows_dir=None,
-        default_pipelines_dir=None,
         wrapped=False,
     )
     migrate_file(
         META_JSON,
         groups_dir=USER_GROUPS_DIR,
         workflows_dir=USER_WORKFLOWS_DIR,
-        pipelines_dir=USER_PIPELINES_DIR,
         default_groups_dir=DEFAULT_GROUPS_DIR,
         default_workflows_dir=DEFAULT_WORKFLOWS_DIR,
-        default_pipelines_dir=DEFAULT_PIPELINES_DIR,
         wrapped=True,
     )
 
@@ -52,10 +45,8 @@ def migrate_file(
     *,
     groups_dir: Path,
     workflows_dir: Path,
-    pipelines_dir: Path,
     default_groups_dir: Path | None,
     default_workflows_dir: Path | None,
-    default_pipelines_dir: Path | None,
     wrapped: bool,
 ) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -73,18 +64,13 @@ def migrate_file(
         workflows_dir,
         default_dir=default_workflows_dir,
     ) or read_existing_order(scope.get(WORKFLOW_ORDER_KEY), workflows_dir)
-    pipeline_ids = export_items(
-        scope.get("pipelines", []),
-        pipelines_dir,
-        default_dir=default_pipelines_dir,
-    ) or read_existing_order(scope.get(PIPELINE_ORDER_KEY), pipelines_dir)
 
     scope["workflow_groups"] = []
     scope["workflows"] = []
-    scope["pipelines"] = []
     scope[WORKFLOW_GROUP_ORDER_KEY] = group_ids
     scope[WORKFLOW_ORDER_KEY] = workflow_ids
-    scope[PIPELINE_ORDER_KEY] = pipeline_ids
+    scope.pop("pipelines", None)
+    scope.pop("pipeline_order", None)
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 

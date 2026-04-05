@@ -299,8 +299,6 @@ def parse_workflow_entry(
     workflow_type = read_string(item, "workflow_type", default="field_update")
     if workflow_type not in allowed_workflow_types:
         raise ConfigError("Workflow type must be 'field_update' or 'script'.")
-    if workflow_type == "audit":
-        return None
     if workflow_type == "script":
         script_command = read_string(item, "script_command")
         resolved_workflow_prompt_id = ""
@@ -362,17 +360,10 @@ def parse_workflow_entry(
         system_prompt_id=system_prompt_id,
         multiple_target_fields=multiple_target_fields,
         convert_markdown_to_html=read_bool(item, "convert_markdown_to_html", default=True),
+        convert_field_html_to_markdown=read_bool(item, "convert_field_html_to_markdown", default=False),
         response_delimiter=response_delimiter,
-        schema_preset=read_optional_string(item, "schema_preset"),
-        response_schema_json=read_optional_string(item, "response_schema_json"),
-        note_type_filter=read_optional_string(item, "note_type_filter"),
-        clear_status_tags=read_optional_string_list(item.get("clear_status_tags"), f"workflows[{index}].clear_status_tags") or None,
-        status_tag_map=read_optional_string_map(item, "status_tag_map"),
-        extra_status_tags=read_optional_string_list_map(item, "extra_status_tags"),
         success_tags=read_optional_string_list(item.get("success_tags"), f"workflows[{index}].success_tags") or None,
         failure_tags=read_optional_string_list(item.get("failure_tags"), f"workflows[{index}].failure_tags") or None,
-        metadata_field_map=read_optional_string_map(item, "metadata_field_map"),
-        store_raw_output=read_bool(item, "store_raw_output", default=True),
         trigger_on_startup=trigger_on_startup,
         trigger_on_periodic=trigger_on_periodic,
         trigger_min_matches=trigger_min_matches,

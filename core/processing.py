@@ -373,6 +373,7 @@ def _build_manual_snapshots(
                 write_mode=spec.write_mode,
                 multiple_target_fields=spec.multiple_target_fields,
                 convert_markdown_to_html=spec.convert_markdown_to_html,
+                convert_field_html_to_markdown=spec.convert_field_html_to_markdown,
                 response_delimiter=spec.response_delimiter,
             )
         )
@@ -526,6 +527,7 @@ def _render_snapshot_prompts(
     prompt_values = build_prompt_values(
         snapshot.fields,
         note_type_name=snapshot.note_type_name if "NoteType" in plan.prompt_fields else None,
+        convert_field_html_to_markdown=snapshot.convert_field_html_to_markdown,
     )
     prompt = render_prompt(plan.prompt_template, prompt_values)
     return snapshot.system_prompt, prompt

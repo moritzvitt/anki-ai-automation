@@ -45,6 +45,7 @@ class ProcessingPreset:
     mode: str = "overwrite"
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = True
+    convert_field_html_to_markdown: bool = False
     response_delimiter: str | None = None
 
 
@@ -71,17 +72,10 @@ class Workflow:
     system_prompt_id: str | None = None
     multiple_target_fields: bool = False
     convert_markdown_to_html: bool = True
+    convert_field_html_to_markdown: bool = False
     response_delimiter: str | None = None
-    schema_preset: str | None = None
-    response_schema_json: str | None = None
-    note_type_filter: str | None = None
-    clear_status_tags: list[str] | None = None
-    status_tag_map: dict[str, str] | None = None
-    extra_status_tags: dict[str, list[str]] | None = None
     success_tags: list[str] | None = None
     failure_tags: list[str] | None = None
-    metadata_field_map: dict[str, str] | None = None
-    store_raw_output: bool = True
     trigger_on_startup: bool = False
     trigger_on_periodic: bool = False
     trigger_min_matches: int = 1

@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- An optional `Convert field HTML to Markdown for placeholders` setting for Browser runs, presets, and workflows, so prompt placeholders can send cleaner Markdown text to the model instead of raw HTML.
 - Workflow groups can now include explicit custom script steps that appear in the normal workflow list and run in sequence like any other workflow, making post-processing automation visible and orderable instead of hidden behind a separate group hook.
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
 - A branch naming convention doc under `docs/release/branch-naming.md` so future work can use short, consistent branch names like `feature/browser-prompt-library-picker`.
@@ -31,6 +32,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Config and UI prompt handling now keep both normal prompts and system prompts in markdown files under `prompt_library/` instead of embedding prompt text in `config.json` / `meta.json`, while still importing older saved config prompts into files.
+- `Process specific cards with AI` presets now tolerate empty saved target fields, and workflow prompt rendering can optionally convert placeholder field HTML to Markdown before the model sees it.
 - Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
 - The README, config guide, release descriptions, and architecture notes now describe the current Browser/workflow/script model instead of the removed pipeline and structured-audit architecture.
 - Several MLR user prompts were renamed and lightly cleaned up so their saved names better match the fields they target.
@@ -79,6 +82,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Removed
 
+- Removed obsolete embedded prompt text from the tracked config template, the outdated `tools/build_config_from_prompts.py` helper, and leftover user-data audit/pipeline YAML files that are no longer part of the active workflow architecture.
 - Removed the audit-specific structured JSON workflow path, the pipeline execution layer, the Browser audit entry point, and the associated shipped audit/pipeline YAML definitions, returning the add-on to prompt-driven field-update workflows plus optional post-group scripting.
 - Removed the older shipped MLR maintenance, audit-follow-up, and card-optimization workflow/group YAML definitions plus the corresponding `FIXABLE_MAJOR` rework workflow YAMLs from `user_data`, reducing the prompt-focused branch back down to the automation set that is still actively used.
 

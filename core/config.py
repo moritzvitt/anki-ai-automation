@@ -47,8 +47,12 @@ from .config_parsing import (
 )
 from .config_prompt_library import (
     import_legacy_prompts_to_files,
+    import_legacy_system_prompts_to_files,
     load_prompt_files,
+    load_system_prompt_files,
+    prompt_path_for_id,
     prompt_config_scope,
+    prune_removed_system_prompt_files,
     prune_removed_user_prompt_files,
     target_prompt_path,
 )
@@ -59,7 +63,9 @@ ADDON_NAME = __name__.split(".")[0]
 PROMPT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "prompt_library"
 DEFAULT_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "default_prompts"
 USER_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "user_prompts"
+SYSTEM_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "system_prompts"
 SAVED_PROMPT_ORDER_KEY = "saved_prompt_order"
+SAVED_SYSTEM_PROMPT_ORDER_KEY = "saved_system_prompt_order"
 AUTOMATION_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "automation_library"
 DEFAULT_GROUPS_DIR = AUTOMATION_LIBRARY_ROOT / "groups"
 DEFAULT_WORKFLOWS_DIR = AUTOMATION_LIBRARY_ROOT / "workflows"
@@ -83,8 +89,8 @@ def load_config() -> AddonConfig:
     use_chat_completions_api = read_bool(raw, "use_chat_completions_api", default=True)
     api_key = read_string(raw, "openai_api_key", allow_empty=True)
     model = read_string(raw, "model", default="gpt-5-mini")
-    default_prompt_template = read_string(raw, "prompt_template")
-    system_prompt = read_string(raw, "system_prompt")
+    legacy_default_prompt_template = read_optional_string(raw, "prompt_template") or ""
+    legacy_default_system_prompt = read_optional_string(raw, "system_prompt") or ""
     batch_size = read_int(raw, "batch_size", minimum=1, default=20)
     max_parallel_requests = read_int(raw, "max_parallel_requests", minimum=1, default=4)
     request_timeout_seconds = read_float(raw, "request_timeout_seconds", minimum=1.0, default=90.0)
@@ -107,11 +113,13 @@ def load_config() -> AddonConfig:
         raise ConfigError("Config key 'field_mappings' must be a non-empty list.")
     field_mappings = [parse_field_mapping(item, index=index) for index, item in enumerate(field_mappings_raw)]
 
-    saved_prompts = _read_saved_prompts(raw, fallback_prompt_template=default_prompt_template)
+    saved_prompts = _read_saved_prompts(raw, fallback_prompt_template=legacy_default_prompt_template)
     saved_system_prompts = _read_saved_system_prompts(
-        raw.get("saved_system_prompts", []),
-        fallback_system_prompt=system_prompt,
+        raw,
+        fallback_system_prompt=legacy_default_system_prompt,
     )
+    default_prompt_template = _default_prompt_text(raw, saved_prompts, legacy_default_prompt_template)
+    system_prompt = _default_system_prompt_text(raw, saved_system_prompts, legacy_default_system_prompt)
     processing_presets = _read_processing_presets(
         raw.get("saved_processing_presets", []),
         saved_prompts=saved_prompts,
@@ -166,6 +174,11 @@ def load_raw_config() -> dict[str, Any]:
 def save_raw_config(raw_config: dict[str, Any]) -> None:
     if mw is None:
         raise ConfigError("Anki main window is not available.")
+    config_scope = prompt_config_scope(raw_config)
+    config_scope.pop("saved_prompts", None)
+    config_scope.pop("saved_system_prompts", None)
+    config_scope.pop("prompt_template", None)
+    config_scope.pop("system_prompt", None)
     mw.addonManager.writeConfig(ADDON_NAME, raw_config)
 
 
@@ -195,6 +208,35 @@ def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
     prune_removed_user_prompt_files(seen_ids, user_prompts_dir=USER_PROMPTS_DIR)
     config_scope["saved_prompts"] = []
     config_scope[SAVED_PROMPT_ORDER_KEY] = ordered_ids
+    if ordered_ids:
+        config_scope["default_prompt_id"] = _default_prompt_id_from_raw(config_scope, ordered_ids)
+    else:
+        config_scope.pop("default_prompt_id", None)
+    save_raw_config(raw_config)
+
+
+def save_saved_system_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
+    config_scope = prompt_config_scope(raw_config)
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for prompt in prompts:
+        prompt_id = str(getattr(prompt, "prompt_id", "")).strip()
+        name = str(getattr(prompt, "name", "")).strip()
+        prompt_text = str(getattr(prompt, "prompt_text", "")).strip()
+        if not prompt_id or not name or not prompt_text:
+            continue
+        write_prompt_markdown(prompt_path_for_id(SYSTEM_PROMPTS_DIR, prompt_id), name, prompt_text)
+        if prompt_id not in seen_ids:
+            ordered_ids.append(prompt_id)
+            seen_ids.add(prompt_id)
+
+    prune_removed_system_prompt_files(seen_ids, system_prompts_dir=SYSTEM_PROMPTS_DIR)
+    config_scope["saved_system_prompts"] = []
+    config_scope[SAVED_SYSTEM_PROMPT_ORDER_KEY] = ordered_ids
+    if ordered_ids:
+        config_scope["default_system_prompt_id"] = _default_system_prompt_id_from_raw(config_scope, ordered_ids)
+    else:
+        config_scope.pop("default_system_prompt_id", None)
     save_raw_config(raw_config)
 
 
@@ -295,8 +337,22 @@ def _read_workflow_groups(raw_config: dict[str, Any]) -> list[WorkflowGroup]:
     return ordered_automation_values(file_groups, config_scope.get(WORKFLOW_GROUP_ORDER_KEY), file_order)
 
 
-def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> list[SavedSystemPrompt]:
-    if value in (None, []):
+def _read_saved_system_prompts(raw_config: dict[str, Any], *, fallback_system_prompt: str) -> list[SavedSystemPrompt]:
+    file_prompts, file_order = load_system_prompt_files(system_prompts_dir=SYSTEM_PROMPTS_DIR)
+    config_scope = prompt_config_scope(raw_config)
+    legacy_prompts = _read_legacy_saved_system_prompts(config_scope.get("saved_system_prompts", []))
+    if legacy_prompts:
+        imported = import_legacy_system_prompts_to_files(
+            file_prompts=file_prompts,
+            legacy_prompts=legacy_prompts,
+            system_prompts_dir=SYSTEM_PROMPTS_DIR,
+        )
+        if imported:
+            file_prompts, file_order = load_system_prompt_files(system_prompts_dir=SYSTEM_PROMPTS_DIR)
+        config_scope["saved_system_prompts"] = []
+        save_raw_config(raw_config)
+
+    if not file_prompts:
         return [
             SavedSystemPrompt(
                 prompt_id=DEFAULT_SYSTEM_PROMPT_ID,
@@ -304,6 +360,28 @@ def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> li
                 prompt_text=fallback_system_prompt,
             )
         ]
+
+    configured_order = read_prompt_order(config_scope.get(SAVED_SYSTEM_PROMPT_ORDER_KEY))
+    ordered_ids = configured_order or file_order
+    prompts: list[SavedSystemPrompt] = []
+    seen_ids: set[str] = set()
+    for prompt_id in ordered_ids:
+        prompt = file_prompts.get(prompt_id)
+        if prompt is None or prompt_id in seen_ids:
+            continue
+        prompts.append(prompt)
+        seen_ids.add(prompt_id)
+    for prompt_id in file_order:
+        if prompt_id in seen_ids:
+            continue
+        prompts.append(file_prompts[prompt_id])
+        seen_ids.add(prompt_id)
+    return prompts
+
+
+def _read_legacy_saved_system_prompts(value: Any) -> list[SavedSystemPrompt]:
+    if value in (None, []):
+        return []
     if not isinstance(value, list):
         raise ConfigError("Config key 'saved_system_prompts' must be a list.")
 
@@ -324,6 +402,48 @@ def _read_saved_system_prompts(value: Any, *, fallback_system_prompt: str) -> li
             )
         )
     return prompts
+
+
+def _default_prompt_id_from_raw(config_scope: dict[str, Any], ordered_ids: list[str]) -> str:
+    configured = read_optional_string(config_scope, "default_prompt_id")
+    if configured and configured in ordered_ids:
+        return configured
+    if "general/default-prompt" in ordered_ids:
+        return "general/default-prompt"
+    if "default-prompt" in ordered_ids:
+        return "default-prompt"
+    return ordered_ids[0]
+
+
+def _default_system_prompt_id_from_raw(config_scope: dict[str, Any], ordered_ids: list[str]) -> str:
+    configured = read_optional_string(config_scope, "default_system_prompt_id")
+    if configured and configured in ordered_ids:
+        return configured
+    if DEFAULT_SYSTEM_PROMPT_ID in ordered_ids:
+        return DEFAULT_SYSTEM_PROMPT_ID
+    return ordered_ids[0]
+
+
+def _default_prompt_text(raw_config: dict[str, Any], prompts: list[SavedPrompt], fallback: str) -> str:
+    if not prompts:
+        return fallback
+    config_scope = prompt_config_scope(raw_config)
+    default_id = _default_prompt_id_from_raw(config_scope, [prompt.prompt_id for prompt in prompts])
+    for prompt in prompts:
+        if prompt.prompt_id == default_id:
+            return prompt.prompt_text
+    return prompts[0].prompt_text
+
+
+def _default_system_prompt_text(raw_config: dict[str, Any], prompts: list[SavedSystemPrompt], fallback: str) -> str:
+    if not prompts:
+        return fallback
+    config_scope = prompt_config_scope(raw_config)
+    default_id = _default_system_prompt_id_from_raw(config_scope, [prompt.prompt_id for prompt in prompts])
+    for prompt in prompts:
+        if prompt.prompt_id == default_id:
+            return prompt.prompt_text
+    return prompts[0].prompt_text
 
 
 def _read_processing_presets(
@@ -387,11 +507,12 @@ def _read_processing_presets(
                     "target_field",
                     aliases=("targetfield", "targetField"),
                     default="",
-                    allow_empty=multiple_target_fields,
+                    allow_empty=True,
                 ),
                 mode=mode,
                 multiple_target_fields=multiple_target_fields,
                 convert_markdown_to_html=read_bool(item, "convert_markdown_to_html", default=True),
+                convert_field_html_to_markdown=read_bool(item, "convert_field_html_to_markdown", default=False),
                 response_delimiter=response_delimiter,
             )
         )
@@ -417,7 +538,7 @@ def _read_workflows(
         allowed_system_prompt_ids=allowed_system_prompt_ids,
         allowed_group_ids=allowed_group_ids,
         allowed_modes={"append", "overwrite", "skip_nonempty"},
-        allowed_workflow_types={"field_update", "audit", "script"},
+        allowed_workflow_types={"field_update", "script"},
         allowed_api_modes={"global_default", "responses", "chat_completions"},
     )
     file_workflows, file_order = load_automation_files(
@@ -466,17 +587,10 @@ def _automation_item_to_dict(item: Any) -> dict[str, Any]:
             "system_prompt_id": item.system_prompt_id,
             "multiple_target_fields": item.multiple_target_fields,
             "convert_markdown_to_html": item.convert_markdown_to_html,
+            "convert_field_html_to_markdown": item.convert_field_html_to_markdown,
             "response_delimiter": item.response_delimiter,
-            "schema_preset": item.schema_preset,
-            "response_schema_json": item.response_schema_json,
-            "note_type_filter": item.note_type_filter,
-            "clear_status_tags": item.clear_status_tags,
-            "status_tag_map": item.status_tag_map,
-            "extra_status_tags": item.extra_status_tags,
             "success_tags": item.success_tags,
             "failure_tags": item.failure_tags,
-            "metadata_field_map": item.metadata_field_map,
-            "store_raw_output": item.store_raw_output,
             "trigger_on_startup": item.trigger_on_startup,
             "trigger_on_periodic": item.trigger_on_periodic,
             "trigger_min_matches": item.trigger_min_matches,

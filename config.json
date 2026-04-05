@@ -4,8 +4,6 @@
   "use_chat_completions_api": true,
   "openai_api_key": "",
   "model": "gpt-5-mini",
-  "system_prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON.\n\nFormatting guidance for any string fields you generate:\n- Write in clean Markdown similar to the ChatGPT app.\n- Use short paragraphs with clear spacing.\n- Use Markdown headings when they improve readability.\n- Use bullet lists for distinct points.\n- Use numbered lists only for ordered steps.\n- Use **bold** sparingly for emphasis.\n- Do not wrap the whole response in code fences unless the user explicitly wants code.\n- Do not add decorative symbols or unnecessary filler.\n- Keep the formatting readable after Markdown is converted to HTML.",
-  "prompt_template": "Improve the following flashcard content for note type {{NoteType}}.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}",
   "batch_size": 20,
   "max_parallel_requests": 4,
   "request_timeout_seconds": 90,
@@ -18,100 +16,6 @@
   "usage_history_limit": 20,
   "model_pricing": {},
   "prompt_history": [],
-  "saved_prompts": [
-    {
-      "id": "default-prompt",
-      "name": "Default prompt",
-      "prompt": "Improve the following flashcard content for note type {{NoteType}}.\n\nFront:\n{{Front}}\n\nBack:\n{{Back}}"
-    },
-    {
-      "id": "card-quality-check",
-      "name": "Card Quality Check",
-      "prompt": "You are evaluating an Anki card for efficient learning.\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\n\nTasks:\n1. Decide:\n   - GOOD -> ready to learn\n   - FIX -> small improvements needed\n   - BAD -> should not be learned (low value, unclear, redundant, etc.)\n\n2. If FIX or BAD, explain briefly why.\n\n3. Suggest concrete improvements:\n   - wording\n   - missing context\n   - ambiguity\n   - overload (too much info)\n   - unnatural Japanese (if applicable)\n\n4. If possible, provide an improved version of the card (Front/Back only).\n\nKeep output concise and structured."
-    },
-    {
-      "id": "update-japanese-notes",
-      "name": "Update Japanese Notes",
-      "prompt": "You are refining the \"Japanese Notes\" field of an Anki card for an intermediate learner (B1-B2).\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nCurrent Japanese Notes: {{Japanese Notes}}\n\nTasks:\n1. Improve or rewrite the Japanese Notes to be:\n   - concise\n   - linguistically useful\n   - focused on nuance (register, collocations, restrictions, etc.)\n\n2. Include only relevant info such as:\n   - nuance vs similar expressions\n   - typical usage patterns\n   - common pitfalls\n   - kanji/reading notes only if non-trivial\n\n3. Avoid basic explanations.\n\n4. Output ONLY the updated \"Japanese Notes\" field."
-    },
-    {
-      "id": "update-grammar-notes",
-      "name": "Update Notes (Grammar Explanation)",
-      "prompt": "You are improving the \"Notes\" field (grammar explanation) of an Anki card for an intermediate learner.\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nCurrent Notes: {{Notes}}\n\nTasks:\n1. Rewrite the Notes to:\n   - clearly explain the grammar point\n   - focus on function and nuance\n   - include 1 short example if helpful\n\n2. Prefer:\n   - contrasts with similar grammar\n   - usage constraints\n   - sentence-level function\n\n3. Avoid:\n   - overly basic explanations\n   - long paragraphs\n\n4. Output ONLY the updated \"Notes\" field."
-    },
-    {
-      "id": "full-card-optimization",
-      "name": "Full Card Optimization",
-      "prompt": "You are optimizing an Anki card for efficient long-term retention (intermediate Japanese learner).\n\nCard:\nFront: {{Front}}\nBack: {{Back}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\n\nTasks:\n1. Evaluate card quality: GOOD / FIX / BAD\n\n2. If FIX or BAD:\n   - briefly explain why\n\n3. Improve:\n   - Front (clear, minimal, unambiguous)\n   - Back (precise, not overloaded)\n   - Japanese Notes (concise, nuance-focused)\n   - Notes (clear grammar explanation)\n\n4. Keep everything compact and high-signal.\n\nOutput format:\n--Front--\n...\n--Back--\n...\n--Japanese Notes--\n...\n--Notes--\n..."
-    },
-    {
-      "id": "mlr-card-quality-check",
-      "name": "MLR Card Quality Check",
-      "prompt": "You are evaluating an Anki card for efficient learning (intermediate Japanese learner).\n\nNote Type: Moritz Language Reactor\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTasks:\n1. Classify the card:\n   - GOOD -> ready to learn\n   - FIX -> small improvements needed\n   - BAD -> should not be learned\n\n2. Check specifically:\n   - Is the cloze deletion meaningful and unambiguous?\n   - Is Lemma correct and useful?\n   - Is the sentence (Subtitle) natural and informative?\n   - Is there unnecessary or missing info?\n   - Is the card testing ONE clear thing?\n\n3. If FIX or BAD:\n   - give short reason\n   - suggest concrete fixes\n\n4. If possible, provide an improved version of:\n   - Cloze\n   - Subtitle\n\nOutput format:\nQuality: ...\nReason: ...\nSuggestions:\n- ...\nImproved Cloze: ...\nImproved Subtitle: ..."
-    },
-    {
-      "id": "mlr-full-field-refactor",
-      "name": "MLR Full Field Refactor",
-      "prompt": "You are optimizing an Anki note for a B1-B2 Japanese learner.\n\nNote Type: Moritz Language Reactor\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTasks:\nUpdate the fields to maximize learning efficiency.\n\nGuidelines:\n- Keep everything concise and high-signal\n- Avoid beginner explanations\n- Focus on nuance, usage, and clarity\n- Do NOT repeat information across fields unnecessarily\n\nField-specific rules:\n- Lemma: dictionary form, correct kanji/kana\n- Japanese Notes: nuance, collocations, register, pitfalls\n- Word Definition: short, precise English meaning(s)\n- Notes: grammar/function explanation (if relevant)\n- Cloze: must test ONE clear element\n- Subtitle: natural full sentence without cloze markup\n\nOutput EXACTLY in this format:\n\n--Cloze--\n...\n\n--Lemma--\n...\n\n--Subtitle--\n...\n\n--Japanese Notes--\n...\n\n--Word Definition--\n...\n\n--Notes--\n..."
-    },
-    {
-      "id": "mlr-japanese-notes-improver",
-      "name": "MLR Japanese Notes Improver",
-      "prompt": "# MLR Japanese Notes Improver\n\nYou are refining the \"Japanese Notes\" field for an intermediate learner.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\n\nTask:\nRewrite Japanese Notes to be:\n- concise\n- focused on nuance and usage\n- helpful at B1-B2 level\n\nInclude only if relevant:\n- nuance vs similar words\n- collocations\n- register (casual, formal, written, etc.)\n- restrictions / common mistakes\n\nAvoid:\n- basic explanations\n- redundancy\n\nOutput ONLY the updated \"Japanese Notes\" field content.\n"
-    },
-    {
-      "id": "mlr-word-definition-optimizer",
-      "name": "MLR Word Definition Optimizer",
-      "prompt": "# MLR Word Definition Optimizer\n\nYou are improving the \"Word Definition\" field.\n\nFields:\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\n\nTask:\nCreate a concise and precise definition.\n\nRules:\n- short (1-2 lines max)\n- capture core meaning\n- include multiple meanings ONLY if common\n- avoid dictionary clutter\n- prefer natural English over literal gloss\n\nOutput ONLY the updated \"Word Definition\" field content.\n"
-    },
-    {
-      "id": "mlr-grammar-notes-generator",
-      "name": "MLR Grammar Notes Generator",
-      "prompt": "You are writing the \"Notes\" field (grammar explanation).\n\nFields:\nCloze: {{Cloze}}\nSubtitle: {{Subtitle}}\nNotes: {{Notes}}\n\nTask:\nExplain the grammar or structure being tested.\n\nGuidelines:\n- focus on function and nuance\n- include contrast if useful\n- optionally include 1 short example\n- keep concise\n\nAvoid:\n- beginner-level explanations\n- long paragraphs\n\nOutput format:\n--Notes--\n..."
-    },
-    {
-      "id": "mlr-cloze-optimization",
-      "name": "MLR Cloze Optimization",
-      "prompt": "You are improving the cloze deletion of a Japanese sentence.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\n\nTask:\n1. Ensure the cloze tests ONE clear item (word or grammar)\n2. Avoid ambiguity (only one correct answer)\n3. Keep sentence natural and useful\n\nOutput format:\n--Cloze--\n...\n\n--Subtitle--\n..."
-    },
-    {
-      "id": "mlr-fix-only-whats-wrong",
-      "name": "MLR Fix Only What's Wrong",
-      "prompt": "You are fixing an Anki note ONLY if necessary.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nJapanese Notes: {{Japanese Notes}}\nWord Definition: {{Word Definition}}\nNotes: {{Notes}}\n\nTask:\n- If the card is GOOD -> output nothing\n- If not -> output ONLY changed fields\n\nOutput format (only include fields that change):\n\n--FieldName--\nnew content"
-    },
-    {
-      "id": "mlr-audit-prompt",
-      "name": "MLR Audit",
-      "prompt": "Review this Japanese Anki card for study quality.\n\nYour task is diagnostic and routing-only.\nDo not rewrite any field content.\nEvaluate whether the card is good as-is, fixable with limited support-field changes, too risky for limited automatic fixing, unsuitable for study, or should be skipped.\n\nUse these criteria:\n1. Clear learning focus\n2. Natural and comprehensible Japanese\n3. Good cloze design\n4. Correct and useful meaning/explanations\n5. Appropriate amount of information\n6. No misleading or major errors\n\nImportant rules:\n- Use GOOD only if the card is already study-ready.\n- Use FIXABLE_MINOR if only supporting fields need modest changes.\n- Use FIXABLE_MAJOR if the card may be repairable, but not safely through limited automatic changes.\n- Use REJECT if the card should not be learned in its current form.\n- Use SKIP if the card cannot be classified cleanly in this workflow.\n- fields_to_update may only include Japanese Notes, Notes, Word Definition, or Grammar.\n- Prefer minimal intervention.\n- Return JSON only.\n\nCard fields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\nGrammar: {{Grammar}}\n"
-    },
-    {
-      "id": "mlr-grammar-field-improver",
-      "name": "MLR Grammar Field Improver",
-      "prompt": "You are improving the \"Grammar\" field of a Japanese Anki card.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nGrammar: {{Grammar}}\nNotes: {{Notes}}\n\nTask:\nIdentify the most relevant grammar point or structure in this sentence and explain it briefly and accurately.\n\nRequirements:\n- concise\n- sentence-specific\n- no generic textbook dump\n- no duplication of vocabulary notes\n- mention the exact form used in the sentence when helpful\n\nOutput ONLY the updated \"Grammar\" field content.\n"
-    },
-    {
-      "id": "mlr-audit-follow-up-combined",
-      "name": "MLR Audit Follow-up Combined",
-      "prompt": "# MLR Audit Follow-up Combined\n\nYou are improving the support fields of a Japanese Anki card after an audit marked it as fixable with minor changes.\n\nFields:\nCloze: {{Cloze}}\nLemma: {{Lemma}}\nSubtitle: {{Subtitle}}\nWord Definition: {{Word Definition}}\nJapanese Notes: {{Japanese Notes}}\nNotes: {{Notes}}\nGrammar: {{Grammar}}\nAI Audit Status: {{AI Audit Status}}\nAI Audit Summary: {{AI Audit Summary}}\nAI Fields To Update: {{AI Fields To Update}}\n\nTask:\nUpdate only the support fields that actually need improvement.\n\nPossible fields to update:\n- Japanese Notes\n- Notes\n- Word Definition\n- Grammar\n\nRules:\n- Use `AI Fields To Update` as the primary guide for which fields to touch.\n- Do not rewrite Cloze, Lemma, or Subtitle.\n- Do not include fields that do not need a change.\n- Keep each updated field concise and useful.\n- Avoid duplicating the same explanation across fields.\n\nOutput format:\n--{Japanese Notes}--\n...\n\n--{Notes}--\n...\n\n--{Word Definition}--\n...\n\n--{Grammar}--\n...\n\nOnly include field blocks for fields you are actually changing.\n"
-    }
-  ],
-  "saved_system_prompts": [
-    {
-      "id": "default-system-prompt",
-      "name": "Default system prompt",
-      "prompt": "You improve Anki flashcards. Return only valid JSON matching the requested schema. Preserve important facts, keep output concise, and do not include explanations outside the JSON.\n\nFormatting guidance for any string fields you generate:\n- Write in clean Markdown similar to the ChatGPT app.\n- Use short paragraphs with clear spacing.\n- Use Markdown headings when they improve readability.\n- Use bullet lists for distinct points.\n- Use numbered lists only for ordered steps.\n- Use **bold** sparingly for emphasis.\n- Do not wrap the whole response in code fences unless the user explicitly wants code.\n- Do not add decorative symbols or unnecessary filler.\n- Keep the formatting readable after Markdown is converted to HTML."
-    },
-    {
-      "id": "delimited-field-sections",
-      "name": "Delimited Field Sections",
-      "prompt": "You improve Anki flashcards. Follow the user's requested delimiter-based output format exactly. Return only the field sections, keep the original meaning intact, stay concise, and do not include commentary before or after the delimited sections."
-    },
-    {
-      "id": "mlr-audit-system",
-      "name": "MLR Audit System",
-      "prompt": "You are auditing Japanese Anki cards for study quality. This stage is diagnostic only. Do not rewrite any card fields. Return only valid JSON that matches the requested schema."
-    }
-  ],
   "saved_processing_presets": [
     {
       "id": "preset-update-japanese-notes",
@@ -221,7 +125,6 @@
   ],
   "workflow_groups": [],
   "workflows": [],
-  "pipelines": [],
   "field_mappings": [
     {
       "note_type": "Basic",
@@ -236,32 +139,10 @@
       ]
     }
   ],
-  "workflow_group_order": [
-    "japanese-maintenance",
-    "mlr-maintenance",
-    "mlr-audit-follow-up",
-    "mlr-audit-combined"
-  ],
-  "workflow_order": [
-    "workflow-card-quality-check",
-    "workflow-update-japanese-notes",
-    "workflow-update-grammar-notes",
-    "workflow-full-card-optimization",
-    "workflow-mlr-card-quality-check",
-    "workflow-mlr-full-field-refactor",
-    "workflow-mlr-japanese-notes",
-    "workflow-mlr-word-definition",
-    "workflow-mlr-grammar-notes",
-    "workflow-mlr-cloze-optimization",
-    "workflow-mlr-fix-only",
-    "workflow-mlr-fix-minor-japanese-notes",
-    "workflow-mlr-fix-minor-notes",
-    "workflow-mlr-fix-minor-word-definition",
-    "mlr-audit",
-    "workflow-mlr-fix-minor-grammar",
-    "workflow-mlr-fix-minor-combined"
-  ],
-  "pipeline_order": [
-    "pipeline-mlr-audit-first-15"
-  ]
+  "workflow_group_order": [],
+  "workflow_order": [],
+  "saved_prompt_order": [],
+  "saved_system_prompt_order": [],
+  "default_prompt_id": "general/default-prompt",
+  "default_system_prompt_id": "default-system-prompt"
 }

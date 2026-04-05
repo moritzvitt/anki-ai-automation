@@ -26,16 +26,21 @@ def extract_placeholders(template: str) -> list[str]:
     return list(_extract_placeholders_cached(template))
 
 
-def build_prompt_values(values: Mapping[str, str], *, note_type_name: str | None = None) -> dict[str, str]:
-    """Prepare prompt placeholder values shared across all API-bound flows.
-
-    `Cloze` and `Subtitle` are always stripped down to plain text before being
-    sent to a model so HTML-heavy note content does not leak into prompts.
-    """
-    prompt_values = {
-        key: strip_html_for_prompt(value) if key in PROMPT_HTML_STRIP_FIELDS else value
-        for key, value in values.items()
-    }
+def build_prompt_values(
+    values: Mapping[str, str],
+    *,
+    note_type_name: str | None = None,
+    convert_field_html_to_markdown: bool = False,
+) -> dict[str, str]:
+    """Prepare prompt placeholder values shared across all API-bound flows."""
+    prompt_values: dict[str, str] = {}
+    for key, value in values.items():
+        if convert_field_html_to_markdown:
+            prompt_values[key] = html_to_markdown_for_prompt(value)
+        elif key in PROMPT_HTML_STRIP_FIELDS:
+            prompt_values[key] = strip_html_for_prompt(value)
+        else:
+            prompt_values[key] = value
     if note_type_name is not None:
         prompt_values["NoteType"] = note_type_name
     return prompt_values
@@ -51,6 +56,37 @@ def strip_html_for_prompt(value: str) -> str:
     text = html.unescape(text)
     text = text.replace("\xa0", " ")
     text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+
+
+def html_to_markdown_for_prompt(value: str) -> str:
+    if not value:
+        return ""
+    text = value
+    text = re.sub(r"(?is)<style.*?>.*?</style>", "", text)
+    text = re.sub(r"(?is)<script.*?>.*?</script>", "", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)<p[^>]*>", "", text)
+    text = re.sub(r"(?i)</div\s*>", "\n\n", text)
+    text = re.sub(r"(?i)<div[^>]*>", "", text)
+    text = re.sub(r"(?i)<li[^>]*>", "- ", text)
+    text = re.sub(r"(?i)</li\s*>", "\n", text)
+    text = re.sub(r"(?i)</?(ul|ol)[^>]*>", "\n", text)
+    text = re.sub(r"(?i)<h([1-6])[^>]*>", lambda m: "\n" + ("#" * int(m.group(1))) + " ", text)
+    text = re.sub(r"(?i)</h[1-6]\s*>", "\n\n", text)
+    text = re.sub(r"(?i)<strong[^>]*>|<b[^>]*>", "**", text)
+    text = re.sub(r"(?i)</strong\s*>|</b\s*>", "**", text)
+    text = re.sub(r"(?i)<em[^>]*>|<i[^>]*>", "*", text)
+    text = re.sub(r"(?i)</em\s*>|</i\s*>", "*", text)
+    text = re.sub(r"(?is)<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", r"[\2](\1)", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
