@@ -1,6 +1,6 @@
 # AI Automation for Anki
 
-<img src="https://raw.githubusercontent.com/moritzvitt/ai-automation/refs/heads/main/images.webp" alt="AI Automation logo" width="128" />
+<img src="https://raw.githubusercontent.com/moritzvitt/anki-ai-automation/c6cade0b7e0049877a3fc37f298942b770295207/images.webp" alt="AI Automation logo" width="128" />
 
 ✨ Improve lots of notes faster with AI-powered Browser actions and reusable workflows.
 
