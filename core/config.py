@@ -908,7 +908,7 @@ def _read_workflow_group_id(
         if legacy_group_id is None:
             return None
         if legacy_group_id not in allowed_group_ids:
-            raise ConfigError(f"workflows[{index}] references unknown group_id '{legacy_group_id}'.")
+            return None
         return legacy_group_id
 
     if not isinstance(raw_group_ids, list):
@@ -918,7 +918,7 @@ def _read_workflow_group_id(
         if not isinstance(group_id, str) or not group_id.strip():
             raise ConfigError(f"workflows[{index}].group_ids must only contain non-empty strings.")
         if group_id not in allowed_group_ids:
-            raise ConfigError(f"workflows[{index}] references unknown group_id '{group_id}'.")
+            continue
         return group_id
     return None
 

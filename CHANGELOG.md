@@ -31,6 +31,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
+- Workflows with stale group assignments now still load after groups are deleted, with missing `group_id` references being ignored instead of breaking the workflow manager or the `Process specific cards with AI` dialog.
 - Workflow loading now allows empty saved queries, the workflow editor can save query-less workflows for Browser-selected note runs, and creating a new workflow from the manager no longer fails on a missing ID helper import.
 - Pipeline loading now drops stale `run_workflow` and `run_group` steps that reference deleted automation items instead of aborting startup, while still rejecting pipelines that would become completely empty.
 - OpenAI requests and input-token estimation now retry with a safer `reasoning.effort` fallback when chat-latest GPT-5 models reject the configured effort level.
