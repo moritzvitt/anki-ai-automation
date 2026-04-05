@@ -3,7 +3,7 @@ set -euo pipefail
 
 ANKI_APP="${ANKI_APP:-/Applications/Anki.app}"
 ANKI_LAUNCHER="$ANKI_APP/Contents/MacOS/launcher"
-ANKI_TEST_BASE="${ANKI_TEST_BASE:-$HOME/src/anki-release-test}"
+ANKI_TEST_BASE="${ANKI_TEST_BASE:-$HOME/src/Anki Development/anki-release-test}"
 
 if [[ ! -x "$ANKI_LAUNCHER" ]]; then
   echo "Could not find Anki launcher at: $ANKI_LAUNCHER" >&2
