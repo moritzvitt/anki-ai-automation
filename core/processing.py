@@ -1,173 +1,50 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
-import html
+from dataclasses import replace
 import math
-import re
 from threading import Event
-from typing import Any, Callable
+from typing import Callable
 
 from aqt import mw
 from aqt.browser import Browser
-from aqt.qt import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 from aqt.operations import QueryOp
-from aqt.utils import askUser, showCritical, showInfo
+from aqt.utils import askUser, showCritical
 
 from .config import AddonConfig, FieldMapping
+from .processing_models import (
+    ManualProcessingSpec,
+    NoteFailure,
+    NoteSnapshot,
+    NoteUpdate,
+    PreparedManualProcessing,
+    ProcessingEstimate,
+    ProcessingInterruptDialog,
+    ProcessingResult,
+    PromptRenderPlan,
+    WRITE_MODE_APPEND,
+    WRITE_MODE_OVERWRITE,
+    WRITE_MODE_SKIP_NONEMPTY,
+)
+from .processing_support import (
+    aggregate_usage,
+    apply_note_updates,
+    finish_prepared_processing,
+    format_failure_report,
+    missing_prompt_fields,
+    request_processing_interrupt,
+)
+from .processing_text import parse_delimited_field_updates
+from .prompting import build_prompt_values, extract_placeholders, render_prompt
+from .usage_stats import record_usage_run
 from ..services.openai_client import (
     OpenAIClientError,
-    TokenUsage,
     count_request_input_tokens,
     count_request_input_tokens_for_text,
     request_field_updates,
     request_text_response,
 )
 from ..services.pricing import estimate_cost_usd, resolve_model_pricing
-from .prompting import build_prompt_values, extract_placeholders, render_prompt
-from .usage_stats import record_usage_run
-from ..ui.tooltips import show_tooltip
-
-
-WRITE_MODE_APPEND = "append"
-WRITE_MODE_OVERWRITE = "overwrite"
-WRITE_MODE_SKIP_NONEMPTY = "skip_nonempty"
-
-
-@dataclass(frozen=True)
-class NoteSnapshot:
-    note_id: int
-    note_type_name: str
-    fields: dict[str, str]
-    output_fields: list[str]
-    prompt_template: str
-    system_prompt: str
-    write_mode: str = WRITE_MODE_OVERWRITE
-    multiple_target_fields: bool = False
-    convert_markdown_to_html: bool = False
-    response_delimiter: str = ""
-
-
-@dataclass(frozen=True)
-class NoteUpdate:
-    note_id: int
-    output_fields: dict[str, str]
-    usage: TokenUsage
-    estimated_cost_usd: float | None
-    write_mode: str = WRITE_MODE_OVERWRITE
-    convert_markdown_to_html: bool = False
-
-
-@dataclass(frozen=True)
-class NoteFailure:
-    note_id: int
-    note_type_name: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class ProcessingResult:
-    updates: list[NoteUpdate]
-    failures: list[NoteFailure]
-    was_cancelled: bool = False
-
-
-@dataclass(frozen=True)
-class ProcessingEstimate:
-    input_tokens: int
-    estimated_output_tokens: int
-    estimated_total_tokens: int
-    estimated_cost_usd: float | None
-    heuristic_notes: int
-    pricing_available: bool
-
-
-@dataclass(frozen=True)
-class ManualProcessingSpec:
-    prompt_name: str
-    prompt_template: str
-    target_field: str
-    system_prompt_name: str = ""
-    system_prompt: str = ""
-    write_mode: str = WRITE_MODE_OVERWRITE
-    model: str = ""
-    temperature: float | None = None
-    multiple_target_fields: bool = False
-    convert_markdown_to_html: bool = False
-    response_delimiter: str = ""
-
-
-@dataclass(frozen=True)
-class PreparedManualProcessing:
-    snapshots: list[NoteSnapshot]
-    failures: list[NoteFailure]
-    overwrite_count: int
-    overwrite_fields: set[str]
-    estimate: ProcessingEstimate | None
-
-
-@dataclass(frozen=True)
-class PromptRenderPlan:
-    prompt_template: str
-    prompt_fields: tuple[str, ...]
-
-
-class ProcessingInterruptDialog(QDialog):
-    def __init__(
-        self,
-        parent: QWidget,
-        *,
-        note_count: int,
-        window_title: str = "AI Processing",
-        action_label: str = "Processing",
-        can_interrupt: bool = True,
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(window_title)
-        self.setModal(False)
-        self.resize(380, 180)
-        self._note_count = note_count
-        self._action_label = action_label
-        self._can_interrupt = can_interrupt
-
-        layout = QVBoxLayout(self)
-        self.status_label = QLabel(
-            self._status_text(0, interrupted=False)
-        )
-        self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(note_count)
-        self.progress_bar.setValue(0)
-        layout.addWidget(self.progress_bar)
-
-        self.interrupt_button = QPushButton("Interrupt")
-        self.interrupt_button.setVisible(self._can_interrupt)
-        layout.addWidget(self.interrupt_button)
-
-    def set_progress(self, completed_count: int) -> None:
-        self.progress_bar.setValue(completed_count)
-        self.status_label.setText(self._status_text(completed_count, interrupted=False))
-
-    def set_interrupt_requested(self) -> None:
-        self.interrupt_button.setEnabled(False)
-        self.interrupt_button.setText("Interrupt Requested")
-        self.status_label.setText(
-            self._status_text(self.progress_bar.value(), interrupted=True)
-        )
-
-    def _status_text(self, completed_count: int, *, interrupted: bool) -> str:
-        status = (
-            f"{self._action_label} {self._note_count} note(s) with AI.\n\n"
-            f"Completed {completed_count}/{self._note_count} note(s)."
-        )
-        if not self._can_interrupt:
-            return status
-        if interrupted:
-            return status + " Waiting for the current in-flight request(s) to finish."
-        return status + " Click Interrupt to stop after the current in-flight request(s)."
 
 
 def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]) -> None:
@@ -177,19 +54,11 @@ def run_ai_processing(browser: Browser, config: AddonConfig, note_ids: list[int]
 
     snapshots, failures = _build_snapshots(note_ids, config)
     if failures and not snapshots:
-        showCritical(_format_failure_report(failures), parent=browser)
+        showCritical(format_failure_report(failures), parent=browser)
         return
 
     overwrite_count, overwrite_fields = _count_overwrites(snapshots)
-    _confirm_and_start_processing(
-        browser,
-        config,
-        snapshots,
-        failures,
-        overwrite_count,
-        overwrite_fields,
-        None,
-    )
+    _confirm_and_start_processing(browser, config, snapshots, failures, overwrite_count, overwrite_fields, None)
 
 
 def run_manual_ai_processing(
@@ -211,7 +80,7 @@ def run_manual_ai_processing(
 
     snapshots, failures = _build_manual_snapshots(note_ids, run_config, spec)
     if failures and not snapshots:
-        showCritical(_format_failure_report(failures), parent=browser)
+        showCritical(format_failure_report(failures), parent=browser)
         return
 
     overwrite_count, overwrite_fields = _count_overwrites(snapshots)
@@ -266,11 +135,10 @@ def start_prepared_manual_processing(
     on_done: Callable[[ProcessingResult], None] | None = None,
 ) -> None:
     cancel_event = Event()
-    interrupt_dialog = ProcessingInterruptDialog(
-        browser,
-        note_count=len(prepared.snapshots),
+    interrupt_dialog = ProcessingInterruptDialog(browser, note_count=len(prepared.snapshots))
+    interrupt_dialog.interrupt_button.clicked.connect(
+        lambda: request_processing_interrupt(interrupt_dialog, cancel_event)
     )
-    interrupt_dialog.interrupt_button.clicked.connect(lambda: _request_processing_interrupt(interrupt_dialog, cancel_event))
     interrupt_dialog.show()
     total_snapshots = len(prepared.snapshots)
     already_applied_note_ids: set[int] = set()
@@ -285,7 +153,7 @@ def start_prepared_manual_processing(
         nonlocal already_applied_count
         if mw is None or mw.col is None or not batch_updates:
             return
-        already_applied_count += _apply_note_updates(batch_updates)
+        already_applied_count += apply_note_updates(batch_updates)
         already_applied_note_ids.update(update.note_id for update in batch_updates)
 
     op = QueryOp(
@@ -300,7 +168,7 @@ def start_prepared_manual_processing(
                 batch_apply_callback=apply_batch_updates,
             )
         ),
-        success=lambda result: _finish_prepared_processing(
+        success=lambda result: finish_prepared_processing(
             browser,
             config,
             result,
@@ -322,12 +190,6 @@ def execute_prepared_manual_processing(
     cancel_event: Event | None = None,
     progress_callback: Callable[[int], None] | None = None,
 ) -> ProcessingResult:
-    """Synchronous workflow execution hook used by higher-level pipeline orchestration.
-
-    This runs the prepared snapshots and records usage, but does not apply note
-    updates or refresh UI state. Callers that run this in a background worker
-    must apply the returned updates on the main thread.
-    """
     if mw is None or mw.col is None:
         raise OpenAIClientError("Anki collection is not available.")
 
@@ -339,7 +201,7 @@ def execute_prepared_manual_processing(
         progress_callback=progress_callback,
     )
 
-    usage_totals = _aggregate_usage(result.updates)
+    usage_totals = aggregate_usage(result.updates)
     if usage_totals["request_count"]:
         record_usage_run(
             model=config.model,
@@ -358,8 +220,7 @@ def execute_prepared_manual_processing(
 
 
 def apply_processing_result_updates(result: ProcessingResult) -> int:
-    """Apply field-update workflow note changes on the main thread."""
-    applied = _apply_note_updates(result.updates)
+    applied = apply_note_updates(result.updates)
     if mw is not None:
         mw.reset()
     return applied
@@ -378,8 +239,7 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
             failures.append(NoteFailure(note_id=note_id, note_type_name="Unknown", reason="Note not found."))
             continue
 
-        note_type = note.note_type()
-        note_type_name = str(note_type["name"])
+        note_type_name = str(note.note_type()["name"])
         available_fields = {field_name: note[field_name] for field_name in note.keys()}
         mapping = _match_mapping(note_type_name, config.field_mappings)
         if mapping is None:
@@ -397,23 +257,22 @@ def _build_snapshots(note_ids: list[int], config: AddonConfig) -> tuple[list[Not
         prompt_template = mapping.prompt_template or config.default_prompt_template
         placeholder_key = (prompt_template, system_prompt)
         if placeholder_key not in placeholder_cache:
-            prompt_fields = tuple(extract_placeholders(prompt_template))
-            system_prompt_fields = tuple(extract_placeholders(system_prompt))
-            placeholder_cache[placeholder_key] = (prompt_fields, system_prompt_fields)
-        else:
-            prompt_fields, system_prompt_fields = placeholder_cache[placeholder_key]
-        missing_prompt_fields = _missing_prompt_fields(
+            placeholder_cache[placeholder_key] = (
+                tuple(extract_placeholders(prompt_template)),
+                tuple(extract_placeholders(system_prompt)),
+            )
+        prompt_fields, system_prompt_fields = placeholder_cache[placeholder_key]
+        missing_fields = missing_prompt_fields(
             prompt_fields=prompt_fields,
             system_prompt_fields=system_prompt_fields,
             available_fields=available_fields,
         )
-        if missing_prompt_fields or missing_outputs:
-            missing = ", ".join(missing_prompt_fields + missing_outputs)
+        if missing_fields or missing_outputs:
             failures.append(
                 NoteFailure(
                     note_id=note_id,
                     note_type_name=note_type_name,
-                    reason=f"Referenced fields do not exist on the note: {missing}",
+                    reason=f"Referenced fields do not exist on the note: {', '.join(missing_fields + missing_outputs)}",
                 )
             )
             continue
@@ -451,8 +310,7 @@ def _build_manual_snapshots(
             failures.append(NoteFailure(note_id=note_id, note_type_name="Unknown", reason="Note not found."))
             continue
 
-        note_type = note.note_type()
-        note_type_name = str(note_type["name"])
+        note_type_name = str(note.note_type()["name"])
         available_fields = {field_name: note[field_name] for field_name in note.keys()}
 
         if spec.multiple_target_fields and spec.write_mode == WRITE_MODE_SKIP_NONEMPTY:
@@ -465,16 +323,15 @@ def _build_manual_snapshots(
             )
             continue
 
-        if spec.target_field not in available_fields:
-            if not spec.multiple_target_fields:
-                failures.append(
-                    NoteFailure(
-                        note_id=note_id,
-                        note_type_name=note_type_name,
-                        reason=f"Target field '{spec.target_field}' does not exist on this note.",
-                    )
+        if spec.target_field not in available_fields and not spec.multiple_target_fields:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason=f"Target field '{spec.target_field}' does not exist on this note.",
                 )
-                continue
+            )
+            continue
 
         if (
             not spec.multiple_target_fields
@@ -485,27 +342,22 @@ def _build_manual_snapshots(
                 NoteFailure(
                     note_id=note_id,
                     note_type_name=note_type_name,
-                    reason=(
-                        f"Skipped because target field '{spec.target_field}' already contains data."
-                    ),
+                    reason=f"Skipped because target field '{spec.target_field}' already contains data.",
                 )
             )
             continue
 
-        missing_prompt_fields = _missing_prompt_fields(
+        missing_fields = missing_prompt_fields(
             prompt_fields=prompt_fields,
             system_prompt_fields=system_prompt_fields,
             available_fields=available_fields,
         )
-        if missing_prompt_fields:
+        if missing_fields:
             failures.append(
                 NoteFailure(
                     note_id=note_id,
                     note_type_name=note_type_name,
-                    reason=(
-                        "Referenced fields do not exist on the note: "
-                        + ", ".join(missing_prompt_fields)
-                    ),
+                    reason="Referenced fields do not exist on the note: " + ", ".join(missing_fields),
                 )
             )
             continue
@@ -538,7 +390,6 @@ def _match_mapping(note_type_name: str, mappings: list[FieldMapping]) -> FieldMa
 def _count_overwrites(snapshots: list[NoteSnapshot]) -> tuple[int, set[str]]:
     overwrite_count = 0
     overwrite_fields: set[str] = set()
-
     for snapshot in snapshots:
         if snapshot.multiple_target_fields:
             continue
@@ -549,7 +400,6 @@ def _count_overwrites(snapshots: list[NoteSnapshot]) -> tuple[int, set[str]]:
                 overwrite_fields.add(field_name)
         if note_has_existing_output:
             overwrite_count += 1
-
     return overwrite_count, overwrite_fields
 
 
@@ -645,119 +495,8 @@ async def _process_snapshots_async(
             was_cancelled = True
             break
 
-    updates = [
-        updates_by_note_id[snapshot.note_id]
-        for snapshot in snapshots
-        if snapshot.note_id in updates_by_note_id
-    ]
+    updates = [updates_by_note_id[snapshot.note_id] for snapshot in snapshots if snapshot.note_id in updates_by_note_id]
     return ProcessingResult(updates=updates, failures=failures, was_cancelled=was_cancelled)
-
-
-def _apply_note_updates(updates: list[NoteUpdate], *, skip_note_ids: set[int] | None = None) -> int:
-    assert mw is not None and mw.col is not None
-
-    applied = 0
-    changed_notes = []
-    for update in updates:
-        if skip_note_ids is not None and update.note_id in skip_note_ids:
-            continue
-        note = mw.col.get_note(update.note_id)
-        if note is None:
-            continue
-        changed = False
-        for field_name, field_value in update.output_fields.items():
-            next_value = _merge_field_value(
-                current_value=note[field_name],
-                generated_value=field_value,
-                write_mode=update.write_mode,
-                convert_markdown_to_html=update.convert_markdown_to_html,
-            )
-            if note[field_name] != next_value:
-                note[field_name] = next_value
-                changed = True
-        if changed:
-            changed_notes.append(note)
-            applied += 1
-
-    if changed_notes:
-        if hasattr(mw.col, "update_notes"):
-            mw.col.update_notes(changed_notes)
-        else:
-            for note in changed_notes:
-                mw.col.update_note(note)
-    return applied
-
-
-def _apply_result(
-    browser: Browser,
-    config: AddonConfig,
-    result: ProcessingResult,
-    *,
-    show_feedback: bool = True,
-    already_applied_note_ids: set[int] | None = None,
-    already_applied_count: int = 0,
-) -> None:
-    assert mw is not None and mw.col is not None
-
-    applied = already_applied_count + _apply_note_updates(
-        result.updates,
-        skip_note_ids=already_applied_note_ids,
-    )
-
-    usage_totals = _aggregate_usage(result.updates)
-    if usage_totals["request_count"]:
-        record_usage_run(
-            model=config.model,
-            note_count=usage_totals["request_count"],
-            request_count=usage_totals["request_count"],
-            input_tokens=usage_totals["input_tokens"],
-            cached_input_tokens=usage_totals["cached_input_tokens"],
-            output_tokens=usage_totals["output_tokens"],
-            reasoning_tokens=usage_totals["reasoning_tokens"],
-            total_tokens=usage_totals["total_tokens"],
-            estimated_cost_usd=usage_totals["estimated_cost_usd"],
-            history_limit=config.usage_history_limit,
-        )
-
-    if hasattr(browser, "search"):
-        browser.search()
-    mw.reset()
-
-    if show_feedback:
-        if result.was_cancelled:
-            summary = (
-                f"AI Automation interrupted after {usage_totals['request_count']} processed request(s), "
-                f"updated {applied}"
-            )
-            if usage_totals["total_tokens"]:
-                summary += f", used {usage_totals['total_tokens']:,} tokens"
-            if usage_totals["estimated_cost_usd"] is not None:
-                summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
-            show_tooltip(summary + ".", parent=browser)
-        elif usage_totals["request_count"]:
-            summary = (
-                f"AI Automation processed {usage_totals['request_count']} note(s), "
-                f"updated {applied}, used {usage_totals['total_tokens']:,} tokens"
-            )
-            if usage_totals["estimated_cost_usd"] is not None:
-                summary += f", est. ${usage_totals['estimated_cost_usd']:.4f}"
-            show_tooltip(summary + ".", parent=browser)
-        elif applied:
-            show_tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
-
-        if result.failures:
-            showInfo(_format_failure_report(result.failures), parent=browser)
-
-
-def _format_failure_report(failures: list[NoteFailure]) -> str:
-    lines = ["Some notes could not be processed:"]
-    for failure in failures[:20]:
-        lines.append(
-            f"- Note {failure.note_id} ({failure.note_type_name}): {failure.reason}"
-        )
-    if len(failures) > 20:
-        lines.append(f"- ...and {len(failures) - 20} more")
-    return "\n".join(lines)
 
 
 def _render_snapshot_prompts(
@@ -847,11 +586,7 @@ def _process_single_snapshot(
 ) -> tuple[NoteUpdate | None, NoteFailure | None]:
     pricing = resolve_model_pricing(config.model, config.model_pricing)
     try:
-        system_prompt, prompt = _render_snapshot_prompts(
-            snapshot,
-            config,
-            render_plan=render_plan,
-        )
+        system_prompt, prompt = _render_snapshot_prompts(snapshot, config, render_plan=render_plan)
         warning_lines: list[str] = []
         if snapshot.multiple_target_fields:
             text_result = request_text_response(
@@ -866,7 +601,7 @@ def _process_single_snapshot(
                 reasoning_effort=config.reasoning_effort,
                 use_chat_completions_api=config.use_chat_completions_api,
             )
-            field_updates, parser_warnings = _parse_delimited_field_updates(
+            field_updates, parser_warnings = parse_delimited_field_updates(
                 response_text=text_result.output_text,
                 response_delimiter=snapshot.response_delimiter,
                 available_fields=list(snapshot.fields.keys()),
@@ -891,13 +626,10 @@ def _process_single_snapshot(
             usage = structured_result.usage
         if not field_updates:
             warning_lines.append("The response did not contain any matching field sections.")
-            return (
-                None,
-                NoteFailure(
-                    note_id=snapshot.note_id,
-                    note_type_name=snapshot.note_type_name,
-                    reason=" ".join(warning_lines),
-                ),
+            return None, NoteFailure(
+                note_id=snapshot.note_id,
+                note_type_name=snapshot.note_type_name,
+                reason=" ".join(warning_lines),
             )
         return (
             NoteUpdate(
@@ -916,22 +648,16 @@ def _process_single_snapshot(
             None,
         )
     except OpenAIClientError as error:
-        return (
-            None,
-            NoteFailure(
-                note_id=snapshot.note_id,
-                note_type_name=snapshot.note_type_name,
-                reason=str(error),
-            ),
+        return None, NoteFailure(
+            note_id=snapshot.note_id,
+            note_type_name=snapshot.note_type_name,
+            reason=str(error),
         )
-    except Exception as error:  # pragma: no cover - defensive for Anki runtime
-        return (
-            None,
-            NoteFailure(
-                note_id=snapshot.note_id,
-                note_type_name=snapshot.note_type_name,
-                reason=f"Unexpected error: {error}",
-            ),
+    except Exception as error:  # pragma: no cover
+        return None, NoteFailure(
+            note_id=snapshot.note_id,
+            note_type_name=snapshot.note_type_name,
+            reason=f"Unexpected error: {error}",
         )
 
 
@@ -965,19 +691,16 @@ def _confirm_and_start_processing(
             f"- Output estimate assumes {config.estimated_output_tokens_per_note} output tokens per note"
         )
         if estimate.heuristic_notes:
-            confirmation_lines.append(
-                f"- {estimate.heuristic_notes} note(s) used a heuristic input-token estimate"
-            )
+            confirmation_lines.append(f"- {estimate.heuristic_notes} note(s) used a heuristic input-token estimate")
 
     if failures:
         confirmation_lines.extend(["", f"{len(failures)} note(s) will be skipped due to config or note issues."])
 
     if overwrite_count:
-        field_names = ", ".join(sorted(overwrite_fields))
         confirmation_lines.extend(
             [
                 "",
-                f"{overwrite_count} note(s) already contain data in output field(s): {field_names}.",
+                f"{overwrite_count} note(s) already contain data in output field(s): {', '.join(sorted(overwrite_fields))}.",
                 "Continuing may overwrite existing content.",
             ]
         )
@@ -991,8 +714,7 @@ def _confirm_and_start_processing(
         )
 
     confirmation_lines.extend(["", "Continue?"])
-    confirmed = askUser("\n".join(confirmation_lines), parent=browser)
-    if not confirmed:
+    if not askUser("\n".join(confirmation_lines), parent=browser):
         return
 
     start_prepared_manual_processing(
@@ -1012,246 +734,3 @@ def _heuristic_token_count(text: str) -> int:
     if not text:
         return 0
     return max(1, math.ceil(len(text) / 4))
-
-
-def _aggregate_usage(updates: list[NoteUpdate]) -> dict[str, int | float | None]:
-    total_cost = 0.0
-    cost_known = False
-    totals = {
-        "request_count": len(updates),
-        "input_tokens": 0,
-        "cached_input_tokens": 0,
-        "output_tokens": 0,
-        "reasoning_tokens": 0,
-        "total_tokens": 0,
-        "estimated_cost_usd": None,
-    }
-    for update in updates:
-        totals["input_tokens"] += update.usage.input_tokens
-        totals["cached_input_tokens"] += update.usage.cached_input_tokens
-        totals["output_tokens"] += update.usage.output_tokens
-        totals["reasoning_tokens"] += update.usage.reasoning_tokens
-        totals["total_tokens"] += update.usage.total_tokens
-        if update.estimated_cost_usd is not None:
-            total_cost += update.estimated_cost_usd
-            cost_known = True
-    if cost_known:
-        totals["estimated_cost_usd"] = total_cost
-    return totals
-
-
-def _missing_prompt_fields(
-    *,
-    prompt_fields: tuple[str, ...] | list[str],
-    system_prompt_fields: tuple[str, ...] | list[str],
-    available_fields: dict[str, str],
-) -> list[str]:
-    missing: list[str] = []
-    seen: set[str] = set()
-    placeholders = list(prompt_fields) + list(system_prompt_fields)
-    for placeholder in placeholders:
-        if placeholder == "NoteType":
-            continue
-        if placeholder not in available_fields and placeholder not in seen:
-            missing.append(placeholder)
-            seen.add(placeholder)
-    return missing
-
-
-def _merge_field_value(
-    *,
-    current_value: str,
-    generated_value: str,
-    write_mode: str,
-    convert_markdown_to_html: bool,
-) -> str:
-    next_generated_value = (
-        _markdown_to_html(generated_value) if convert_markdown_to_html else generated_value
-    )
-    if write_mode != WRITE_MODE_APPEND:
-        return next_generated_value
-    if not current_value.strip():
-        return next_generated_value
-    if not next_generated_value.strip():
-        return current_value
-    return current_value.rstrip() + "\n\n" + next_generated_value.lstrip()
-
-
-def _finish_prepared_processing(
-    browser: Browser,
-    config: AddonConfig,
-    result: ProcessingResult,
-    *,
-    interrupt_dialog: ProcessingInterruptDialog | None,
-    show_feedback: bool,
-    on_done: Callable[[ProcessingResult], None] | None,
-    already_applied_note_ids: set[int] | None = None,
-    already_applied_count: int = 0,
-) -> None:
-    if interrupt_dialog is not None:
-        interrupt_dialog.close()
-    _apply_result(
-        browser,
-        config,
-        result,
-        show_feedback=show_feedback,
-        already_applied_note_ids=already_applied_note_ids,
-        already_applied_count=already_applied_count,
-    )
-    if on_done is not None:
-        on_done(result)
-
-
-def _request_processing_interrupt(dialog: ProcessingInterruptDialog, cancel_event: Event) -> None:
-    cancel_event.set()
-    dialog.set_interrupt_requested()
-
-
-def _markdown_to_html(value: str) -> str:
-    lines = value.strip().splitlines()
-    if not lines:
-        return ""
-
-    blocks: list[str] = []
-    paragraph_lines: list[str] = []
-    list_items: list[str] = []
-    ordered_list_items: list[str] = []
-
-    def flush_paragraph() -> None:
-        nonlocal paragraph_lines
-        if paragraph_lines:
-            blocks.append("<p>" + "<br>".join(_format_inline_markdown(line) for line in paragraph_lines) + "</p>")
-            paragraph_lines = []
-
-    def flush_list() -> None:
-        nonlocal list_items
-        if list_items:
-            blocks.append("<ul>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ul>")
-            list_items = []
-
-    def flush_ordered_list() -> None:
-        nonlocal ordered_list_items
-        if ordered_list_items:
-            blocks.append("<ol>" + "".join(f"<li>{item}</li>" for item in ordered_list_items) + "</ol>")
-            ordered_list_items = []
-
-    for raw_line in lines:
-        line = raw_line.rstrip()
-        stripped = line.strip()
-        if not stripped:
-            flush_paragraph()
-            flush_list()
-            flush_ordered_list()
-            continue
-        heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
-        if heading_match:
-            flush_paragraph()
-            flush_list()
-            flush_ordered_list()
-            level = len(heading_match.group(1))
-            heading_text = _format_inline_markdown(heading_match.group(2).strip())
-            blocks.append(f"<h{level}>{heading_text}</h{level}>")
-            continue
-        if stripped.startswith(("- ", "* ")):
-            flush_paragraph()
-            flush_ordered_list()
-            list_items.append(_format_inline_markdown(stripped[2:].strip()))
-            continue
-        ordered_list_match = re.match(r"^\d+\.\s+(.+)$", stripped)
-        if ordered_list_match:
-            flush_paragraph()
-            flush_list()
-            ordered_list_items.append(_format_inline_markdown(ordered_list_match.group(1).strip()))
-            continue
-        flush_list()
-        flush_ordered_list()
-        paragraph_lines.append(stripped)
-
-    flush_paragraph()
-    flush_list()
-    flush_ordered_list()
-    return "\n".join(blocks)
-
-
-def _format_inline_markdown(value: str) -> str:
-    escaped = html.escape(value)
-    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
-    escaped = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", escaped)
-    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', escaped)
-    return escaped
-
-
-def _parse_delimited_field_updates(
-    *,
-    response_text: str,
-    response_delimiter: str,
-    available_fields: list[str],
-) -> tuple[dict[str, str], list[str]]:
-    prefix, suffix = _split_field_delimiter(response_delimiter)
-    field_lookup = {field_name.casefold(): field_name for field_name in available_fields}
-    marker_pattern = re.compile(
-        rf"(?m)^{re.escape(prefix)}\s*(?P<field>.+?)\s*{re.escape(suffix)}\s*$"
-    )
-    matches = list(marker_pattern.finditer(response_text))
-    if not matches:
-        raise OpenAIClientError(
-            "The response did not contain any field markers that matched the configured delimiter."
-        )
-
-    parsed_updates: dict[str, str] = {}
-    warnings: list[str] = []
-    unknown_fields: list[str] = []
-
-    for index, match in enumerate(matches):
-        raw_field_name = match.group("field").strip()
-        normalized_field_name = _normalize_delimited_field_name(raw_field_name)
-        section_start = match.end()
-        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(response_text)
-        section_value = response_text[section_start:section_end].strip()
-        canonical_name = field_lookup.get(normalized_field_name.casefold())
-        if canonical_name is None:
-            unknown_fields.append(raw_field_name)
-            continue
-        if canonical_name in parsed_updates and section_value:
-            parsed_updates[canonical_name] = parsed_updates[canonical_name].rstrip() + "\n\n" + section_value
-            warnings.append(f"Field '{canonical_name}' appeared multiple times and its sections were merged.")
-            continue
-        parsed_updates[canonical_name] = section_value
-
-    if unknown_fields:
-        warnings.append(
-            "Ignored unknown field section(s): " + ", ".join(sorted(set(unknown_fields))) + "."
-        )
-    return parsed_updates, warnings
-
-
-def _normalize_delimited_field_name(value: str) -> str:
-    normalized = value.strip()
-    if normalized.startswith("{") and normalized.endswith("}") and len(normalized) >= 2:
-        return normalized[1:-1].strip()
-    return normalized
-
-
-def _split_field_delimiter(delimiter: str) -> tuple[str, str]:
-    normalized = delimiter.strip()
-    if not normalized:
-        raise OpenAIClientError("Multiple target field mode requires a response delimiter.")
-    if "{field}" in normalized:
-        prefix, suffix = normalized.split("{field}", 1)
-        if not prefix and not suffix:
-            raise OpenAIClientError("The response delimiter must include text around '{field}'.")
-        return prefix, suffix
-
-    match = re.match(r"^(?P<prefix>[^A-Za-z0-9]*).+?(?P<suffix>[^A-Za-z0-9]*)$", normalized)
-    if match is None:
-        raise OpenAIClientError(
-            "The response delimiter must look like '--Notes--' or include a '{field}' placeholder."
-        )
-    prefix = match.group("prefix")
-    suffix = match.group("suffix")
-    if not prefix and not suffix:
-        raise OpenAIClientError(
-            "The response delimiter must look like '--Notes--' or include a '{field}' placeholder."
-        )
-    return prefix, suffix

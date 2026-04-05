@@ -32,6 +32,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
+- Split the oversized config implementation into focused helper modules for config models, config parsing, and prompt-library file handling, making workflow/prompt loading easier to maintain.
+- Split the oversized processing implementation into dedicated models, text helpers, and processing support modules while keeping the existing note-processing flow intact.
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
 - Workflows with stale group assignments now still load after groups are deleted, with missing `group_id` references being ignored instead of breaking the workflow manager or the `Process specific cards with AI` dialog.
 - Workflow loading now allows empty saved queries, the workflow editor can save query-less workflows for Browser-selected note runs, and creating a new workflow from the manager no longer fails on a missing ID helper import.
