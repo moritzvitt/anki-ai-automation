@@ -34,6 +34,23 @@ WORKFLOW_ORDER_KEY = "workflow_order"
 PIPELINE_ORDER_KEY = "pipeline_order"
 DEFAULT_SYSTEM_PROMPT_ID = "default-system-prompt"
 DEFAULT_AUDIT_SYSTEM_PROMPT_ID = "mlr-audit-system"
+LEGACY_DEFAULT_PROMPT_ID_ALIASES = {
+    "default-prompt": "general/default-prompt",
+    "card-quality-check": "review/card-quality-check",
+    "full-card-optimization": "review/full-card-optimization",
+    "update-grammar-notes": "field-updates/update-grammar-notes",
+    "update-japanese-notes": "field-updates/update-japanese-notes",
+    "mlr-audit": "mlr/audit/mlr-audit",
+    "mlr-audit-follow-up-combined": "mlr/audit/mlr-audit-follow-up-combined",
+    "mlr-card-quality-check": "mlr/review/mlr-card-quality-check",
+    "mlr-cloze-optimization": "mlr/transform/mlr-cloze-optimization",
+    "mlr-fix-only-whats-wrong": "mlr/transform/mlr-fix-only-whats-wrong",
+    "mlr-full-field-refactor": "mlr/transform/mlr-full-field-refactor",
+    "mlr-grammar-field-improver": "mlr/field-updates/mlr-grammar-field-improver",
+    "mlr-grammar-notes-generator": "mlr/field-updates/mlr-grammar-notes-generator",
+    "mlr-japanese-notes-improver": "mlr/field-updates/mlr-japanese-notes-improver",
+    "mlr-word-definition-optimizer": "mlr/field-updates/mlr-word-definition-optimizer",
+}
 
 
 class ConfigError(RuntimeError):
@@ -164,6 +181,10 @@ def _resolved_prompt_id(
 ) -> str | None:
     if prompt_id in allowed_prompt_ids:
         return prompt_id
+
+    alias_target = LEGACY_DEFAULT_PROMPT_ID_ALIASES.get(prompt_id)
+    if alias_target in allowed_prompt_ids:
+        return alias_target
 
     legacy_basename = prompt_id.strip().split("/")[-1]
     if not legacy_basename:
