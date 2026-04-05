@@ -31,6 +31,9 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
+- Workflow loading now allows empty saved queries, the workflow editor can save query-less workflows for Browser-selected note runs, and creating a new workflow from the manager no longer fails on a missing ID helper import.
+- Pipeline loading now drops stale `run_workflow` and `run_group` steps that reference deleted automation items instead of aborting startup, while still rejecting pipelines that would become completely empty.
+- OpenAI requests and input-token estimation now retry with a safer `reasoning.effort` fallback when chat-latest GPT-5 models reject the configured effort level.
 - Prompt selection in the Browser AI dialog and workflow editor now uses a prompt-library file picker instead of a flat dropdown, and prompt loading/saving now supports nested folders under `prompt_library/default_prompts` and `prompt_library/user_prompts`.
 - The shipped and user prompt libraries are now grouped into clearer subfolders by purpose, and the bundled MLR audit loader now follows the new nested default-prompt path.
 - Legacy preset and workflow prompt IDs now resolve more safely after prompt-file renames, including explicit aliases for shipped default prompts and renamed user prompts in the MLR prompt folder.

@@ -38,6 +38,7 @@ from ..core.config import (
     WorkflowGroup,
     load_config,
     load_raw_config,
+    new_object_id,
     save_workflow_state,
 )
 from ..core.workflow_engine import (

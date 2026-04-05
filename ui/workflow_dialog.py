@@ -1194,9 +1194,6 @@ class WorkflowDialog(QDialog):
         if not draft.name:
             showCritical("Workflow name must not be empty.", parent=self)
             return
-        if not draft.query:
-            showCritical("Workflow query must not be empty.", parent=self)
-            return
         if not draft.prompt_id:
             showCritical("Choose a saved prompt for this workflow.", parent=self)
             return
@@ -1258,3 +1255,15 @@ def _common_fields_for_notes(note_ids: list[int]) -> list[str]:
 def _parse_group_name(value: str) -> str | None:
     normalized = value.strip()
     return normalized or None
+
+
+def _parse_tag_list(value: str) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in value.split(","):
+        tag = item.strip()
+        if not tag or tag in seen:
+            continue
+        tags.append(tag)
+        seen.add(tag)
+    return tags

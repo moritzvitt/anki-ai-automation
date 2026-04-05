@@ -74,6 +74,7 @@ def request_field_updates(
 
     last_error: Exception | None = None
     use_temperature = temperature is not None
+    current_reasoning_effort = reasoning_effort
     for attempt in range(max_retries + 1):
         try:
             if use_chat_completions_api:
@@ -100,8 +101,8 @@ def request_field_updates(
             }
             if use_temperature and temperature is not None:
                 payload["temperature"] = temperature
-            if reasoning_effort:
-                payload["reasoning"] = {"effort": reasoning_effort}
+            if current_reasoning_effort:
+                payload["reasoning"] = {"effort": current_reasoning_effort}
 
             response = client.responses.create(**payload)
             if not getattr(response, "output_text", ""):
@@ -115,6 +116,11 @@ def request_field_updates(
         except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
             if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
                 use_temperature = False
+                last_error = error
+                continue
+            next_reasoning_effort = _fallback_reasoning_effort(error, current_reasoning_effort)
+            if next_reasoning_effort != current_reasoning_effort:
+                current_reasoning_effort = next_reasoning_effort
                 last_error = error
                 continue
             last_error = error
@@ -159,6 +165,7 @@ def request_responses_json_text(
 
     last_error: Exception | None = None
     use_temperature = temperature is not None
+    current_reasoning_effort = reasoning_effort
     for attempt in range(max_retries + 1):
         try:
             payload: dict[str, Any] = {
@@ -168,8 +175,8 @@ def request_responses_json_text(
             }
             if use_temperature and temperature is not None:
                 payload["temperature"] = temperature
-            if reasoning_effort:
-                payload["reasoning"] = {"effort": reasoning_effort}
+            if current_reasoning_effort:
+                payload["reasoning"] = {"effort": current_reasoning_effort}
 
             response = client.responses.create(**payload)
             output_text = str(getattr(response, "output_text", "") or "").strip()
@@ -183,6 +190,11 @@ def request_responses_json_text(
         except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
             if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
                 use_temperature = False
+                last_error = error
+                continue
+            next_reasoning_effort = _fallback_reasoning_effort(error, current_reasoning_effort)
+            if next_reasoning_effort != current_reasoning_effort:
+                current_reasoning_effort = next_reasoning_effort
                 last_error = error
                 continue
             last_error = error
@@ -218,6 +230,7 @@ def request_text_response(
 
     last_error: Exception | None = None
     use_temperature = temperature is not None
+    current_reasoning_effort = reasoning_effort
     for attempt in range(max_retries + 1):
         try:
             if use_chat_completions_api:
@@ -243,8 +256,8 @@ def request_text_response(
             }
             if use_temperature and temperature is not None:
                 payload["temperature"] = temperature
-            if reasoning_effort:
-                payload["reasoning"] = {"effort": reasoning_effort}
+            if current_reasoning_effort:
+                payload["reasoning"] = {"effort": current_reasoning_effort}
 
             response = client.responses.create(**payload)
             output_text = str(getattr(response, "output_text", "") or "").strip()
@@ -258,6 +271,11 @@ def request_text_response(
         except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
             if use_temperature and _is_unsupported_parameter_error(error, "temperature"):
                 use_temperature = False
+                last_error = error
+                continue
+            next_reasoning_effort = _fallback_reasoning_effort(error, current_reasoning_effort)
+            if next_reasoning_effort != current_reasoning_effort:
+                current_reasoning_effort = next_reasoning_effort
                 last_error = error
                 continue
             last_error = error
@@ -287,18 +305,34 @@ def count_request_input_tokens(
         raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
 
     client = _build_client(api_key=api_key, timeout_seconds=timeout_seconds)
+    current_reasoning_effort = reasoning_effort
     try:
         payload: dict[str, Any] = {
             "model": model,
             "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
             "text": {"format": _response_format(output_fields)},
         }
-        if reasoning_effort:
-            payload["reasoning"] = {"effort": reasoning_effort}
-
-        result = client.responses.input_tokens.count(**payload)
-        return int(result.input_tokens)
+        while True:
+            request_payload = dict(payload)
+            if current_reasoning_effort:
+                request_payload["reasoning"] = {"effort": current_reasoning_effort}
+            result = client.responses.input_tokens.count(**request_payload)
+            return int(result.input_tokens)
     except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+        next_reasoning_effort = _fallback_reasoning_effort(error, current_reasoning_effort)
+        if next_reasoning_effort != current_reasoning_effort:
+            try:
+                retry_payload: dict[str, Any] = {
+                    "model": model,
+                    "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
+                    "text": {"format": _response_format(output_fields)},
+                }
+                if next_reasoning_effort:
+                    retry_payload["reasoning"] = {"effort": next_reasoning_effort}
+                result = client.responses.input_tokens.count(**retry_payload)
+                return int(result.input_tokens)
+            except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as retry_error:
+                raise OpenAIClientError(f"Failed to count input tokens: {retry_error}") from retry_error
         raise OpenAIClientError(f"Failed to count input tokens: {error}") from error
 
 
@@ -320,17 +354,32 @@ def count_request_input_tokens_for_text(
         raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
 
     client = _build_client(api_key=api_key, timeout_seconds=timeout_seconds)
+    current_reasoning_effort = reasoning_effort
     try:
         payload: dict[str, Any] = {
             "model": model,
             "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
         }
-        if reasoning_effort:
-            payload["reasoning"] = {"effort": reasoning_effort}
-
-        result = client.responses.input_tokens.count(**payload)
-        return int(result.input_tokens)
+        while True:
+            request_payload = dict(payload)
+            if current_reasoning_effort:
+                request_payload["reasoning"] = {"effort": current_reasoning_effort}
+            result = client.responses.input_tokens.count(**request_payload)
+            return int(result.input_tokens)
     except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as error:
+        next_reasoning_effort = _fallback_reasoning_effort(error, current_reasoning_effort)
+        if next_reasoning_effort != current_reasoning_effort:
+            try:
+                retry_payload: dict[str, Any] = {
+                    "model": model,
+                    "input": _request_input(system_prompt=system_prompt, user_prompt=user_prompt),
+                }
+                if next_reasoning_effort:
+                    retry_payload["reasoning"] = {"effort": next_reasoning_effort}
+                result = client.responses.input_tokens.count(**retry_payload)
+                return int(result.input_tokens)
+            except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as retry_error:
+                raise OpenAIClientError(f"Failed to count input tokens: {retry_error}") from retry_error
         raise OpenAIClientError(f"Failed to count input tokens: {error}") from error
 
 
@@ -492,3 +541,13 @@ def _is_unsupported_parameter_error(error: Exception, parameter_name: str) -> bo
         )
         and parameter_name.lower() in message
     )
+
+
+def _fallback_reasoning_effort(error: Exception, current_reasoning_effort: str | None) -> str | None:
+    if not current_reasoning_effort:
+        return current_reasoning_effort
+    if not _is_unsupported_parameter_error(error, "reasoning.effort"):
+        return current_reasoning_effort
+    if current_reasoning_effort != "medium":
+        return "medium"
+    return None

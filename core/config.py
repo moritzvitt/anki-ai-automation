@@ -865,7 +865,7 @@ def _parse_workflow_entry(
     return Workflow(
         workflow_id=workflow_id,
         name=_read_string(item, "name"),
-        query=_read_string(item, "query"),
+        query=_read_string(item, "query", allow_empty=True),
         prompt_id=resolved_prompt_id,
         workflow_type=workflow_type,
         enabled=_read_bool(item, "enabled", default=True),
@@ -1016,14 +1016,13 @@ def _parse_pipeline_entry(
         if step_type == "run_mlr_audit" and workflow_id is None:
             workflow_id = "mlr-audit"
             step_type = "run_workflow"
+
+        # If users delete workflows or groups later, keep loading the pipeline
+        # and just drop the stale orchestration step instead of failing startup.
         if workflow_id is not None and workflow_id not in allowed_workflow_ids:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] references unknown workflow_id '{workflow_id}'."
-            )
+            continue
         if group_id is not None and group_id not in allowed_group_ids:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] references unknown group_id '{group_id}'."
-            )
+            continue
 
         if step_type == "run_workflow" and workflow_id is None:
             raise ConfigError(
@@ -1070,6 +1069,11 @@ def _parse_pipeline_entry(
                 remove_tags=remove_tags or None,
                 when=when_value,
             )
+        )
+
+    if not steps:
+        raise ConfigError(
+            f"pipelines[{index}] has no runnable steps after removing references to missing workflows/groups."
         )
 
     return Pipeline(
