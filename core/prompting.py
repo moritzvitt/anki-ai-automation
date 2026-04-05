@@ -7,6 +7,7 @@ from typing import Mapping
 
 
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
+CLOZE_LITERAL_PATTERN = re.compile(r"(?i)^c\d+::")
 PROMPT_HTML_STRIP_FIELDS = frozenset({"Cloze", "Subtitle"})
 
 
@@ -64,7 +65,10 @@ def _compiled_template_parts(template: str) -> tuple[tuple[str, str], ...]:
         if start > last_end:
             parts.append(("text", template[last_end:start]))
         key = match.group(1).strip()
-        parts.append(("placeholder", key))
+        if _is_literal_cloze_placeholder(key):
+            parts.append(("text", template[start:end]))
+        else:
+            parts.append(("placeholder", key))
         last_end = end
     if last_end < len(template):
         parts.append(("text", template[last_end:]))
@@ -77,7 +81,13 @@ def _extract_placeholders_cached(template: str) -> tuple[str, ...]:
     seen: set[str] = set()
     for match in PLACEHOLDER_PATTERN.finditer(template):
         key = match.group(1).strip()
+        if _is_literal_cloze_placeholder(key):
+            continue
         if key and key not in seen:
             placeholders.append(key)
             seen.add(key)
     return tuple(placeholders)
+
+
+def _is_literal_cloze_placeholder(key: str) -> bool:
+    return bool(CLOZE_LITERAL_PATTERN.match(key))

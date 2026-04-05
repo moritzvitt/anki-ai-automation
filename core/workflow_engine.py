@@ -6,26 +6,13 @@ from typing import Callable
 
 from aqt import mw
 
-from .audit_flow import (
-    AuditRunResult,
-    audit_success_artifact,
-    execute_audit_workflow,
-)
 from .config import AddonConfig, SavedPrompt, Workflow
 from .processing import (
     ManualProcessingSpec,
-    NoteUpdate,
     ProcessingResult,
-    apply_processing_result_updates,
     execute_prepared_manual_processing,
     prepare_manual_ai_processing,
 )
-
-
-@dataclass(frozen=True)
-class DeferredAuditApplication:
-    workflow_id: str
-    result: AuditRunResult
 
 
 @dataclass(frozen=True)
@@ -55,7 +42,6 @@ class WorkflowExecutionResult:
     failures: list[str]
     updated_requests: int
     artifacts_by_note_id: dict[int, dict[str, object]]
-    deferred_audit_applications: list[DeferredAuditApplication]
     deferred_field_tag_applications: list[DeferredFieldTagApplication]
     deferred_field_update_applications: list[DeferredFieldUpdateApplication]
 
@@ -71,25 +57,15 @@ def execute_workflow(
     progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
     matched_note_ids = list(note_ids) if note_ids is not None else _find_note_ids_for_query(workflow.query)
-    if workflow.workflow_type == "field_update":
-        return _execute_field_update_workflow(
-            config,
-            workflow,
-            matched_note_ids,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback,
-        )
-    if workflow.workflow_type == "audit":
-        return _execute_audit_workflow(
-            config,
-            workflow,
-            matched_note_ids,
-            show_feedback=show_feedback,
-            skip_already_processed_today=skip_already_processed_today,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback,
-        )
-    raise RuntimeError(f"Unsupported workflow type '{workflow.workflow_type}'.")
+    if workflow.workflow_type != "field_update":
+        raise RuntimeError(f"Unsupported workflow type '{workflow.workflow_type}'.")
+    return _execute_field_update_workflow(
+        config,
+        workflow,
+        matched_note_ids,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
+    )
 
 
 def execute_workflow_by_id(
@@ -175,7 +151,6 @@ def _execute_field_update_workflow(
         ],
         updated_requests=len(result.updates),
         artifacts_by_note_id={},
-        deferred_audit_applications=[],
         deferred_field_tag_applications=[
             DeferredFieldTagApplication(
                 workflow_id=workflow.workflow_id,
@@ -195,57 +170,6 @@ def _execute_field_update_workflow(
         ]
         if result.updates
         else [],
-    )
-
-
-def _execute_audit_workflow(
-    config: AddonConfig,
-    workflow: Workflow,
-    note_ids: list[int],
-    *,
-    show_feedback: bool,
-    skip_already_processed_today: bool,
-    cancel_event: Event | None = None,
-    progress_callback: Callable[[int], None] | None = None,
-) -> WorkflowExecutionResult:
-    ordered_note_ids = [int(note_id) for note_id in note_ids]
-    result = execute_audit_workflow(
-        config,
-        workflow,
-        note_ids,
-        max_notes=None,
-        skip_already_processed_today=skip_already_processed_today,
-        cancel_event=cancel_event,
-        progress_callback=progress_callback,
-    )
-
-    succeeded_note_ids = [item.note_id for item in result.successes]
-    failed_note_ids = [item.note_id for item in result.failures]
-    skipped_note_ids = [
-        note_id for note_id in ordered_note_ids if note_id not in succeeded_note_ids and note_id not in failed_note_ids
-    ]
-    return WorkflowExecutionResult(
-        workflow_id=workflow.workflow_id,
-        workflow_name=workflow.name,
-        workflow_type=workflow.workflow_type,
-        matched_note_ids=ordered_note_ids,
-        succeeded_note_ids=succeeded_note_ids,
-        failed_note_ids=failed_note_ids,
-        skipped_note_ids=skipped_note_ids,
-        failures=[
-            f"- note {failure.note_id} ({failure.note_type_name}): {failure.reason}"
-            for failure in result.failures
-        ],
-        updated_requests=len(result.successes),
-        artifacts_by_note_id={
-            success.note_id: {"audit": audit_success_artifact(success)}
-            for success in result.successes
-        },
-        deferred_audit_applications=[
-            DeferredAuditApplication(workflow_id=workflow.workflow_id, result=result)
-        ],
-        deferred_field_tag_applications=[],
-        deferred_field_update_applications=[],
     )
 
 

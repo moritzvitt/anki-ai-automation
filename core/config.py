@@ -25,23 +25,17 @@ SAVED_PROMPT_ORDER_KEY = "saved_prompt_order"
 AUTOMATION_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "automation_library"
 DEFAULT_GROUPS_DIR = AUTOMATION_LIBRARY_ROOT / "groups"
 DEFAULT_WORKFLOWS_DIR = AUTOMATION_LIBRARY_ROOT / "workflows"
-DEFAULT_PIPELINES_DIR = AUTOMATION_LIBRARY_ROOT / "pipelines"
 USER_GROUPS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "groups"
 USER_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "workflows"
-USER_PIPELINES_DIR = Path(__file__).resolve().parent.parent / "user_data" / "pipelines"
 WORKFLOW_GROUP_ORDER_KEY = "workflow_group_order"
 WORKFLOW_ORDER_KEY = "workflow_order"
-PIPELINE_ORDER_KEY = "pipeline_order"
 DEFAULT_SYSTEM_PROMPT_ID = "default-system-prompt"
-DEFAULT_AUDIT_SYSTEM_PROMPT_ID = "mlr-audit-system"
 LEGACY_DEFAULT_PROMPT_ID_ALIASES = {
     "default-prompt": "general/default-prompt",
     "card-quality-check": "review/card-quality-check",
     "full-card-optimization": "review/full-card-optimization",
     "update-grammar-notes": "field-updates/update-grammar-notes",
     "update-japanese-notes": "field-updates/update-japanese-notes",
-    "mlr-audit": "mlr/audit/mlr-audit",
-    "mlr-audit-follow-up-combined": "mlr/audit/mlr-audit-follow-up-combined",
     "mlr-card-quality-check": "mlr/review/mlr-card-quality-check",
     "mlr-cloze-optimization": "mlr/transform/mlr-cloze-optimization",
     "mlr-fix-only-whats-wrong": "mlr/transform/mlr-fix-only-whats-wrong",
@@ -99,6 +93,7 @@ class ProcessingPreset:
 class WorkflowGroup:
     group_id: str
     name: str
+    post_run_script: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,12 +130,6 @@ class Workflow:
     position: int = 0
 
 
-@dataclass(frozen=True)
-class PipelineNoteSelector:
-    query: str
-    limit: int | None = None
-
-
 def _resolved_system_prompt_id(
     system_prompt_id: str | None,
     *,
@@ -148,12 +137,6 @@ def _resolved_system_prompt_id(
     workflow_type: str | None = None,
 ) -> str | None:
     if system_prompt_id is None:
-        if workflow_type == "audit":
-            return (
-                DEFAULT_AUDIT_SYSTEM_PROMPT_ID
-                if DEFAULT_AUDIT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
-                else None
-            )
         return (
             DEFAULT_SYSTEM_PROMPT_ID
             if DEFAULT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
@@ -161,12 +144,6 @@ def _resolved_system_prompt_id(
         )
     if system_prompt_id in allowed_system_prompt_ids:
         return system_prompt_id
-    if workflow_type == "audit":
-        return (
-            DEFAULT_AUDIT_SYSTEM_PROMPT_ID
-            if DEFAULT_AUDIT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
-            else None
-        )
     return (
         DEFAULT_SYSTEM_PROMPT_ID
         if DEFAULT_SYSTEM_PROMPT_ID in allowed_system_prompt_ids
@@ -201,26 +178,6 @@ def _resolved_prompt_id(
 
 
 @dataclass(frozen=True)
-class PipelineStep:
-    step_id: str
-    step_type: str
-    workflow_id: str | None = None
-    group_id: str | None = None
-    add_tags: list[str] | None = None
-    remove_tags: list[str] | None = None
-    when: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class Pipeline:
-    pipeline_id: str
-    name: str
-    enabled: bool
-    note_selector: PipelineNoteSelector
-    steps: list[PipelineStep]
-
-
-@dataclass(frozen=True)
 class AddonConfig:
     enabled: bool
     show_tooltips: bool
@@ -247,7 +204,6 @@ class AddonConfig:
     processing_presets: list[ProcessingPreset]
     workflow_groups: list[WorkflowGroup]
     workflows: list[Workflow]
-    pipelines: list[Pipeline]
 
 
 def load_config() -> AddonConfig:
@@ -328,12 +284,6 @@ def load_config() -> AddonConfig:
         workflow_groups=workflow_groups,
         saved_system_prompts=saved_system_prompts,
     )
-    pipelines = _read_pipelines(
-        raw,
-        workflows=workflows,
-        workflow_groups=workflow_groups,
-    )
-
     return AddonConfig(
         enabled=enabled,
         show_tooltips=show_tooltips,
@@ -360,7 +310,6 @@ def load_config() -> AddonConfig:
         processing_presets=processing_presets,
         workflow_groups=workflow_groups,
         workflows=workflows,
-        pipelines=pipelines,
     )
 
 
@@ -796,7 +745,7 @@ def _parse_workflow_entry(
     allowed_modes: set[str],
     allowed_workflow_types: set[str],
     allowed_api_modes: set[str],
-) -> Workflow:
+) -> Workflow | None:
     workflow_id = _read_string(item, "id", default=f"workflow-{index + 1}")
 
     prompt_id = _read_string(item, "prompt_id")
@@ -811,9 +760,9 @@ def _parse_workflow_entry(
 
     workflow_type = _read_string(item, "workflow_type", default="field_update")
     if workflow_type not in allowed_workflow_types:
-        raise ConfigError(
-            "Workflow type must be 'field_update' or 'audit'."
-        )
+        raise ConfigError("Workflow type must be 'field_update'.")
+    if workflow_type == "audit":
+        return None
 
     mode = _read_string(item, "mode", default="overwrite")
     if mode not in allowed_modes:
@@ -849,7 +798,7 @@ def _parse_workflow_entry(
     trigger_on_periodic = _read_bool(item, "trigger_on_periodic", default=False)
     trigger_min_matches = _read_int(item, "trigger_min_matches", minimum=1, default=1)
 
-    allow_empty_target_field = multiple_target_fields or workflow_type == "audit"
+    allow_empty_target_field = multiple_target_fields
     target_field = _read_legacy_compatible_string(
         item,
         "target_field",
@@ -859,9 +808,6 @@ def _parse_workflow_entry(
     )
     schema_preset = _read_optional_string(item, "schema_preset")
     response_schema_json = _read_optional_string(item, "response_schema_json")
-    if workflow_type == "audit" and schema_preset is None and response_schema_json is None:
-        schema_preset = "mlr_audit"
-
     return Workflow(
         workflow_id=workflow_id,
         name=_read_string(item, "name"),
@@ -921,168 +867,6 @@ def _read_workflow_group_id(
             continue
         return group_id
     return None
-
-
-def _read_pipelines(
-    raw_config: dict[str, Any],
-    *,
-    workflows: list[Workflow],
-    workflow_groups: list[WorkflowGroup],
-) -> list[Pipeline]:
-    config_scope = _prompt_config_scope(raw_config)
-    allowed_workflow_ids = {workflow.workflow_id for workflow in workflows}
-    allowed_group_ids = {group.group_id for group in workflow_groups}
-    parser = lambda item, index: _parse_pipeline_entry(
-        item,
-        index=index,
-        allowed_workflow_ids=allowed_workflow_ids,
-        allowed_group_ids=allowed_group_ids,
-    )
-    file_pipelines, file_order = load_automation_files(
-        DEFAULT_PIPELINES_DIR,
-        USER_PIPELINES_DIR,
-        parser=parser,
-        item_id_getter=lambda pipeline: pipeline.pipeline_id,
-    )
-    legacy_pipelines = _read_legacy_pipeline_entries(config_scope.get("pipelines", []))
-    if legacy_pipelines:
-        if import_legacy_automation_to_files(
-            USER_PIPELINES_DIR,
-            legacy_pipelines,
-            item_id_getter=lambda pipeline: str(pipeline.get("id", "")),
-            item_to_dict=_automation_item_to_dict,
-            default_dir=DEFAULT_PIPELINES_DIR,
-        ):
-            file_pipelines, file_order = load_automation_files(
-                DEFAULT_PIPELINES_DIR,
-                USER_PIPELINES_DIR,
-                parser=parser,
-                item_id_getter=lambda pipeline: pipeline.pipeline_id,
-            )
-        config_scope["pipelines"] = []
-        save_raw_config(raw_config)
-    return ordered_automation_values(
-        file_pipelines,
-        config_scope.get(PIPELINE_ORDER_KEY),
-        file_order,
-    )
-
-
-def _parse_pipeline_entry(
-    item: dict[str, Any],
-    *,
-    index: int,
-    allowed_workflow_ids: set[str],
-    allowed_group_ids: set[str],
-) -> Pipeline:
-    allowed_step_types = {"run_workflow", "run_group", "tag", "stop", "suspend_cards", "run_mlr_audit"}
-    pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
-
-    selector_raw = item.get("note_selector")
-    if not isinstance(selector_raw, dict):
-        raise ConfigError(f"pipelines[{index}].note_selector must be an object.")
-    note_selector = PipelineNoteSelector(
-        query=_read_string(selector_raw, "query"),
-        limit=_read_optional_int(selector_raw, "limit", minimum=1),
-    )
-
-    steps_raw = item.get("steps")
-    if not isinstance(steps_raw, list) or not steps_raw:
-        raise ConfigError(f"pipelines[{index}].steps must be a non-empty list.")
-
-    steps: list[PipelineStep] = []
-    seen_step_ids: set[str] = set()
-    for step_index, step_raw in enumerate(steps_raw):
-        if not isinstance(step_raw, dict):
-            raise ConfigError(f"pipelines[{index}].steps[{step_index}] must be an object.")
-
-        step_id = _read_string(step_raw, "id", default=f"{pipeline_id}-step-{step_index + 1}")
-        if step_id in seen_step_ids:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] uses duplicate id '{step_id}'."
-            )
-        seen_step_ids.add(step_id)
-
-        step_type = _read_string(step_raw, "type")
-        if step_type not in allowed_step_types:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}].type must be one of: "
-                + ", ".join(sorted(allowed_step_types))
-                + "."
-            )
-
-        workflow_id = _read_optional_string(step_raw, "workflow_id")
-        group_id = _read_optional_string(step_raw, "group_id")
-        if step_type == "run_mlr_audit" and workflow_id is None:
-            workflow_id = "mlr-audit"
-            step_type = "run_workflow"
-
-        # If users delete workflows or groups later, keep loading the pipeline
-        # and just drop the stale orchestration step instead of failing startup.
-        if workflow_id is not None and workflow_id not in allowed_workflow_ids:
-            continue
-        if group_id is not None and group_id not in allowed_group_ids:
-            continue
-
-        if step_type == "run_workflow" and workflow_id is None:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] must define workflow_id for run_workflow."
-            )
-        if step_type == "run_group" and group_id is None:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] must define group_id for run_group."
-            )
-        if step_type != "run_workflow" and workflow_id is not None:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] may only define workflow_id for run_workflow."
-            )
-        if step_type != "run_group" and group_id is not None:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] may only define group_id for run_group."
-            )
-
-        add_tags = _read_optional_string_list(step_raw.get("add_tags"), f"pipelines[{index}].steps[{step_index}].add_tags")
-        remove_tags = _read_optional_string_list(
-            step_raw.get("remove_tags"),
-            f"pipelines[{index}].steps[{step_index}].remove_tags",
-        )
-        if step_type == "tag" and not add_tags and not remove_tags:
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] must define add_tags and/or remove_tags for tag steps."
-            )
-        if step_type != "tag" and (add_tags or remove_tags):
-            raise ConfigError(
-                f"pipelines[{index}].steps[{step_index}] may only define add_tags/remove_tags for tag steps."
-            )
-
-        when_value = step_raw.get("when")
-        if when_value is not None and not isinstance(when_value, dict):
-            raise ConfigError(f"pipelines[{index}].steps[{step_index}].when must be an object.")
-
-        steps.append(
-            PipelineStep(
-                step_id=step_id,
-                step_type=step_type,
-                workflow_id=workflow_id,
-                group_id=group_id,
-                add_tags=add_tags or None,
-                remove_tags=remove_tags or None,
-                when=when_value,
-            )
-        )
-
-    if not steps:
-        raise ConfigError(
-            f"pipelines[{index}] has no runnable steps after removing references to missing workflows/groups."
-        )
-
-    return Pipeline(
-        pipeline_id=pipeline_id,
-        name=_read_string(item, "name"),
-        enabled=_read_bool(item, "enabled", default=True),
-        note_selector=note_selector,
-        steps=steps,
-    )
 
 
 def _read_model_pricing(value: Any) -> dict[str, ModelPricing]:
@@ -1301,6 +1085,7 @@ def _parse_workflow_group_entry(item: dict[str, Any], *, index: int) -> Workflow
     return WorkflowGroup(
         group_id=_read_string(item, "id", default=f"group-{index + 1}"),
         name=_read_string(item, "name"),
+        post_run_script=_read_optional_string(item, "post_run_script"),
     )
 
 
@@ -1340,37 +1125,17 @@ def _read_legacy_workflow_entries(value: Any) -> list[dict[str, Any]]:
     return entries
 
 
-def _read_legacy_pipeline_entries(value: Any) -> list[dict[str, Any]]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list):
-        raise ConfigError("Config key 'pipelines' must be a list.")
-    entries: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ConfigError(f"pipelines[{index}] must be an object.")
-        pipeline_id = _read_string(item, "id", default=f"pipeline-{index + 1}")
-        if pipeline_id in seen_ids:
-            raise ConfigError(f"pipelines[{index}] uses duplicate id '{pipeline_id}'.")
-        seen_ids.add(pipeline_id)
-        entries.append(dict(item))
-    return entries
-
-
 def _automation_item_id(item: Any) -> str:
     if isinstance(item, WorkflowGroup):
         return item.group_id
     if isinstance(item, Workflow):
         return item.workflow_id
-    if isinstance(item, Pipeline):
-        return item.pipeline_id
     raise TypeError(f"Unsupported automation item type: {type(item)!r}")
 
 
 def _automation_item_to_dict(item: Any) -> dict[str, Any]:
     if isinstance(item, WorkflowGroup):
-        return {"id": item.group_id, "name": item.name}
+        return {"id": item.group_id, "name": item.name, "post_run_script": item.post_run_script}
     if isinstance(item, Workflow):
         return {
             "id": item.workflow_id,
@@ -1404,28 +1169,6 @@ def _automation_item_to_dict(item: Any) -> dict[str, Any]:
             "group_ids": [item.group_id] if item.group_id else [],
             "group_id": item.group_id,
             "position": item.position,
-        }
-    if isinstance(item, Pipeline):
-        return {
-            "id": item.pipeline_id,
-            "name": item.name,
-            "enabled": item.enabled,
-            "note_selector": {
-                "query": item.note_selector.query,
-                "limit": item.note_selector.limit,
-            },
-            "steps": [
-                {
-                    "id": step.step_id,
-                    "type": step.step_type,
-                    "workflow_id": step.workflow_id,
-                    "group_id": step.group_id,
-                    "add_tags": step.add_tags,
-                    "remove_tags": step.remove_tags,
-                    "when": step.when,
-                }
-                for step in item.steps
-            ],
         }
     if isinstance(item, dict):
         return item

@@ -37,7 +37,6 @@ from .automation import (
     _prompt_relative_path_label,
 )
 from .tooltips import set_hover_help, show_tooltip
-from ..core.audit_prompts import AUDIT_SCHEMA_PRESET_MLR, available_audit_schema_presets
 from ..core.config import (
     DEFAULT_PROMPTS_DIR,
     ProcessingPreset,
@@ -73,13 +72,13 @@ class WorkflowDraft:
     multiple_target_fields: bool
     convert_markdown_to_html: bool
     response_delimiter: str | None
-    schema_preset: str | None
     success_tags: list[str] | None
     failure_tags: list[str] | None
     trigger_on_startup: bool
     trigger_on_periodic: bool
     trigger_min_matches: int
     group_name: str | None
+    group_post_run_script: str | None
 
 class WorkflowDialog(QDialog):
     def __init__(
@@ -93,6 +92,7 @@ class WorkflowDialog(QDialog):
         model_pricing: dict,
         workflow: Workflow | None = None,
         current_group_names: list[str] | None = None,
+        current_group_post_run_script: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Workflow")
@@ -105,6 +105,7 @@ class WorkflowDialog(QDialog):
         self._presets = _preset_choices_from_saved_processing_presets(loaded_presets)
         self._groups = list(groups)
         self._current_group_names = current_group_names or []
+        self._current_group_post_run_script = current_group_post_run_script
         self._current_model = current_model
         self._show_tooltips = load_config().show_tooltips
         self._model_options = fallback_model_options(
@@ -141,11 +142,11 @@ class WorkflowDialog(QDialog):
         self.target_field_combo = QComboBox()
         self.target_field_combo.setEditable(True)
         self.mode_combo = QComboBox()
-        self.schema_preset_combo = QComboBox()
         self.trigger_on_startup_check = QCheckBox("Run automatically on startup")
         self.trigger_on_periodic_check = QCheckBox("Run automatically when the condition becomes true")
         self.trigger_min_matches_spin = QSpinBox()
         self.group_edit = QLineEdit()
+        self.group_script_edit = QLineEdit()
         self.preset_group: QWidget | None = None
         self.prompt_group: QWidget | None = None
         self._scroll_area: QScrollArea | None = None
@@ -176,7 +177,7 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.name_edit, "Friendly workflow name shown in the manager and run confirmations.", enabled=self._show_tooltips)
         set_hover_help(self.query_edit, "Anki Browser search query used to find notes for this workflow.", enabled=self._show_tooltips)
         set_hover_help(self.query_count_label, "Shows how many notes currently match the workflow query.", enabled=self._show_tooltips)
-        set_hover_help(self.workflow_type_combo, "Atomic workflow behavior type. Field update writes note fields, while audit validates structured output and applies tags/metadata.", enabled=self._show_tooltips)
+        set_hover_help(self.workflow_type_combo, "Atomic workflow behavior type.", enabled=self._show_tooltips)
         set_hover_help(self.enabled_check, "Disabled workflows stay in the registry but are skipped in normal manual/group runs.", enabled=self._show_tooltips)
 
         prompt_row = QWidget()
@@ -233,12 +234,9 @@ class WorkflowDialog(QDialog):
 
         self._populate_model_combo()
         self.workflow_type_combo.addItem("Field update", "field_update")
-        self.workflow_type_combo.addItem("Audit", "audit")
         self.api_mode_combo.addItem("Global default", "global_default")
         self.api_mode_combo.addItem("Responses API", "responses")
         self.api_mode_combo.addItem("Chat Completions API", "chat_completions")
-        for preset in available_audit_schema_presets():
-            self.schema_preset_combo.addItem(preset.name, preset.preset_id)
         self.workflow_type_combo.currentIndexChanged.connect(self._refresh_workflow_type_ui)
         self._populate_preset_combo()
         self.mode_combo.addItem("Overwrite target field", WRITE_MODE_OVERWRITE)
@@ -260,7 +258,6 @@ class WorkflowDialog(QDialog):
 
         form.addRow("Name", self.name_edit)
         form.addRow("Query", query_row)
-        form.addRow("Workflow type", self.workflow_type_combo)
         form.addRow("", self.enabled_check)
 
         preset_row = QWidget()
@@ -286,7 +283,7 @@ class WorkflowDialog(QDialog):
         preset_layout.addWidget(update_preset_button)
         preset_layout.addWidget(delete_preset_button)
         set_hover_help(self.model_combo, "Model used by this workflow. Leave it on the current selection to follow the global default.", enabled=self._show_tooltips)
-        set_hover_help(self.api_mode_combo, "Per-workflow API preference. Audit workflows currently require the Responses API for structured validation.", enabled=self._show_tooltips)
+        set_hover_help(self.api_mode_combo, "Per-workflow API preference.", enabled=self._show_tooltips)
         set_hover_help(self.use_global_temperature_check, "Use the global temperature from settings instead of a workflow-specific value.", enabled=self._show_tooltips)
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect delimited response sections that map to multiple note fields.", enabled=self._show_tooltips)
@@ -302,6 +299,7 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
         set_hover_help(self.group_edit, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
+        set_hover_help(self.group_script_edit, "Optional shell command or script path to launch after a full group run finishes.", enabled=self._show_tooltips)
 
         content_layout.addLayout(form)
 
@@ -323,11 +321,11 @@ class WorkflowDialog(QDialog):
         preset_form.addRow("Mode", self.mode_combo)
         preset_form.addRow("Success tags", self.success_tags_edit)
         preset_form.addRow("Failure tags", self.failure_tags_edit)
-        preset_form.addRow("Schema preset", self.schema_preset_combo)
         preset_form.addRow("", self.trigger_on_startup_check)
         preset_form.addRow("", self.trigger_on_periodic_check)
         preset_form.addRow("Trigger min matches", self.trigger_min_matches_spin)
-        preset_form.addRow("Groups", self.group_edit)
+        preset_form.addRow("Group", self.group_edit)
+        preset_form.addRow("After group run", self.group_script_edit)
         self.preset_group = self._make_collapsible_section("Preset Settings", preset_form, expanded=True)
         content_layout.addWidget(self.preset_group)
 
@@ -448,7 +446,6 @@ class WorkflowDialog(QDialog):
         self._refresh_temperature_ui()
         self.enabled_check.setChecked(True)
         self._set_combo_to_data(self.api_mode_combo, "global_default")
-        self._set_combo_to_data(self.schema_preset_combo, AUDIT_SCHEMA_PRESET_MLR)
         self._refresh_workflow_type_ui()
 
         if workflow is None:
@@ -464,7 +461,6 @@ class WorkflowDialog(QDialog):
         self._set_temperature(workflow.temperature)
         self.delimiter_edit.setText(workflow.response_delimiter or "")
         self._set_combo_to_data(self.api_mode_combo, workflow.api_mode or "global_default")
-        self._set_combo_to_data(self.schema_preset_combo, workflow.schema_preset or AUDIT_SCHEMA_PRESET_MLR)
         self.trigger_on_startup_check.setChecked(workflow.trigger_on_startup)
         self.trigger_on_periodic_check.setChecked(workflow.trigger_on_periodic)
         self.trigger_min_matches_spin.setValue(workflow.trigger_min_matches)
@@ -482,6 +478,7 @@ class WorkflowDialog(QDialog):
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
         self.group_edit.setText(self._current_group_names[0] if self._current_group_names else "")
+        self.group_script_edit.setText(self._current_group_post_run_script or "")
         self.success_tags_edit.setText(", ".join(workflow.success_tags or []))
         self.failure_tags_edit.setText(", ".join(workflow.failure_tags or []))
         self._refresh_prompt_preview()
@@ -493,7 +490,6 @@ class WorkflowDialog(QDialog):
     def workflow_draft(self) -> WorkflowDraft | None:
         name = self.name_edit.text().strip()
         query = self.query_edit.text().strip()
-        workflow_type = str(self.workflow_type_combo.currentData() or "field_update")
         model = self.model_combo.currentData() or self.model_combo.currentText().strip()
         prompt_id = self.prompt_combo.currentData() or self.prompt_combo.currentText().strip()
         system_prompt_id = self.system_prompt_combo.currentData() or ""
@@ -504,25 +500,25 @@ class WorkflowDialog(QDialog):
         return WorkflowDraft(
             name=name,
             query=query,
-            workflow_type=workflow_type,
+            workflow_type="field_update",
             enabled=self.enabled_check.isChecked(),
             model=str(model) or None,
             temperature=self._selected_temperature(),
             api_mode=str(self.api_mode_combo.currentData() or "global_default"),
             prompt_id=prompt_id,
             system_prompt_id=str(system_prompt_id) or None,
-            target_field="" if workflow_type == "audit" or self.multiple_target_fields_check.isChecked() else target_field,
+            target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
             mode=str(mode),
-            multiple_target_fields=workflow_type != "audit" and self.multiple_target_fields_check.isChecked(),
+            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
-            response_delimiter=None if workflow_type == "audit" else (self.delimiter_edit.text().strip() or None),
-            schema_preset=str(self.schema_preset_combo.currentData() or AUDIT_SCHEMA_PRESET_MLR) if workflow_type == "audit" else None,
-            success_tags=None if workflow_type == "audit" else _parse_tag_list(self.success_tags_edit.text()),
-            failure_tags=None if workflow_type == "audit" else _parse_tag_list(self.failure_tags_edit.text()),
+            response_delimiter=self.delimiter_edit.text().strip() or None,
+            success_tags=_parse_tag_list(self.success_tags_edit.text()),
+            failure_tags=_parse_tag_list(self.failure_tags_edit.text()),
             trigger_on_startup=self.trigger_on_startup_check.isChecked(),
             trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
             trigger_min_matches=int(self.trigger_min_matches_spin.value()),
             group_name=_parse_group_name(self.group_edit.text()),
+            group_post_run_script=_parse_group_script(self.group_script_edit.text()),
         )
 
     def _populate_model_combo(self) -> None:
@@ -567,6 +563,7 @@ class WorkflowDialog(QDialog):
             self.group_edit.setPlaceholderText(f"Single group name, e.g. {known_group_names}")
         else:
             self.group_edit.setPlaceholderText("Single group name")
+        self.group_script_edit.setPlaceholderText("Optional script path or shell command")
 
     def _selected_prompt(self) -> PromptChoice | None:
         prompt_id = self.prompt_combo.currentData()
@@ -700,27 +697,21 @@ class WorkflowDialog(QDialog):
             self._set_combo_to_data(self.mode_combo, WRITE_MODE_OVERWRITE)
 
     def _refresh_workflow_type_ui(self) -> None:
-        is_audit = (self.workflow_type_combo.currentData() or "field_update") == "audit"
-        self.preset_combo.setEnabled(not is_audit)
-        self.multiple_target_fields_check.setEnabled(not is_audit)
-        self.convert_markdown_to_html_check.setEnabled(not is_audit)
-        self.target_field_combo.setEnabled(not is_audit and not self.multiple_target_fields_check.isChecked())
-        self.mode_combo.setEnabled(not is_audit)
-        self.delimiter_edit.setEnabled(not is_audit and self.multiple_target_fields_check.isChecked())
-        self.schema_preset_combo.setEnabled(is_audit)
-        if is_audit:
-            self.multiple_target_fields_check.setChecked(False)
-            self._set_combo_to_data(self.api_mode_combo, "responses")
-        self._set_preset_form_row_visible(self._preset_row, not is_audit)
-        self._set_preset_form_row_visible(self.multiple_target_fields_check, not is_audit)
-        self._set_preset_form_row_visible(self.convert_markdown_to_html_check, not is_audit)
-        self._set_preset_form_row_visible(self.delimiter_edit, not is_audit)
-        self._set_preset_form_row_visible(self.target_field_combo, not is_audit)
-        self._set_preset_form_row_visible(self.mode_combo, not is_audit)
-        self._set_preset_form_row_visible(self.success_tags_edit, not is_audit)
-        self._set_preset_form_row_visible(self.failure_tags_edit, not is_audit)
-        self._set_preset_form_row_visible(self.schema_preset_combo, is_audit)
-        self._update_preset_group_title(is_audit=is_audit)
+        self.preset_combo.setEnabled(True)
+        self.multiple_target_fields_check.setEnabled(True)
+        self.convert_markdown_to_html_check.setEnabled(True)
+        self.target_field_combo.setEnabled(not self.multiple_target_fields_check.isChecked())
+        self.mode_combo.setEnabled(True)
+        self.delimiter_edit.setEnabled(self.multiple_target_fields_check.isChecked())
+        self._set_preset_form_row_visible(self._preset_row, True)
+        self._set_preset_form_row_visible(self.multiple_target_fields_check, True)
+        self._set_preset_form_row_visible(self.convert_markdown_to_html_check, True)
+        self._set_preset_form_row_visible(self.delimiter_edit, True)
+        self._set_preset_form_row_visible(self.target_field_combo, True)
+        self._set_preset_form_row_visible(self.mode_combo, True)
+        self._set_preset_form_row_visible(self.success_tags_edit, True)
+        self._set_preset_form_row_visible(self.failure_tags_edit, True)
+        self._update_preset_group_title()
         self._refresh_target_mode_ui()
 
     def _set_preset_form_row_visible(self, field: QWidget | None, visible: bool) -> None:
@@ -731,10 +722,10 @@ class WorkflowDialog(QDialog):
             label.setVisible(visible)
         field.setVisible(visible)
 
-    def _update_preset_group_title(self, *, is_audit: bool) -> None:
+    def _update_preset_group_title(self) -> None:
         if self._preset_group_toggle is None:
             return
-        title = "Audit Settings" if is_audit else "Preset Settings"
+        title = "Preset Settings"
         prefix = "▾" if self._preset_group_toggle.isChecked() else "▸"
         self._preset_group_toggle.setText(f"{prefix} {title}")
 
@@ -1197,15 +1188,6 @@ class WorkflowDialog(QDialog):
         if not draft.prompt_id:
             showCritical("Choose a saved prompt for this workflow.", parent=self)
             return
-        if draft.workflow_type == "audit":
-            if not draft.schema_preset:
-                showCritical("Choose an audit schema preset.", parent=self)
-                return
-            if draft.api_mode == "chat_completions":
-                showCritical("Audit workflows currently require the Responses API.", parent=self)
-                return
-            self.accept()
-            return
         if draft.multiple_target_fields and not draft.response_delimiter:
             showCritical("Enter the response delimiter for multiple target field mode.", parent=self)
             return
@@ -1267,3 +1249,8 @@ def _parse_tag_list(value: str) -> list[str]:
         tags.append(tag)
         seen.add(tag)
     return tags
+
+
+def _parse_group_script(value: str) -> str | None:
+    normalized = value.strip()
+    return normalized or None

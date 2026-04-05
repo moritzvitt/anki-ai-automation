@@ -46,6 +46,8 @@ def load_automation_files(
         for path in sorted(directory.glob("*.yaml")):
             item = parser(read_yamlish_file(path), index=index)
             index += 1
+            if item is None:
+                continue
             item_id = item_id_getter(item)
             merged[item_id] = item
             if item_id in order:

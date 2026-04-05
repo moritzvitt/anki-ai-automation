@@ -30,6 +30,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
+- Workflow groups can now optionally launch a script or shell command after a full group run finishes, both from the workflow manager and from Browser-selected note runs.
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
 - Workflows with stale group assignments now still load after groups are deleted, with missing `group_id` references being ignored instead of breaking the workflow manager or the `Process specific cards with AI` dialog.
 - Workflow loading now allows empty saved queries, the workflow editor can save query-less workflows for Browser-selected note runs, and creating a new workflow from the manager no longer fails on a missing ID helper import.
@@ -73,6 +75,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Removed
 
+- Removed the audit-specific structured JSON workflow path, the pipeline execution layer, the Browser audit entry point, and the associated shipped audit/pipeline YAML definitions, returning the add-on to prompt-driven field-update workflows plus optional post-group scripting.
 - Removed the older shipped MLR maintenance, audit-follow-up, and card-optimization workflow/group YAML definitions plus the corresponding `FIXABLE_MAJOR` rework workflow YAMLs from `user_data`, reducing the prompt-focused branch back down to the automation set that is still actively used.
 
 ## 1.1.0 - 2026-04-03
