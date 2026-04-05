@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+from pathlib import Path
+import subprocess
 from threading import Event
 from typing import Callable
 
@@ -56,7 +59,13 @@ def execute_workflow(
     cancel_event: Event | None = None,
     progress_callback: Callable[[int], None] | None = None,
 ) -> WorkflowExecutionResult:
-    matched_note_ids = list(note_ids) if note_ids is not None else _find_note_ids_for_query(workflow.query)
+    matched_note_ids = (
+        list(note_ids)
+        if note_ids is not None
+        else ([] if workflow.workflow_type == "script" and not workflow.query.strip() else _find_note_ids_for_query(workflow.query))
+    )
+    if workflow.workflow_type == "script":
+        return _execute_script_workflow(workflow, matched_note_ids)
     if workflow.workflow_type != "field_update":
         raise RuntimeError(f"Unsupported workflow type '{workflow.workflow_type}'.")
     return _execute_field_update_workflow(
@@ -170,6 +179,41 @@ def _execute_field_update_workflow(
         ]
         if result.updates
         else [],
+    )
+
+
+def _execute_script_workflow(
+    workflow: Workflow,
+    note_ids: list[int],
+) -> WorkflowExecutionResult:
+    command = (workflow.script_command or "").strip()
+    if not command:
+        raise RuntimeError(f"Workflow '{workflow.name}' has no script command configured.")
+    env = os.environ.copy()
+    env["AI_AUTOMATION_WORKFLOW_ID"] = workflow.workflow_id
+    env["AI_AUTOMATION_WORKFLOW_NAME"] = workflow.name
+    env["AI_AUTOMATION_WORKFLOW_TYPE"] = workflow.workflow_type
+    env["AI_AUTOMATION_NOTE_IDS"] = ",".join(str(note_id) for note_id in note_ids)
+    subprocess.run(
+        command,
+        shell=True,
+        cwd=str(Path(__file__).resolve().parent.parent),
+        env=env,
+        check=True,
+    )
+    return WorkflowExecutionResult(
+        workflow_id=workflow.workflow_id,
+        workflow_name=workflow.name,
+        workflow_type=workflow.workflow_type,
+        matched_note_ids=list(note_ids),
+        succeeded_note_ids=list(note_ids),
+        failed_note_ids=[],
+        skipped_note_ids=[],
+        failures=[],
+        updated_requests=0,
+        artifacts_by_note_id={},
+        deferred_field_tag_applications=[],
+        deferred_field_update_applications=[],
     )
 
 

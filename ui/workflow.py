@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import os
-from pathlib import Path
-import subprocess
 from threading import Event
 from typing import Callable
 
@@ -32,7 +29,7 @@ from aqt.qt import (
 from aqt.utils import askUser, showCritical, showInfo
 
 from .automation import PromptChoice, _preset_choices_from_saved_processing_presets
-from .workflow_dialog import WorkflowDialog
+from .workflow_dialog import ScriptWorkflowDialog, WorkflowDialog
 from ..core.config import (
     ConfigError,
     SavedPrompt,
@@ -118,6 +115,10 @@ class WorkflowManagerDialog(QDialog):
         group_layout.addWidget(self.group_run_combo, stretch=1)
         set_hover_help(self.group_run_combo, "Filter the workflow list by group.", enabled=self._config.show_tooltips)
         self.group_run_combo.currentIndexChanged.connect(self._populate)
+        add_script_button = QPushButton("Add Custom Script")
+        set_hover_help(add_script_button, "Create a script step inside the currently selected workflow group.", enabled=self._config.show_tooltips)
+        add_script_button.clicked.connect(self._add_group_script)
+        group_layout.addWidget(add_script_button)
         run_group_button = QPushButton("Run Group")
         set_hover_help(run_group_button, "Run every workflow in the currently selected group, in order.", enabled=self._config.show_tooltips)
         run_group_button.clicked.connect(self._run_selected_group)
@@ -243,22 +244,30 @@ class WorkflowManagerDialog(QDialog):
         return _blend_colors(background, base, 0.58)
 
     def _workflow_preview(self, workflow: Workflow) -> str:
-        prompt_name = self._prompt_name(workflow.prompt_id)
         trigger_summary = _trigger_summary(workflow)
-        target_summary = (
-            workflow.target_field if not workflow.multiple_target_fields else "Delimited multi-field mode"
-        )
         summary_parts = []
-        summary_parts.extend(
-            [
-                f"Prompt: {prompt_name}",
-                f"Target: {target_summary}",
-                f"Mode: {workflow.mode}",
-                f"Model: {workflow.model or self._config.model}",
-                f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'}",
-                f"System: {self._system_prompt_name(workflow.system_prompt_id)}",
-            ]
-        )
+        if workflow.workflow_type == "script":
+            summary_parts.extend(
+                [
+                    "Type: Script",
+                    f"Command: {workflow.script_command or '-'}",
+                ]
+            )
+        else:
+            prompt_name = self._prompt_name(workflow.prompt_id)
+            target_summary = (
+                workflow.target_field if not workflow.multiple_target_fields else "Delimited multi-field mode"
+            )
+            summary_parts.extend(
+                [
+                    f"Prompt: {prompt_name}",
+                    f"Target: {target_summary}",
+                    f"Mode: {workflow.mode}",
+                    f"Model: {workflow.model or self._config.model}",
+                    f"Temp: {workflow.temperature if workflow.temperature is not None else 'global'}",
+                    f"System: {self._system_prompt_name(workflow.system_prompt_id)}",
+                ]
+            )
         if trigger_summary != "manual only":
             summary_parts.append(f"Trigger: {trigger_summary}")
         return (
@@ -391,7 +400,7 @@ class WorkflowManagerDialog(QDialog):
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
-            group_id=self._group_id_for_name(draft.group_name, post_run_script=draft.group_post_run_script),
+            group_id=self._group_id_for_name(draft.group_name),
             position=len(self._workflows),
         )
         self._workflows.append(workflow)
@@ -403,6 +412,21 @@ class WorkflowManagerDialog(QDialog):
         if workflow is None:
             return
         row = self._workflows.index(workflow)
+        if workflow.workflow_type == "script":
+            dialog = ScriptWorkflowDialog(parent=self, workflow=workflow)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            draft = dialog.draft()
+            self._workflows[row] = replace(
+                workflow,
+                name=draft.name,
+                query=draft.query,
+                enabled=draft.enabled,
+                script_command=draft.script_command,
+            )
+            self._save_state()
+            self._select_workflow_by_id(workflow.workflow_id)
+            return
         dialog = WorkflowDialog(
             parent=self,
             prompts=self._prompts,
@@ -412,10 +436,6 @@ class WorkflowManagerDialog(QDialog):
             model_pricing=self._config.model_pricing,
             workflow=workflow,
             current_group_names=[self._group_name(workflow.group_id)] if self._group_name(workflow.group_id) else [],
-            current_group_post_run_script=next(
-                (group.post_run_script for group in self._groups if group.group_id == workflow.group_id),
-                None,
-            ),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -444,8 +464,39 @@ class WorkflowManagerDialog(QDialog):
             trigger_on_startup=draft.trigger_on_startup,
             trigger_on_periodic=draft.trigger_on_periodic,
             trigger_min_matches=draft.trigger_min_matches,
-            group_id=self._group_id_for_name(draft.group_name, post_run_script=draft.group_post_run_script),
+            group_id=self._group_id_for_name(draft.group_name),
         )
+        self._save_state()
+        self._select_workflow_by_id(workflow.workflow_id)
+
+    def _add_group_script(self) -> None:
+        group_id = self.group_run_combo.currentData()
+        if not isinstance(group_id, str) or not group_id or group_id in {_GROUP_FILTER_ENABLED_ONLY, _GROUP_FILTER_DISABLED_ONLY}:
+            show_tooltip("Choose a concrete workflow group first.", parent=self)
+            return
+        group = next((item for item in self._groups if item.group_id == group_id), None)
+        if group is None:
+            show_tooltip("Choose a concrete workflow group first.", parent=self)
+            return
+        dialog = ScriptWorkflowDialog(parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        draft = dialog.draft()
+        workflow = Workflow(
+            workflow_id=new_object_id("workflow"),
+            name=draft.name,
+            query=draft.query,
+            workflow_type="script",
+            enabled=draft.enabled,
+            script_command=draft.script_command,
+            group_id=group.group_id,
+            position=len(self._workflows),
+        )
+        insert_at = max(
+            (index for index, item in enumerate(self._workflows) if item.group_id == group.group_id),
+            default=len(self._workflows) - 1,
+        ) + 1
+        self._workflows.insert(insert_at, workflow)
         self._save_state()
         self._select_workflow_by_id(workflow.workflow_id)
 
@@ -526,21 +577,8 @@ class WorkflowManagerDialog(QDialog):
         if not workflows:
             show_tooltip("This group does not contain any workflows.", parent=self)
             return
-        group = next((item for item in self._groups if item.group_id == group_id), None)
-        group_name = group.name if group is not None else "Selected group"
-        self._run_workflow_sequence(
-            workflows,
-            run_label=group_name,
-            on_done=(
-                lambda summary: _launch_group_post_run_script(
-                    group,
-                    workflows=workflows,
-                    note_ids=None,
-                    summary=summary,
-                    parent=self,
-                )
-            ) if group is not None and group.post_run_script else None,
-        )
+        group_name = self._group_name(group_id) or "Selected group"
+        self._run_workflow_sequence(workflows, run_label=group_name)
 
     def _run_workflow_sequence(
         self,
@@ -565,7 +603,7 @@ class WorkflowManagerDialog(QDialog):
         prompt_lookup = {prompt.prompt_id: prompt for prompt in config.saved_prompts}
         query_counts: list[tuple[Workflow, int]] = []
         for workflow in workflows:
-            if workflow.prompt_id not in prompt_lookup:
+            if workflow.workflow_type != "script" and workflow.prompt_id not in prompt_lookup:
                 showCritical(
                     f"Workflow '{workflow.name}' references a missing saved prompt.",
                     parent=self,
@@ -573,7 +611,10 @@ class WorkflowManagerDialog(QDialog):
                 return
             if note_ids_override is None:
                 try:
-                    query_counts.append((workflow, len(_find_note_ids_for_query(workflow.query))))
+                    if workflow.workflow_type == "script" and not workflow.query.strip():
+                        query_counts.append((workflow, 0))
+                    else:
+                        query_counts.append((workflow, len(_find_note_ids_for_query(workflow.query))))
                 except RuntimeError as error:
                     showCritical(f"Workflow '{workflow.name}' query error:\n\n{error}", parent=self)
                     return
@@ -632,7 +673,7 @@ class WorkflowManagerDialog(QDialog):
             return
 
         workflow = workflows[index]
-        if prompt_lookup.get(workflow.prompt_id) is None:
+        if workflow.workflow_type != "script" and prompt_lookup.get(workflow.prompt_id) is None:
             summary.failures.append(f"- Workflow '{workflow.name}': saved prompt is missing.")
             self._run_workflow_at_index(
                 workflows=workflows,
@@ -648,7 +689,10 @@ class WorkflowManagerDialog(QDialog):
 
         if note_ids_override is None:
             try:
-                note_ids = _find_note_ids_for_query(workflow.query)
+                if workflow.workflow_type == "script" and not workflow.query.strip():
+                    note_ids = []
+                else:
+                    note_ids = _find_note_ids_for_query(workflow.query)
             except RuntimeError as error:
                 summary.failures.append(f"- Workflow '{workflow.name}': query failed: {error}")
                 self._run_workflow_at_index(
@@ -665,7 +709,7 @@ class WorkflowManagerDialog(QDialog):
         else:
             note_ids = list(note_ids_override)
 
-        if not note_ids:
+        if not note_ids and workflow.workflow_type != "script":
             summary.skipped.append(f"- {workflow.name}: no matching notes.")
             self._run_workflow_at_index(
                 workflows=workflows,
@@ -680,11 +724,16 @@ class WorkflowManagerDialog(QDialog):
             return
 
         cancel_event = Event()
+        progress_note_count = max(1, len(note_ids))
         progress_dialog = ProcessingInterruptDialog(
             self,
-            note_count=len(note_ids),
+            note_count=progress_note_count,
             window_title="AI Workflow Progress",
-            action_label=f"Running workflow '{workflow.name}' for",
+            action_label=(
+                f"Running script '{workflow.name}'"
+                if workflow.workflow_type == "script"
+                else f"Running workflow '{workflow.name}' for"
+            ),
         )
         progress_dialog.interrupt_button.clicked.connect(
             lambda: _request_progress_interrupt(progress_dialog, cancel_event)
@@ -695,7 +744,7 @@ class WorkflowManagerDialog(QDialog):
             if mw is None or not hasattr(mw, "taskman"):
                 return
             mw.taskman.run_on_main(
-                lambda: progress_dialog.set_progress(min(completed_count, len(note_ids)))
+                lambda: progress_dialog.set_progress(min(completed_count, progress_note_count))
             )
 
         def run_workflow_operation():
@@ -788,24 +837,14 @@ class WorkflowManagerDialog(QDialog):
                 report_lines.append(f"- ...and {len(summary.failures) - 40} more")
         showInfo("\n".join(report_lines), parent=self)
 
-    def _group_id_for_name(self, group_name: str | None, *, post_run_script: str | None = None) -> str | None:
+    def _group_id_for_name(self, group_name: str | None) -> str | None:
         normalized = (group_name or "").strip()
         if not normalized:
             return None
         existing_group = next((group for group in self._groups if group.name == normalized), None)
         if existing_group is not None:
-            if (existing_group.post_run_script or None) != (post_run_script or None):
-                updated_group = replace(existing_group, post_run_script=post_run_script or None)
-                self._groups = [
-                    updated_group if group.group_id == existing_group.group_id else group
-                    for group in self._groups
-                ]
             return existing_group.group_id
-        new_group = WorkflowGroup(
-            group_id=new_object_id("group"),
-            name=normalized,
-            post_run_script=post_run_script or None,
-        )
+        new_group = WorkflowGroup(group_id=new_object_id("group"), name=normalized)
         self._groups.append(new_group)
         self._groups.sort(key=lambda group: group.name.lower())
         return new_group.group_id
@@ -836,7 +875,6 @@ def run_workflows_background(
     run_label: str,
     note_ids_override: list[int] | None = None,
     show_summary_dialog: bool = False,
-    post_run_group: WorkflowGroup | None = None,
     on_done: Callable[[WorkflowSequenceSummary], None] | None = None,
 ) -> None:
     if mw is None:
@@ -853,14 +891,6 @@ def run_workflows_background(
         if dialog in _WORKFLOW_RUNNER_DIALOGS:
             _WORKFLOW_RUNNER_DIALOGS.remove(dialog)
         dialog.deleteLater()
-        if post_run_group is not None and post_run_group.post_run_script:
-            _launch_group_post_run_script(
-                post_run_group,
-                workflows=workflows,
-                note_ids=note_ids_override,
-                summary=summary,
-                parent=parent,
-            )
         if on_done is not None:
             on_done(summary)
 
@@ -882,44 +912,6 @@ def _blend_colors(base: QColor, accent: QColor, ratio: float) -> QColor:
         round((base.green() * inverse) + (accent.green() * ratio)),
         round((base.blue() * inverse) + (accent.blue() * ratio)),
     )
-
-
-def _launch_group_post_run_script(
-    group: WorkflowGroup | None,
-    *,
-    workflows: list[Workflow],
-    note_ids: list[int] | None,
-    summary: WorkflowSequenceSummary,
-    parent: QWidget | None,
-) -> None:
-    if group is None:
-        return
-    script = (group.post_run_script or "").strip()
-    if not script:
-        return
-    try:
-        env = os.environ.copy()
-        env["AI_AUTOMATION_GROUP_ID"] = group.group_id
-        env["AI_AUTOMATION_GROUP_NAME"] = group.name
-        env["AI_AUTOMATION_WORKFLOW_IDS"] = ",".join(workflow.workflow_id for workflow in workflows)
-        env["AI_AUTOMATION_WORKFLOW_NAMES"] = "\n".join(workflow.name for workflow in workflows)
-        env["AI_AUTOMATION_NOTE_IDS"] = ",".join(str(note_id) for note_id in (note_ids or []))
-        env["AI_AUTOMATION_UPDATED_REQUESTS"] = str(summary.updated_requests)
-        subprocess.Popen(
-            script,
-            shell=True,
-            cwd=str(Path(__file__).resolve().parent.parent),
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception as error:
-        showCritical(
-            f"Failed to start post-run script for workflow group '{group.name}':\n\n{error}",
-            parent=parent,
-        )
-
-
 def _trigger_summary(workflow: Workflow) -> str:
     trigger_events: list[str] = []
     if workflow.trigger_on_startup:

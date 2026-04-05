@@ -151,10 +151,6 @@ def _trigger_browser_group(browser: Browser, group_id: str, note_ids: list[int])
         run_label=f"{group_name} (selected Browser notes)",
         note_ids_override=list(note_ids),
         show_summary_dialog=False,
-        post_run_group=next(
-            (group for group in config.workflow_groups if group.group_id == group_id),
-            None,
-        ),
         on_done=lambda _summary: _refresh_open_browser_note(browser, changed_note_ids=note_ids),
     )
 

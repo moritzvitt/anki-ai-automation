@@ -78,7 +78,15 @@ class WorkflowDraft:
     trigger_on_periodic: bool
     trigger_min_matches: int
     group_name: str | None
-    group_post_run_script: str | None
+
+
+@dataclass(frozen=True)
+class ScriptWorkflowDraft:
+    name: str
+    query: str
+    enabled: bool
+    script_command: str
+
 
 class WorkflowDialog(QDialog):
     def __init__(
@@ -92,7 +100,6 @@ class WorkflowDialog(QDialog):
         model_pricing: dict,
         workflow: Workflow | None = None,
         current_group_names: list[str] | None = None,
-        current_group_post_run_script: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Workflow")
@@ -105,7 +112,6 @@ class WorkflowDialog(QDialog):
         self._presets = _preset_choices_from_saved_processing_presets(loaded_presets)
         self._groups = list(groups)
         self._current_group_names = current_group_names or []
-        self._current_group_post_run_script = current_group_post_run_script
         self._current_model = current_model
         self._show_tooltips = load_config().show_tooltips
         self._model_options = fallback_model_options(
@@ -146,7 +152,6 @@ class WorkflowDialog(QDialog):
         self.trigger_on_periodic_check = QCheckBox("Run automatically when the condition becomes true")
         self.trigger_min_matches_spin = QSpinBox()
         self.group_edit = QLineEdit()
-        self.group_script_edit = QLineEdit()
         self.preset_group: QWidget | None = None
         self.prompt_group: QWidget | None = None
         self._scroll_area: QScrollArea | None = None
@@ -158,6 +163,64 @@ class WorkflowDialog(QDialog):
 
         self._build_ui()
         self._populate(workflow)
+
+
+class ScriptWorkflowDialog(QDialog):
+    def __init__(self, parent: QWidget, *, workflow: Workflow | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Custom Script")
+        self.resize(820, 280)
+
+        self.name_edit = QLineEdit()
+        self.query_edit = QLineEdit()
+        self.enabled_check = QCheckBox("Enabled")
+        self.enabled_check.setChecked(True)
+        self.script_edit = QPlainTextEdit()
+        self.script_edit.setMinimumHeight(120)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.addRow("Name", self.name_edit)
+        form.addRow("Query", self.query_edit)
+        form.addRow("", self.enabled_check)
+        form.addRow("Script", self.script_edit)
+        layout.addLayout(form)
+
+        help_text = QLabel(
+            "This script runs once at its position in the workflow order. "
+            "It receives the current note ids in AI_AUTOMATION_NOTE_IDS."
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        if workflow is not None:
+            self.name_edit.setText(workflow.name)
+            self.query_edit.setText(workflow.query)
+            self.enabled_check.setChecked(workflow.enabled)
+            self.script_edit.setPlainText(workflow.script_command or "")
+
+    def draft(self) -> ScriptWorkflowDraft:
+        return ScriptWorkflowDraft(
+            name=self.name_edit.text().strip(),
+            query=self.query_edit.text().strip(),
+            enabled=self.enabled_check.isChecked(),
+            script_command=self.script_edit.toPlainText().strip(),
+        )
+
+    def _validate_and_accept(self) -> None:
+        draft = self.draft()
+        if not draft.name:
+            showCritical("Script name must not be empty.", parent=self)
+            return
+        if not draft.script_command:
+            showCritical("Script command must not be empty.", parent=self)
+            return
+        self.accept()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -299,7 +362,6 @@ class WorkflowDialog(QDialog):
         set_hover_help(self.trigger_on_periodic_check, "Keep checking this workflow in the background and run it when the condition changes from not met to met.", enabled=self._show_tooltips)
         set_hover_help(self.trigger_min_matches_spin, "Minimum number of notes matching the workflow query before the automatic trigger can fire.", enabled=self._show_tooltips)
         set_hover_help(self.group_edit, "Optional workflow group used to organize and batch-run related workflows.", enabled=self._show_tooltips)
-        set_hover_help(self.group_script_edit, "Optional shell command or script path to launch after a full group run finishes.", enabled=self._show_tooltips)
 
         content_layout.addLayout(form)
 
@@ -325,7 +387,6 @@ class WorkflowDialog(QDialog):
         preset_form.addRow("", self.trigger_on_periodic_check)
         preset_form.addRow("Trigger min matches", self.trigger_min_matches_spin)
         preset_form.addRow("Group", self.group_edit)
-        preset_form.addRow("After group run", self.group_script_edit)
         self.preset_group = self._make_collapsible_section("Preset Settings", preset_form, expanded=True)
         content_layout.addWidget(self.preset_group)
 
@@ -478,7 +539,6 @@ class WorkflowDialog(QDialog):
         if mode_index >= 0:
             self.mode_combo.setCurrentIndex(mode_index)
         self.group_edit.setText(self._current_group_names[0] if self._current_group_names else "")
-        self.group_script_edit.setText(self._current_group_post_run_script or "")
         self.success_tags_edit.setText(", ".join(workflow.success_tags or []))
         self.failure_tags_edit.setText(", ".join(workflow.failure_tags or []))
         self._refresh_prompt_preview()
@@ -518,7 +578,6 @@ class WorkflowDialog(QDialog):
             trigger_on_periodic=self.trigger_on_periodic_check.isChecked(),
             trigger_min_matches=int(self.trigger_min_matches_spin.value()),
             group_name=_parse_group_name(self.group_edit.text()),
-            group_post_run_script=_parse_group_script(self.group_script_edit.text()),
         )
 
     def _populate_model_combo(self) -> None:
@@ -563,7 +622,6 @@ class WorkflowDialog(QDialog):
             self.group_edit.setPlaceholderText(f"Single group name, e.g. {known_group_names}")
         else:
             self.group_edit.setPlaceholderText("Single group name")
-        self.group_script_edit.setPlaceholderText("Optional script path or shell command")
 
     def _selected_prompt(self) -> PromptChoice | None:
         prompt_id = self.prompt_combo.currentData()
@@ -1249,8 +1307,3 @@ def _parse_tag_list(value: str) -> list[str]:
         tags.append(tag)
         seen.add(tag)
     return tags
-
-
-def _parse_group_script(value: str) -> str | None:
-    normalized = value.strip()
-    return normalized or None

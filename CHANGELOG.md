@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- Workflow groups can now include explicit custom script steps that appear in the normal workflow list and run in sequence like any other workflow, making post-processing automation visible and orderable instead of hidden behind a separate group hook.
 - A Browser `Audit with AI` action for `Moritz Language Reactor` notes that performs a diagnostic-only audit without rewriting study content fields.
 - A branch naming convention doc under `docs/release/branch-naming.md` so future work can use short, consistent branch names like `feature/browser-prompt-library-picker`.
 - Browser context-menu actions to run enabled workflows or whole workflow groups directly on the current Browser selection instead of relying on each workflow's saved query matches.
@@ -31,7 +32,6 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Prompt placeholder parsing now ignores literal cloze syntax like `{{c1::...}}`, so those examples stay intact inside prompt text instead of being treated as missing note fields.
-- Workflow groups can now optionally launch a script or shell command after a full group run finishes, both from the workflow manager and from Browser-selected note runs.
 - Workflow and preset loading now fall back to `default-system-prompt` for normal runs and `mlr-audit-system` for audit workflows when a saved `system_prompt_id` no longer exists, so stale user automation files do not block Browser audits or config loading.
 - Workflows with stale group assignments now still load after groups are deleted, with missing `group_id` references being ignored instead of breaking the workflow manager or the `Process specific cards with AI` dialog.
 - Workflow loading now allows empty saved queries, the workflow editor can save query-less workflows for Browser-selected note runs, and creating a new workflow from the manager no longer fails on a missing ID helper import.
