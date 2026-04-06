@@ -131,7 +131,7 @@ def normalize_delimited_field_name(value: str) -> str:
 
 
 def split_field_delimiter(delimiter: str) -> tuple[str, str]:
-    normalized = delimiter.strip()
+    normalized = delimiter.strip().replace("{field-name}", "{field}")
     if not normalized:
         raise OpenAIClientError("Multiple target field mode requires a response delimiter.")
     if "{field}" in normalized:

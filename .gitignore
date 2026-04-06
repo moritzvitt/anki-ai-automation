@@ -26,3 +26,5 @@ debug.txt
 # Live Anki profile config
 /meta.json
 docs/do_later.md
+prompt_library/user_prompts/prompt-9c0b5c94e8a2.md
+docs/release/media/*.mov

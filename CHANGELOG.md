@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- New release collateral under `docs/release/`, including Reddit copy and a YouTube description draft for launch/promo use.
 - A visible `MLR Tag AI Status` script workflow plus `scripts/add_ai_status_tags.py`, so the `MLR` group can derive uppercase `AI_STATUS::...` tags from the `AI Status` field after stripping HTML.
 - An optional `Convert field HTML to Markdown for placeholders` setting for Browser runs, presets, and workflows, so prompt placeholders can send cleaner Markdown text to the model instead of raw HTML.
 - Workflow groups can now include explicit custom script steps that appear in the normal workflow list and run in sequence like any other workflow, making post-processing automation visible and orderable instead of hidden behind a separate group hook.
@@ -33,6 +34,8 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- The Browser `Transform with AI` dialog now keeps prompt switching inside each prompt editor header, replaces prompt-edit actions with rename actions, adds direct system-prompt library browsing, and hides the multi-field response delimiter unless multiple target fields are enabled.
+- Multi-field Browser runs now default the response delimiter to `--{field-name}--`, show that format as the placeholder/tooltip hint, and accept the UI-facing `{field-name}` placeholder variant during parsing.
 - Workflow loading now tolerates deleted prompt references, shows affected workflows as missing in the workflow UI, and only raises an error when you actually try to run one of those stale workflows.
 - The Tools entry for the workflow manager is now labeled `AI Automation: Workflow Configuration`, and the legacy tag-migration menu entry was removed from the active add-on UI.
 - Browser and workflow preset pickers now tolerate deleted prompt references while opening normally, label those presets as missing, and only show an error if you actually try to run or apply one of the stale presets.

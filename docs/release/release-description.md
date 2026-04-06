@@ -21,3 +21,10 @@ The add-on includes a structured config dialog for core settings, plus dedicated
 ## Compatibility
 
 Built for current Anki releases using modern `aqt.gui_hooks` integration.
+
+## Links
+
+- GitHub: https://github.com/moritzvitt/anki-ai-automation
+- AnkiWeb: https://ankiweb.net/shared/info/1186735228
+- Video: https://youtu.be/80O47uk6LCI
+- Buy Me a Coffee: https://buymeacoffee.com/moritzowitsch

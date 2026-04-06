@@ -50,3 +50,10 @@ If you are unsure, default to:
 For example:
 
 - `feature/browser-quick-tags`
+
+## Links
+
+- GitHub: https://github.com/moritzvitt/anki-ai-automation
+- AnkiWeb: https://ankiweb.net/shared/info/1186735228
+- Video: https://youtu.be/80O47uk6LCI
+- Buy Me a Coffee: https://buymeacoffee.com/moritzowitsch

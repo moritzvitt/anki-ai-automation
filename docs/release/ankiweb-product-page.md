@@ -42,3 +42,16 @@ AI Automation helps you clean up, rewrite, enrich, and standardize Anki note fie
 - 🔑 You need your own OpenAI API key
 - ✅ Built for current Anki versions
 - 🎯 Results still depend on prompt quality, note structure, and model choice
+
+## Support
+
+If AI Automation saves you time and you want to support continued development, you can buy me a coffee here:
+
+https://buymeacoffee.com/moritzowitsch
+
+## Links
+
+- GitHub: https://github.com/moritzvitt/anki-ai-automation
+- AnkiWeb: https://ankiweb.net/shared/info/1186735228
+- Video: https://youtu.be/80O47uk6LCI
+- Buy Me a Coffee: https://buymeacoffee.com/moritzowitsch
