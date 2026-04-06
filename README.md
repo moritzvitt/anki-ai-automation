@@ -1,10 +1,16 @@
 # AI Automation
 
-<img src="https://raw.githubusercontent.com/moritzvitt/anki-ai-automation/c6cade0b7e0049877a3fc37f298942b770295207/images.webp" alt="AI Automation logo" width="128" />
+<img src="https://raw.githubusercontent.com/moritzvitt/anki-ai-automation/main/docs/release/media/images.webp" alt="AI Automation logo" width="128" />
 
 AI Automation is an Anki add-on for running OpenAI-powered note updates from the Browser or from saved workflows.
 
 You can select Browser rows and choose `Transform with AI`, or build reusable workflows that run against Anki searches, workflow groups, Browser selections, and startup/query triggers. The add-on renders prompts from note fields, sends them to OpenAI, and writes the result back into one or more note fields with configurable safety checks.
+
+## Demo Video
+
+[![Watch the demo video](https://img.youtube.com/vi/80O47uk6LCI/hqdefault.jpg)](https://youtu.be/80O47uk6LCI)
+
+Watch the add-on in action on YouTube: https://youtu.be/80O47uk6LCI
 
 ## Features
 

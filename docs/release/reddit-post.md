@@ -2,44 +2,43 @@
 
 ## Title
 
-The AI Automation Addon for Anki: improve your flashcards with AI in one click
+AI Automation for Anki: improve lots of notes faster with AI-powered Browser actions and workflows
 
 ## Post
 
-I built **AI Automation**, an Anki add-on that helps you update and improve notes with AI directly inside Anki.
+AI Automation is an Anki add-on that helps you clean up, rewrite, enrich, and standardize Anki note fields with AI directly inside Anki.
 
-If you've ever wanted to:
+You can use it for things like:
 
 - clean up messy cards
-- rewrite explanations more clearly
-- improve cloze cards
-- optimize cards for retention
-- generate better field content
-- run the same prompt across lots of notes
+- rewriting explanations more clearly
+- improving cloze cards
+- generating better field content
+- standardizing lots of notes at once
+- running repeatable note-update workflows
 
-that's exactly what **AI Automation** is for.
+The main idea is simple: improve lots of notes faster without manually rewriting everything by hand.
 
-You can select notes in the Anki Browser, right-click, and use `Transform with AI` to send a prompt and write the result back into one or more fields.
+You can select notes in the Anki Browser, right-click, and use `Transform with AI` for a one-off run, or create reusable workflows that run against Browser selections, saved searches, or workflow groups.
 
-It also supports **saved workflows**, so instead of repeating the same setup every time, you can create reusable automations for specific note types, searches, workflow groups, or recurring study tasks.
+Some of the main features:
 
-## Highlights
+- `Transform with AI` directly from the Browser
+- saved prompts, system prompts, and presets
+- reusable workflows and workflow groups
+- `overwrite`, `append`, and `skip if target field not empty`
+- single-field or multi-field output
+- progress feedback while notes are processing
 
-- Run AI transforms from the Browser on selected notes or cards
-- Save reusable prompts and system prompts
-- Write results to one or multiple fields
-- Use `append`, `overwrite`, or `skip if target field not empty`
-- Preview estimated token and cost usage before sending
-- Process notes in batches with retries and timeouts
-- Run reusable workflows from saved searches and optional triggers
+If you already use Anki and want easier AI-assisted note maintenance inside the app itself, this might be useful.
 
-The goal is simple: make it easier to maintain a high-quality Anki collection without doing all the repetitive editing by hand.
+Demo video:
 
-If you already use Anki and OpenAI, I'd love to hear what kinds of note transformations or workflow ideas you'd want most.
+[![Watch the demo video](https://img.youtube.com/vi/80O47uk6LCI/hqdefault.jpg)](https://youtu.be/80O47uk6LCI)
 
 ## Links
 
-- GitHub: https://github.com/moritzvitt/anki-ai-automation
-- AnkiWeb: https://ankiweb.net/shared/info/1186735228
-- Video: https://youtu.be/80O47uk6LCI
-- Buy Me a Coffee: https://buymeacoffee.com/moritzowitsch
+- [GitHub](https://github.com/moritzvitt/anki-ai-automation)
+- [AnkiWeb](https://ankiweb.net/shared/info/1186735228)
+- [Video](https://youtu.be/80O47uk6LCI)
+- [Buy Me a Coffee](https://buymeacoffee.com/moritzowitsch)
