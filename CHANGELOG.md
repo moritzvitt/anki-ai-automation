@@ -10,7 +10,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 - MkDocs configuration for the shared add-on documentation site so this repo's docs can be included in the combined GitHub Pages build.
 - A Browser `Transform with AI` TTS mode that can read one selected note field aloud with a chosen OpenAI voice, save the generated audio into Anki media, and write the resulting `[sound:...]` tag into another field.
-- A cleaner HyperTTS-inspired `Transform with AI` Browser dialog layout with sectioned settings, a preset summary, and an in-dialog advanced-mode toggle that hides less-common controls until needed.
+- A cleaner HyperTTS-inspired `Transform with AI` Browser dialog layout with separate tabbed pages for major settings, a preset summary, and an in-dialog advanced-mode toggle that hides the Advanced page until needed.
 - New release collateral under `docs/release/`, including Reddit copy and a YouTube description draft for launch/promo use.
 - A visible `MLR Tag AI Status` script workflow plus `scripts/add_ai_status_tags.py`, so the `MLR` group can derive uppercase `AI_STATUS::...` tags from the `AI Status` field after stripping HTML.
 - An optional `Convert field HTML to Markdown for placeholders` setting for Browser runs, presets, and workflows, so prompt placeholders can send cleaner Markdown text to the model instead of raw HTML.

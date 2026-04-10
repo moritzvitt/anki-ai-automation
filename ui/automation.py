@@ -13,7 +13,6 @@ from aqt.qt import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -22,7 +21,7 @@ from aqt.qt import (
     QInputDialog,
     QPushButton,
     QPlainTextEdit,
-    QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -181,6 +180,8 @@ class TransformWithAIDialog(QDialog):
         self.system_prompt_preview.setMinimumHeight(140)
         self.run_settings_group = QGroupBox("Output")
         self.advanced_group = QGroupBox("Advanced")
+        self.pages = QTabWidget()
+        self._advanced_tab_index = -1
 
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
@@ -220,24 +221,16 @@ class TransformWithAIDialog(QDialog):
 
     def _build_ui(self) -> None:
         root_layout = QVBoxLayout(self)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        root_layout.addWidget(scroll)
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
+        layout = QVBoxLayout()
         layout.setSpacing(12)
-        scroll.setWidget(content)
 
         intro = QLabel(
             "Manage Browser AI presets, prompts, and run defaults."
             if self._settings_only
-            else "Run a saved AI prompt on the selected Browser notes with a cleaner HyperTTS-style layout."
+            else "Run a saved AI prompt on the selected Browser notes with a cleaner HyperTTS-style multi-page layout."
         )
         intro.setWordWrap(True)
-        layout.addWidget(intro)
+        root_layout.addWidget(intro)
 
         self.summary_group = QGroupBox("Selection")
         summary_form = QFormLayout(self.summary_group)
@@ -247,7 +240,7 @@ class TransformWithAIDialog(QDialog):
         summary_form.addRow("Note types", self.note_types_label)
         set_hover_help(self.note_count_label, "How many selected Browser rows resolve to notes that can be processed.", enabled=self._config.show_tooltips)
         set_hover_help(self.note_types_label, "Shared note types across the current selection.", enabled=self._config.show_tooltips)
-        layout.addWidget(self.summary_group)
+        root_layout.addWidget(self.summary_group)
         self.summary_group.setVisible(not self._settings_only)
 
         preset_group = QGroupBox("Preset")
@@ -277,7 +270,7 @@ class TransformWithAIDialog(QDialog):
         self.preset_summary_label.setWordWrap(True)
         self.preset_summary_label.setStyleSheet("color: palette(mid);")
         preset_layout.addWidget(self.preset_summary_label)
-        layout.addWidget(preset_group)
+        root_layout.addWidget(preset_group)
 
         mode_group = QGroupBox("Mode")
         mode_layout = QVBoxLayout(mode_group)
@@ -287,7 +280,7 @@ class TransformWithAIDialog(QDialog):
         mode_hint.setWordWrap(True)
         mode_layout.addWidget(mode_hint)
         mode_layout.addWidget(self.advanced_mode_check)
-        layout.addWidget(mode_group)
+        root_layout.addWidget(mode_group)
 
         set_hover_help(self.prompt_combo, "Quickly switch to another prompt in the same folder.", enabled=self._config.show_tooltips)
         set_hover_help(self.system_prompt_combo, "Quickly switch to another system prompt in the same folder.", enabled=self._config.show_tooltips)
@@ -319,7 +312,6 @@ class TransformWithAIDialog(QDialog):
         run_settings_form = QFormLayout(self.run_settings_group)
         run_settings_form.addRow("Target field", self.target_field_combo)
         run_settings_form.addRow("Write mode", self.mode_combo)
-        layout.addWidget(self.run_settings_group)
 
         advanced_form = QFormLayout(self.advanced_group)
         advanced_form.addRow("Model", self.model_combo)
@@ -334,7 +326,6 @@ class TransformWithAIDialog(QDialog):
         advanced_form.addRow("", self.convert_field_html_to_markdown_check)
         self.delimiter_edit.setPlaceholderText(DEFAULT_MULTI_FIELD_DELIMITER)
         advanced_form.addRow(self.delimiter_label, self.delimiter_edit)
-        layout.addWidget(self.advanced_group)
 
         prompt_group = QGroupBox("Prompt")
         prompt_group_layout = QVBoxLayout(prompt_group)
@@ -364,7 +355,6 @@ class TransformWithAIDialog(QDialog):
         prompt_header_layout.addWidget(save_prompt_button)
         prompt_group_layout.addWidget(prompt_header)
         prompt_group_layout.addWidget(self.prompt_preview)
-        layout.addWidget(prompt_group)
 
         system_prompt_group = QGroupBox("System Prompt")
         system_prompt_group_layout = QVBoxLayout(system_prompt_group)
@@ -394,8 +384,34 @@ class TransformWithAIDialog(QDialog):
         system_prompt_header_layout.addWidget(save_system_prompt_button)
         system_prompt_group_layout.addWidget(system_prompt_header)
         system_prompt_group_layout.addWidget(self.system_prompt_preview)
-        layout.addWidget(system_prompt_group)
-        layout.addStretch(1)
+        
+        output_page = QWidget()
+        output_layout = QVBoxLayout(output_page)
+        output_layout.setContentsMargins(8, 8, 8, 8)
+        output_layout.addWidget(self.run_settings_group)
+        output_layout.addStretch(1)
+
+        prompt_page = QWidget()
+        prompt_page_layout = QVBoxLayout(prompt_page)
+        prompt_page_layout.setContentsMargins(8, 8, 8, 8)
+        prompt_page_layout.addWidget(prompt_group)
+
+        system_prompt_page = QWidget()
+        system_prompt_page_layout = QVBoxLayout(system_prompt_page)
+        system_prompt_page_layout.setContentsMargins(8, 8, 8, 8)
+        system_prompt_page_layout.addWidget(system_prompt_group)
+
+        advanced_page = QWidget()
+        advanced_page_layout = QVBoxLayout(advanced_page)
+        advanced_page_layout.setContentsMargins(8, 8, 8, 8)
+        advanced_page_layout.addWidget(self.advanced_group)
+        advanced_page_layout.addStretch(1)
+
+        self.pages.addTab(output_page, "Output")
+        self.pages.addTab(prompt_page, "Prompt")
+        self.pages.addTab(system_prompt_page, "System Prompt")
+        self._advanced_tab_index = self.pages.addTab(advanced_page, "Advanced")
+        root_layout.addWidget(self.pages, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
@@ -639,7 +655,19 @@ class TransformWithAIDialog(QDialog):
 
     def _refresh_advanced_mode_ui(self) -> None:
         is_advanced = self.advanced_mode_check.isChecked()
-        self.advanced_group.setVisible(is_advanced)
+        advanced_index = self.pages.indexOf(self.advanced_group.parentWidget())
+        if is_advanced:
+            if advanced_index < 0:
+                advanced_page = self.advanced_group.parentWidget()
+                self._advanced_tab_index = self.pages.addTab(advanced_page, "Advanced")
+            self.advanced_group.setVisible(True)
+        else:
+            if advanced_index >= 0:
+                was_selected = self.pages.currentIndex() == advanced_index
+                self.pages.removeTab(advanced_index)
+                if was_selected:
+                    self.pages.setCurrentIndex(0)
+            self.advanced_group.setVisible(False)
         self._raw_config[ADVANCED_MODE_CONFIG_KEY] = is_advanced
         save_raw_config(self._raw_config)
 
