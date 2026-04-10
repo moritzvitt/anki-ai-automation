@@ -1,0 +1,9 @@
+site_name: Anki AI Automation
+docs_dir: docs
+
+nav:
+  - Overview: README.md
+  - Architecture Overview: architecture/overview.md
+  - Workflow Pipelines: architecture/workflows-groups-pipelines.md
+  - Prompt Construction Audit: architecture/audit-prompt-construction.md
+  - Sample Audit Pipeline: architecture/sample-user-audit-pipeline.md
