@@ -6,6 +6,7 @@ from pathlib import Path
 from aqt import mw
 from aqt.browser import Browser
 from aqt.qt import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -21,6 +22,7 @@ from aqt.qt import (
     QInputDialog,
     QPushButton,
     QPlainTextEdit,
+    QRadioButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -156,6 +158,10 @@ class TransformWithAIDialog(QDialog):
         self.note_types_label = QLabel()
         self.source_fields_label = QLabel()
         self.preset_summary_label = QLabel()
+        self.generation_type_group = QButtonGroup(self)
+        self.generate_text_radio = QRadioButton("Text")
+        self.generate_image_radio = QRadioButton("Image")
+        self.generate_audio_radio = QRadioButton("Audio")
         self.model_combo = QComboBox()
         self.use_global_temperature_check = QCheckBox("Use global temperature")
         self.temperature_spin = QDoubleSpinBox()
@@ -171,18 +177,34 @@ class TransformWithAIDialog(QDialog):
         self.prompt_header_label = QLabel("Prompt")
         self.system_prompt_combo = QComboBox()
         self.system_prompt_header_label = QLabel("System prompt")
+        self.final_check_summary_label = QLabel()
         self.mode_combo = QComboBox()
         self.prompt_preview = QPlainTextEdit()
         self.prompt_preview.setMinimumHeight(160)
         self.system_prompt_preview = QPlainTextEdit()
         self.system_prompt_preview.setMinimumHeight(140)
         self.pages = QTabWidget()
+        self._final_tab_index = -1
 
+        self.back_button = QPushButton("Back")
+        self.back_button.clicked.connect(self._go_to_previous_page)
         self.run_button = QPushButton("Run")
-        self.run_button.clicked.connect(self._validate_and_accept)
+        self.run_button.clicked.connect(self._handle_primary_action)
+        self.save_preset_footer_button = QPushButton("Save Current Configuration as Preset")
+        self.save_preset_footer_button.clicked.connect(self._save_current_as_preset)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
+        self.multiple_target_fields_check.toggled.connect(self._refresh_final_check_summary)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
+        self.use_global_temperature_check.toggled.connect(self._refresh_final_check_summary)
+        self.model_combo.currentIndexChanged.connect(self._refresh_final_check_summary)
+        self.temperature_spin.valueChanged.connect(lambda _value: self._refresh_final_check_summary())
+        self.target_field_combo.currentIndexChanged.connect(self._refresh_final_check_summary)
+        self.mode_combo.currentIndexChanged.connect(self._refresh_final_check_summary)
+        self.delimiter_edit.textChanged.connect(self._refresh_final_check_summary)
+        self.prompt_combo.currentIndexChanged.connect(self._refresh_final_check_summary)
+        self.system_prompt_combo.currentIndexChanged.connect(self._refresh_final_check_summary)
+        self.pages.currentChanged.connect(self._refresh_navigation_ui)
 
         self._build_ui()
         self._populate()
@@ -290,6 +312,40 @@ class TransformWithAIDialog(QDialog):
         set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Use Save System Prompt to store changes to the selected system prompt.", enabled=self._config.show_tooltips)
         set_hover_help(self.run_button, "Start processing the selected notes with the current settings.", enabled=self._config.show_tooltips)
 
+        self.generation_type_group.addButton(self.generate_text_radio)
+        self.generation_type_group.addButton(self.generate_image_radio)
+        self.generation_type_group.addButton(self.generate_audio_radio)
+        self.generate_text_radio.setChecked(True)
+        self.generate_image_radio.setEnabled(False)
+        self.generate_audio_radio.setEnabled(False)
+        self.generate_text_radio.toggled.connect(self._refresh_final_check_summary)
+        self.generate_image_radio.toggled.connect(self._refresh_final_check_summary)
+        self.generate_audio_radio.toggled.connect(self._refresh_final_check_summary)
+        set_hover_help(self.generate_text_radio, "Generate text updates using prompts and write them back to note fields.", enabled=self._config.show_tooltips)
+        set_hover_help(self.generate_image_radio, "Image generation is not wired into this Browser workflow yet.", enabled=self._config.show_tooltips)
+        set_hover_help(self.generate_audio_radio, "Audio generation is not wired into this Browser workflow yet.", enabled=self._config.show_tooltips)
+
+        generation_page = QWidget()
+        generation_page_layout = QVBoxLayout(generation_page)
+        generation_page_layout.setContentsMargins(8, 8, 8, 8)
+        generation_page_layout.setSpacing(12)
+        generation_page_layout.addWidget(_page_intro(
+            "Step 1: Choose what to generate",
+            "Start by choosing the output type for this run. Text generation is available in this Browser workflow today. Image and audio generation are shown here as future workflow types but are not selectable yet.",
+        ))
+        generation_options = QWidget()
+        generation_options_layout = QVBoxLayout(generation_options)
+        generation_options_layout.setContentsMargins(0, 0, 0, 0)
+        generation_options_layout.addWidget(self.generate_text_radio)
+        generation_options_layout.addWidget(self.generate_image_radio)
+        generation_options_layout.addWidget(self.generate_audio_radio)
+        generation_page_layout.addWidget(generation_options)
+        generation_note = QLabel("Current Browser processing uses the text workflow below.")
+        generation_note.setWordWrap(True)
+        generation_note.setStyleSheet("color: palette(text);")
+        generation_page_layout.addWidget(generation_note)
+        generation_page_layout.addStretch(1)
+
         self.source_fields_label.setWordWrap(True)
         self.source_fields_label.setStyleSheet("color: palette(text);")
 
@@ -298,16 +354,22 @@ class TransformWithAIDialog(QDialog):
         source_page_layout.setContentsMargins(8, 8, 8, 8)
         source_page_layout.setSpacing(12)
         source_page_layout.addWidget(_page_intro(
-            "Step 1: Choose the source text",
-            "This add-on builds source text from the note fields referenced inside your prompt and system prompt placeholders. Use this page to see which shared fields are available and how placeholder field HTML should be prepared before sending it to the model.",
+            "Step 2: Choose the source text",
+            "This add-on builds source text from the fields you reference inside your prompt and system prompt placeholders, for example `{{Front}}`, `{{Back}}`, or `{{Expression}}`. Use this page to see which shared fields are available and how placeholder field HTML should be prepared before sending it to the model.",
         ))
-        source_fields_group = QGroupBox("Available Source Fields")
+        source_fields_group = QWidget()
         source_fields_layout = QVBoxLayout(source_fields_group)
+        source_fields_layout.setContentsMargins(0, 0, 0, 0)
         source_fields_layout.addWidget(self.source_fields_label)
         source_page_layout.addWidget(source_fields_group)
-        source_options_group = QGroupBox("Source Preparation")
-        source_options_form = QFormLayout(source_options_group)
-        source_options_form.addRow("", self.convert_field_html_to_markdown_check)
+        source_reference_note = QLabel("Reference note fields directly in your prompt text with placeholders like `{{FieldName}}`.")
+        source_reference_note.setWordWrap(True)
+        source_reference_note.setStyleSheet("color: palette(text);")
+        source_fields_layout.addWidget(source_reference_note)
+        source_options_group = QWidget()
+        source_options_layout = QVBoxLayout(source_options_group)
+        source_options_layout.setContentsMargins(0, 0, 0, 0)
+        source_options_layout.addWidget(self.convert_field_html_to_markdown_check)
         source_page_layout.addWidget(source_options_group)
         source_page_layout.addStretch(1)
 
@@ -316,11 +378,12 @@ class TransformWithAIDialog(QDialog):
         target_page_layout.setContentsMargins(8, 8, 8, 8)
         target_page_layout.setSpacing(12)
         target_page_layout.addWidget(_page_intro(
-            "Step 2: Choose the target field",
+            "Step 3: Choose the target field",
             "Pick where the generated result should be written back. You can write to one field, or switch to multi-field output if your prompt returns separate field sections.",
         ))
-        target_group = QGroupBox("Target Output")
+        target_group = QWidget()
         target_form = QFormLayout(target_group)
+        target_form.setContentsMargins(0, 0, 0, 0)
         target_form.addRow("Target field", self.target_field_combo)
         target_form.addRow("Write mode", self.mode_combo)
         target_form.addRow("", self.multiple_target_fields_check)
@@ -335,11 +398,12 @@ class TransformWithAIDialog(QDialog):
         model_page_layout.setContentsMargins(8, 8, 8, 8)
         model_page_layout.setSpacing(12)
         model_page_layout.addWidget(_page_intro(
-            "Step 3: Choose the model",
+            "Step 4: Choose the model",
             "Select which model should handle this run and how much variation you want. Lower temperature is steadier; higher temperature allows more variation.",
         ))
-        model_group = QGroupBox("Model Settings")
+        model_group = QWidget()
         model_form = QFormLayout(model_group)
+        model_form.setContentsMargins(0, 0, 0, 0)
         model_form.addRow("Model", self.model_combo)
         temperature_row = QWidget()
         temperature_layout = QHBoxLayout(temperature_row)
@@ -350,8 +414,9 @@ class TransformWithAIDialog(QDialog):
         model_page_layout.addWidget(model_group)
         model_page_layout.addStretch(1)
 
-        prompt_group = QGroupBox("Prompt")
+        prompt_group = QWidget()
         prompt_group_layout = QVBoxLayout(prompt_group)
+        prompt_group_layout.setContentsMargins(0, 0, 0, 0)
         prompt_header = QWidget()
         prompt_header_layout = QHBoxLayout(prompt_header)
         prompt_header_layout.setContentsMargins(0, 0, 0, 0)
@@ -383,13 +448,14 @@ class TransformWithAIDialog(QDialog):
         prompt_page_layout.setContentsMargins(8, 8, 8, 8)
         prompt_page_layout.setSpacing(12)
         prompt_page_layout.addWidget(_page_intro(
-            "Step 4: Choose the prompt",
+            "Step 5: Choose the prompt",
             "Edit the user prompt that tells the model what to do with the selected notes. This is where you define the transformation instructions and placeholders like `{{Front}}` or `{{Back}}`.",
         ))
         prompt_page_layout.addWidget(prompt_group)
 
-        system_prompt_group = QGroupBox("System Prompt")
+        system_prompt_group = QWidget()
         system_prompt_group_layout = QVBoxLayout(system_prompt_group)
+        system_prompt_group_layout.setContentsMargins(0, 0, 0, 0)
         system_prompt_header = QWidget()
         system_prompt_header_layout = QHBoxLayout(system_prompt_header)
         system_prompt_header_layout.setContentsMargins(0, 0, 0, 0)
@@ -421,16 +487,38 @@ class TransformWithAIDialog(QDialog):
         system_prompt_page_layout.setContentsMargins(8, 8, 8, 8)
         system_prompt_page_layout.setSpacing(12)
         system_prompt_page_layout.addWidget(_page_intro(
-            "Step 5: Choose the system prompt",
+            "Step 6: Choose the system prompt",
             "Use the system prompt to define the assistant's overall behavior, quality bar, tone, and formatting constraints for this run.",
         ))
         system_prompt_page_layout.addWidget(system_prompt_group)
 
+        self.pages.addTab(generation_page, "Generate")
         self.pages.addTab(source_page, "Source Field")
         self.pages.addTab(target_page, "Target Field")
         self.pages.addTab(model_page, "Model")
         self.pages.addTab(prompt_page, "Prompt")
         self.pages.addTab(system_prompt_page, "System Prompt")
+        final_check_page = QWidget()
+        final_check_layout = QVBoxLayout(final_check_page)
+        final_check_layout.setContentsMargins(8, 8, 8, 8)
+        final_check_layout.setSpacing(12)
+        final_check_layout.addWidget(_page_intro(
+            "Step 7: Final check",
+            "Review the sequence of choices below before starting the run. This is the last step in the workflow.",
+        ))
+        final_check_group = QWidget()
+        final_check_group_layout = QVBoxLayout(final_check_group)
+        final_check_group_layout.setContentsMargins(0, 0, 0, 0)
+        self.final_check_summary_label.setWordWrap(True)
+        final_check_group_layout.addWidget(self.final_check_summary_label)
+        final_check_layout.addWidget(final_check_group)
+        final_check_layout.addStretch(1)
+        self._final_tab_index = self.pages.addTab(final_check_page, "Final Check")
+        for index, title in enumerate(
+            ["Generate", "Source Field", "Target Field", "Model", "Prompt", "System Prompt", "Final Check"],
+            start=1,
+        ):
+            self.pages.setTabText(index - 1, f"{index}. {title}")
         root_layout.addWidget(self.pages, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -439,6 +527,8 @@ class TransformWithAIDialog(QDialog):
             close_button = buttons.addButton("Close", QDialogButtonBox.ButtonRole.AcceptRole)
             close_button.clicked.connect(self.accept)
         else:
+            buttons.addButton(self.back_button, QDialogButtonBox.ButtonRole.ActionRole)
+            buttons.addButton(self.save_preset_footer_button, QDialogButtonBox.ButtonRole.ActionRole)
             buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
         root_layout.addWidget(buttons)
 
@@ -458,8 +548,10 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_preset_summary()
+        self._refresh_final_check_summary()
         self._refresh_target_mode_ui()
         self._refresh_temperature_ui()
+        self._refresh_navigation_ui()
 
         has_prompt = bool(self._prompts)
         has_system_prompt = bool(self._system_prompts)
@@ -671,6 +763,53 @@ class TransformWithAIDialog(QDialog):
 
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
+
+    def _refresh_navigation_ui(self) -> None:
+        if self._settings_only:
+            return
+        current_index = self.pages.currentIndex()
+        on_final_page = self.pages.currentIndex() == self._final_tab_index
+        self.back_button.setEnabled(current_index > 0)
+        self.run_button.setText("Run" if on_final_page else "Next")
+        self.save_preset_footer_button.setVisible(on_final_page)
+
+    def _go_to_previous_page(self) -> None:
+        previous_index = max(self.pages.currentIndex() - 1, 0)
+        self.pages.setCurrentIndex(previous_index)
+
+    def _handle_primary_action(self) -> None:
+        if self.pages.currentIndex() != self._final_tab_index:
+            next_index = min(self.pages.currentIndex() + 1, self.pages.count() - 1)
+            self.pages.setCurrentIndex(next_index)
+            return
+        self._validate_and_accept()
+
+    def _refresh_final_check_summary(self) -> None:
+        generation_type = "Text"
+        if self.generate_image_radio.isChecked():
+            generation_type = "Image"
+        elif self.generate_audio_radio.isChecked():
+            generation_type = "Audio"
+        target_mode = "Multiple fields" if self.multiple_target_fields_check.isChecked() else (
+            self.target_field_combo.currentData() or self.target_field_combo.currentText().strip() or "Not selected"
+        )
+        prompt = self._selected_prompt()
+        system_prompt = self._selected_system_prompt()
+        model = self.model_combo.currentData() or self.model_combo.currentText().strip() or "Not selected"
+        temperature = "Global default" if self.use_global_temperature_check.isChecked() else str(self.temperature_spin.value())
+        delimiter = self.delimiter_edit.text().strip() or DEFAULT_MULTI_FIELD_DELIMITER
+        source_fields = ", ".join(self._field_choices) if self._field_choices else "No shared fields"
+        summary = (
+            f"<b>1. Generate:</b> {generation_type}<br>"
+            f"<b>2. Source fields:</b> {source_fields}<br>"
+            f"<b>3. Target:</b> {target_mode}<br>"
+            f"<b>4. Model:</b> {model} (Temperature: {temperature})<br>"
+            f"<b>5. Prompt:</b> {prompt.name if prompt else 'Not selected'}<br>"
+            f"<b>6. System prompt:</b> {system_prompt.name if system_prompt else 'Not selected'}"
+        )
+        if self.multiple_target_fields_check.isChecked():
+            summary += f"<br><b>Multi-field delimiter:</b> {delimiter}"
+        self.final_check_summary_label.setText(summary)
 
     def _refresh_preset_summary(self) -> None:
         preset = self._selected_preset()
