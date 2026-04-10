@@ -13,6 +13,7 @@ from aqt.qt import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -21,6 +22,7 @@ from aqt.qt import (
     QInputDialog,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +40,7 @@ from ..core.config import (
     load_config,
     load_raw_config,
     new_object_id,
+    save_raw_config,
     save_saved_prompts,
     save_saved_system_prompts,
 )
@@ -52,6 +55,7 @@ from ..core.processing import (
 from .tooltips import set_hover_help, show_tooltip
 
 DEFAULT_MULTI_FIELD_DELIMITER = "--{field-name}--"
+ADVANCED_MODE_CONFIG_KEY = "browser_transform_advanced_mode"
 
 
 @dataclass(frozen=True)
@@ -135,7 +139,7 @@ class TransformWithAIDialog(QDialog):
     def __init__(self, parent: QWidget, note_ids: list[int], config, *, settings_only: bool = False) -> None:
         super().__init__(parent)
         self.setWindowTitle("Browser AI Settings" if settings_only else "Transform with AI")
-        self.resize(760, 620)
+        self.resize(920, 720)
 
         self._browser = parent
         self._note_ids = note_ids
@@ -153,6 +157,8 @@ class TransformWithAIDialog(QDialog):
 
         self.note_count_label = QLabel()
         self.note_types_label = QLabel()
+        self.preset_summary_label = QLabel()
+        self.advanced_mode_check = QCheckBox("Advanced mode")
         self.model_combo = QComboBox()
         self.use_global_temperature_check = QCheckBox("Use global temperature")
         self.temperature_spin = QDoubleSpinBox()
@@ -173,12 +179,15 @@ class TransformWithAIDialog(QDialog):
         self.prompt_preview.setMinimumHeight(160)
         self.system_prompt_preview = QPlainTextEdit()
         self.system_prompt_preview.setMinimumHeight(140)
+        self.run_settings_group = QGroupBox("Output")
+        self.advanced_group = QGroupBox("Advanced")
 
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
+        self.advanced_mode_check.toggled.connect(self._refresh_advanced_mode_ui)
 
         self._build_ui()
         self._populate()
@@ -210,12 +219,22 @@ class TransformWithAIDialog(QDialog):
         )
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        root_layout.addWidget(scroll)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(12)
+        scroll.setWidget(content)
 
         intro = QLabel(
             "Manage Browser AI presets, prompts, and run defaults."
             if self._settings_only
-            else "Run a saved AI prompt on the selected Browser notes."
+            else "Run a saved AI prompt on the selected Browser notes with a cleaner HyperTTS-style layout."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -231,13 +250,12 @@ class TransformWithAIDialog(QDialog):
         layout.addWidget(self.summary_group)
         self.summary_group.setVisible(not self._settings_only)
 
-        options_group = QGroupBox("Run Settings")
-        options_form = QFormLayout(options_group)
-
-        preset_row = QWidget()
-        preset_layout = QHBoxLayout(preset_row)
-        preset_layout.setContentsMargins(0, 0, 0, 0)
-        preset_layout.addWidget(self.preset_combo, stretch=1)
+        preset_group = QGroupBox("Preset")
+        preset_layout = QVBoxLayout(preset_group)
+        preset_picker_row = QWidget()
+        preset_picker_layout = QHBoxLayout(preset_picker_row)
+        preset_picker_layout.setContentsMargins(0, 0, 0, 0)
+        preset_picker_layout.addWidget(self.preset_combo, stretch=1)
         save_preset_button = QPushButton("Save")
         edit_preset_button = QPushButton("Edit")
         update_preset_button = QPushButton("Update")
@@ -251,10 +269,25 @@ class TransformWithAIDialog(QDialog):
         edit_preset_button.clicked.connect(self._edit_selected_preset_metadata)
         update_preset_button.clicked.connect(self._update_selected_preset)
         delete_preset_button.clicked.connect(self._delete_selected_preset)
-        preset_layout.addWidget(save_preset_button)
-        preset_layout.addWidget(edit_preset_button)
-        preset_layout.addWidget(update_preset_button)
-        preset_layout.addWidget(delete_preset_button)
+        preset_picker_layout.addWidget(save_preset_button)
+        preset_picker_layout.addWidget(edit_preset_button)
+        preset_picker_layout.addWidget(update_preset_button)
+        preset_picker_layout.addWidget(delete_preset_button)
+        preset_layout.addWidget(preset_picker_row)
+        self.preset_summary_label.setWordWrap(True)
+        self.preset_summary_label.setStyleSheet("color: palette(mid);")
+        preset_layout.addWidget(self.preset_summary_label)
+        layout.addWidget(preset_group)
+
+        mode_group = QGroupBox("Mode")
+        mode_layout = QVBoxLayout(mode_group)
+        mode_hint = QLabel(
+            "Basic mode keeps the dialog focused on the most important choices. Toggle Advanced mode to adjust model, temperature, multi-field output, and conversion behavior."
+        )
+        mode_hint.setWordWrap(True)
+        mode_layout.addWidget(mode_hint)
+        mode_layout.addWidget(self.advanced_mode_check)
+        layout.addWidget(mode_group)
 
         set_hover_help(self.prompt_combo, "Quickly switch to another prompt in the same folder.", enabled=self._config.show_tooltips)
         set_hover_help(self.system_prompt_combo, "Quickly switch to another system prompt in the same folder.", enabled=self._config.show_tooltips)
@@ -269,6 +302,7 @@ class TransformWithAIDialog(QDialog):
         self.temperature_spin.setSingleStep(0.1)
         self.temperature_spin.setValue(self._config.temperature if self._config.temperature is not None else 0.2)
         self.use_global_temperature_check.setChecked(True)
+        set_hover_help(self.advanced_mode_check, "Show the full set of run controls directly in this dialog instead of only the common options.", enabled=self._config.show_tooltips)
         set_hover_help(self.model_combo, "Model used for this run. It can differ from the global default.", enabled=self._config.show_tooltips)
         set_hover_help(self.use_global_temperature_check, "Use the global temperature from the add-on config instead of a run-specific value.", enabled=self._config.show_tooltips)
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._config.show_tooltips)
@@ -282,31 +316,36 @@ class TransformWithAIDialog(QDialog):
         set_hover_help(self.system_prompt_preview, "Editable text of the selected system prompt. Use Save System Prompt to store changes to the selected system prompt.", enabled=self._config.show_tooltips)
         set_hover_help(self.run_button, "Start processing the selected notes with the current settings.", enabled=self._config.show_tooltips)
 
-        options_form.addRow("Preset", preset_row)
-        options_form.addRow("Model", self.model_combo)
+        run_settings_form = QFormLayout(self.run_settings_group)
+        run_settings_form.addRow("Target field", self.target_field_combo)
+        run_settings_form.addRow("Write mode", self.mode_combo)
+        layout.addWidget(self.run_settings_group)
+
+        advanced_form = QFormLayout(self.advanced_group)
+        advanced_form.addRow("Model", self.model_combo)
         temperature_row = QWidget()
         temperature_layout = QHBoxLayout(temperature_row)
         temperature_layout.setContentsMargins(0, 0, 0, 0)
         temperature_layout.addWidget(self.use_global_temperature_check)
         temperature_layout.addWidget(self.temperature_spin)
-        options_form.addRow("Temperature", temperature_row)
-        options_form.addRow("", self.multiple_target_fields_check)
-        options_form.addRow("", self.convert_markdown_to_html_check)
-        options_form.addRow("", self.convert_field_html_to_markdown_check)
+        advanced_form.addRow("Temperature", temperature_row)
+        advanced_form.addRow("", self.multiple_target_fields_check)
+        advanced_form.addRow("", self.convert_markdown_to_html_check)
+        advanced_form.addRow("", self.convert_field_html_to_markdown_check)
         self.delimiter_edit.setPlaceholderText(DEFAULT_MULTI_FIELD_DELIMITER)
-        options_form.addRow(self.delimiter_label, self.delimiter_edit)
-        options_form.addRow("Target field", self.target_field_combo)
-        options_form.addRow("Write mode", self.mode_combo)
-        layout.addWidget(options_group)
+        advanced_form.addRow(self.delimiter_label, self.delimiter_edit)
+        layout.addWidget(self.advanced_group)
 
+        prompt_group = QGroupBox("Prompt")
+        prompt_group_layout = QVBoxLayout(prompt_group)
         prompt_header = QWidget()
         prompt_header_layout = QHBoxLayout(prompt_header)
         prompt_header_layout.setContentsMargins(0, 0, 0, 0)
-        choose_prompt_button = QPushButton("Open Prompt Library")
+        choose_prompt_button = QPushButton("Library")
         rename_prompt_button = QPushButton("Rename")
         new_prompt_button = QPushButton("New")
         delete_prompt_button = QPushButton("Delete")
-        save_prompt_button = QPushButton("Save Prompt")
+        save_prompt_button = QPushButton("Save")
         set_hover_help(choose_prompt_button, "Browse the prompt library folders and select a markdown prompt file.", enabled=self._config.show_tooltips)
         set_hover_help(rename_prompt_button, "Rename the selected saved user prompt without changing its prompt text.", enabled=self._config.show_tooltips)
         set_hover_help(new_prompt_button, "Create a new saved user prompt from the text currently shown in the prompt editor.", enabled=self._config.show_tooltips)
@@ -323,17 +362,20 @@ class TransformWithAIDialog(QDialog):
         prompt_header_layout.addWidget(new_prompt_button)
         prompt_header_layout.addWidget(delete_prompt_button)
         prompt_header_layout.addWidget(save_prompt_button)
-        layout.addWidget(prompt_header)
-        layout.addWidget(self.prompt_preview)
+        prompt_group_layout.addWidget(prompt_header)
+        prompt_group_layout.addWidget(self.prompt_preview)
+        layout.addWidget(prompt_group)
 
+        system_prompt_group = QGroupBox("System Prompt")
+        system_prompt_group_layout = QVBoxLayout(system_prompt_group)
         system_prompt_header = QWidget()
         system_prompt_header_layout = QHBoxLayout(system_prompt_header)
         system_prompt_header_layout.setContentsMargins(0, 0, 0, 0)
-        choose_system_prompt_button = QPushButton("Open Prompt Library")
+        choose_system_prompt_button = QPushButton("Library")
         rename_system_prompt_button = QPushButton("Rename")
         new_system_prompt_button = QPushButton("New")
         delete_system_prompt_button = QPushButton("Delete")
-        save_system_prompt_button = QPushButton("Save System Prompt")
+        save_system_prompt_button = QPushButton("Save")
         set_hover_help(choose_system_prompt_button, "Open the system prompt folder and select a markdown prompt file.", enabled=self._config.show_tooltips)
         set_hover_help(rename_system_prompt_button, "Rename the selected saved system prompt without changing its text.", enabled=self._config.show_tooltips)
         set_hover_help(new_system_prompt_button, "Create a new saved system prompt from the text currently shown in the system-prompt editor.", enabled=self._config.show_tooltips)
@@ -350,8 +392,10 @@ class TransformWithAIDialog(QDialog):
         system_prompt_header_layout.addWidget(new_system_prompt_button)
         system_prompt_header_layout.addWidget(delete_system_prompt_button)
         system_prompt_header_layout.addWidget(save_system_prompt_button)
-        layout.addWidget(system_prompt_header)
-        layout.addWidget(self.system_prompt_preview)
+        system_prompt_group_layout.addWidget(system_prompt_header)
+        system_prompt_group_layout.addWidget(self.system_prompt_preview)
+        layout.addWidget(system_prompt_group)
+        layout.addStretch(1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
@@ -360,11 +404,12 @@ class TransformWithAIDialog(QDialog):
             close_button.clicked.connect(self.accept)
         else:
             buttons.addButton(self.run_button, QDialogButtonBox.ButtonRole.AcceptRole)
-        layout.addWidget(buttons)
+        root_layout.addWidget(buttons)
 
     def _populate(self) -> None:
         self.note_count_label.setText(str(len(self._note_ids)))
         self.note_types_label.setText(self._field_summary["note_types"])
+        self.advanced_mode_check.setChecked(bool(self._raw_config.get(ADVANCED_MODE_CONFIG_KEY, False)))
 
         self._populate_model_combo()
         self._populate_preset_combo()
@@ -376,8 +421,10 @@ class TransformWithAIDialog(QDialog):
         self._populate_system_prompt_combo()
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
+        self._refresh_preset_summary()
         self._refresh_target_mode_ui()
         self._refresh_temperature_ui()
+        self._refresh_advanced_mode_ui()
 
         has_prompt = bool(self._prompts)
         has_system_prompt = bool(self._system_prompts)
@@ -590,6 +637,35 @@ class TransformWithAIDialog(QDialog):
     def _refresh_temperature_ui(self) -> None:
         self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
 
+    def _refresh_advanced_mode_ui(self) -> None:
+        is_advanced = self.advanced_mode_check.isChecked()
+        self.advanced_group.setVisible(is_advanced)
+        self._raw_config[ADVANCED_MODE_CONFIG_KEY] = is_advanced
+        save_raw_config(self._raw_config)
+
+    def _refresh_preset_summary(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            self.preset_summary_label.setText("No preset selected. Pick one, or configure the sections below and save a new preset.")
+            return
+        details: list[str] = []
+        if preset.description:
+            details.append(preset.description.strip())
+        if preset.invalid_reason:
+            details.append(f"Unavailable: {preset.invalid_reason}")
+        else:
+            if preset.target_field:
+                details.append(f"Target: {preset.target_field}")
+            elif preset.multiple_target_fields:
+                details.append("Target: multiple fields")
+            prompt = self._prompt_by_id(preset.prompt_id)
+            if prompt is not None:
+                details.append(f"Prompt: {prompt.name}")
+            system_prompt = self._system_prompt_by_id(preset.system_prompt_id or "")
+            if system_prompt is not None:
+                details.append(f"System: {system_prompt.name}")
+        self.preset_summary_label.setText(" | ".join(details) if details else "Preset selected.")
+
     def _selected_preset(self) -> ProcessingPresetChoice | None:
         preset_id = self.preset_combo.currentData()
         for preset in self._presets:
@@ -599,6 +675,7 @@ class TransformWithAIDialog(QDialog):
 
     def _on_preset_changed(self) -> None:
         preset = self._selected_preset()
+        self._refresh_preset_summary()
         if preset is None:
             return
         self._apply_preset(preset)
@@ -620,6 +697,7 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
+        self._refresh_preset_summary()
 
     def _browse_prompt_library(self) -> None:
         selected = _choose_prompt_from_library(
