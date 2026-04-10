@@ -25,6 +25,12 @@ EXTRA_FALLBACK_MODEL_IDS = {
     "gpt-5.4-chat-latest",
 }
 
+TTS_FALLBACK_MODEL_IDS = (
+    "gpt-4o-mini-tts",
+    "tts-1",
+    "tts-1-hd",
+)
+
 
 def fetch_model_options(*, api_key: str, pricing_overrides: dict[str, ModelPricing]) -> list[ModelOption]:
     if not api_key.strip():
@@ -93,6 +99,23 @@ def fallback_model_options(*, current_model: str, pricing_overrides: dict[str, M
     }
     candidates.update(EXTRA_FALLBACK_MODEL_IDS)
     if current_model:
+        candidates.add(current_model)
+    options = [
+        ModelOption(
+            model_id=model_id,
+            label=f"{model_id} ({_cost_badge(model_id, pricing_overrides)})",
+            owned_by="fallback",
+        )
+        for model_id in candidates
+        if model_id
+    ]
+    options.sort(key=_model_sort_key)
+    return options
+
+
+def fallback_tts_model_options(*, current_model: str, pricing_overrides: dict[str, ModelPricing]) -> list[ModelOption]:
+    candidates = set(TTS_FALLBACK_MODEL_IDS)
+    if current_model and _is_tts_model(current_model):
         candidates.add(current_model)
     options = [
         ModelOption(
@@ -190,3 +213,8 @@ def _is_relevant_text_model(model_id: str) -> bool:
     if lowered.startswith(allowed_prefixes):
         return True
     return False
+
+
+def _is_tts_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return lowered.startswith("tts-") or lowered.endswith("-tts")

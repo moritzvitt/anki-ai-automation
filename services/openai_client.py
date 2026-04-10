@@ -5,6 +5,8 @@ import json
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 try:
     from openai import APIConnectionError, APIError, APITimeoutError, OpenAI, RateLimitError
@@ -44,6 +46,13 @@ class AITextResponseResult:
 @dataclass(frozen=True)
 class AIJSONTextResponseResult:
     output_text: str
+    usage: TokenUsage
+
+
+@dataclass(frozen=True)
+class AITTSResponseResult:
+    audio_bytes: bytes
+    media_type: str
     usage: TokenUsage
 
 
@@ -282,6 +291,69 @@ def request_text_response(
             if attempt >= max_retries:
                 break
             time.sleep(retry_backoff_seconds * (attempt + 1))
+
+    raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
+
+
+def request_tts_audio(
+    *,
+    api_key: str,
+    model: str,
+    voice: str,
+    input_text: str,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_backoff_seconds: float,
+    audio_format: str = "mp3",
+) -> AITTSResponseResult:
+    if not api_key.strip():
+        raise OpenAIClientError("Set 'openai_api_key' in the add-on config before running AI Automation.")
+    if not input_text.strip():
+        raise OpenAIClientError("The selected TTS source field is empty.")
+
+    payload = json.dumps(
+        {
+            "model": model,
+            "voice": voice,
+            "input": input_text,
+            "format": audio_format,
+        }
+    ).encode("utf-8")
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        request = Request(
+            url="https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            data=payload,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                audio_bytes = response.read()
+                if not audio_bytes:
+                    raise OpenAIClientError("The TTS model returned an empty audio file.")
+                return AITTSResponseResult(
+                    audio_bytes=audio_bytes,
+                    media_type=str(response.headers.get_content_type() or _media_type_for_audio_format(audio_format)),
+                    usage=TokenUsage(
+                        input_tokens=0,
+                        cached_input_tokens=0,
+                        output_tokens=0,
+                        reasoning_tokens=0,
+                        total_tokens=0,
+                    ),
+                )
+        except HTTPError as error:
+            last_error = OpenAIClientError(f"OpenAI TTS request failed: {_http_error_message(error)}")
+        except (URLError, OSError) as error:
+            last_error = OpenAIClientError(f"OpenAI TTS request failed: {error}")
+        if attempt >= max_retries:
+            break
+        time.sleep(retry_backoff_seconds * (attempt + 1))
 
     raise OpenAIClientError(f"OpenAI request failed after retries: {last_error}")
 
@@ -551,3 +623,32 @@ def _fallback_reasoning_effort(error: Exception, current_reasoning_effort: str |
     if current_reasoning_effort != "medium":
         return "medium"
     return None
+
+
+def _http_error_message(error: HTTPError) -> str:
+    try:
+        payload = error.read().decode("utf-8")
+    except Exception:
+        return str(error)
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return payload
+    if isinstance(data, dict):
+        body_error = data.get("error")
+        if isinstance(body_error, dict):
+            message = body_error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message
+    return payload
+
+
+def _media_type_for_audio_format(audio_format: str) -> str:
+    normalized = audio_format.lower().strip()
+    if normalized == "wav":
+        return "audio/wav"
+    if normalized == "opus":
+        return "audio/ogg"
+    if normalized == "flac":
+        return "audio/flac"
+    return "audio/mpeg"

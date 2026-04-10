@@ -517,6 +517,15 @@ def _read_processing_presets(
                 convert_markdown_to_html=read_bool(item, "convert_markdown_to_html", default=True),
                 convert_field_html_to_markdown=read_bool(item, "convert_field_html_to_markdown", default=False),
                 response_delimiter=response_delimiter,
+                tts_enabled=read_bool(item, "tts_enabled", default=False),
+                tts_source_field=read_legacy_compatible_string(
+                    item,
+                    "tts_source_field",
+                    aliases=("ttsSourceField",),
+                    default="",
+                    allow_empty=True,
+                ),
+                tts_voice=read_optional_string(item, "tts_voice"),
             )
         )
 

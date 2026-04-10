@@ -25,6 +25,9 @@ class NoteSnapshot:
     convert_markdown_to_html: bool = False
     convert_field_html_to_markdown: bool = False
     response_delimiter: str = ""
+    tts_enabled: bool = False
+    tts_source_field: str = ""
+    tts_voice: str = "alloy"
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,9 @@ class ManualProcessingSpec:
     convert_markdown_to_html: bool = False
     convert_field_html_to_markdown: bool = False
     response_delimiter: str = ""
+    tts_enabled: bool = False
+    tts_source_field: str = ""
+    tts_voice: str = "alloy"
 
 
 @dataclass(frozen=True)

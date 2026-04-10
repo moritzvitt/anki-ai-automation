@@ -41,7 +41,7 @@ from ..core.config import (
     save_saved_prompts,
     save_saved_system_prompts,
 )
-from ..services.model_catalog import fallback_model_options
+from ..services.model_catalog import fallback_model_options, fallback_tts_model_options
 from ..core.processing import (
     ManualProcessingSpec,
     WRITE_MODE_APPEND,
@@ -52,6 +52,19 @@ from ..core.processing import (
 from .tooltips import set_hover_help, show_tooltip
 
 DEFAULT_MULTI_FIELD_DELIMITER = "--{field-name}--"
+DEFAULT_TTS_VOICE = "alloy"
+TTS_VOICE_OPTIONS = (
+    ("Alloy", "alloy"),
+    ("Ash", "ash"),
+    ("Ballad", "ballad"),
+    ("Coral", "coral"),
+    ("Echo", "echo"),
+    ("Fable", "fable"),
+    ("Nova", "nova"),
+    ("Onyx", "onyx"),
+    ("Sage", "sage"),
+    ("Shimmer", "shimmer"),
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +90,9 @@ class ProcessingPresetChoice:
     convert_markdown_to_html: bool
     convert_field_html_to_markdown: bool
     response_delimiter: str | None
+    tts_enabled: bool
+    tts_source_field: str
+    tts_voice: str | None
 
 
 def open_transform_dialog(browser: Browser, note_ids: list[int]) -> None:
@@ -146,7 +162,11 @@ class TransformWithAIDialog(QDialog):
         self._system_prompts = _prompt_choices_from_saved_system_prompts(config.saved_system_prompts)
         self._presets = _preset_choices_from_saved_processing_presets(config.processing_presets)
         self._field_choices, self._field_summary = _collect_common_fields(note_ids)
-        self._model_options = fallback_model_options(
+        self._text_model_options = fallback_model_options(
+            current_model=config.model,
+            pricing_overrides=config.model_pricing,
+        )
+        self._tts_model_options = fallback_tts_model_options(
             current_model=config.model,
             pricing_overrides=config.model_pricing,
         )
@@ -154,6 +174,9 @@ class TransformWithAIDialog(QDialog):
         self.note_count_label = QLabel()
         self.note_types_label = QLabel()
         self.model_combo = QComboBox()
+        self.tts_check = QCheckBox("TTS")
+        self.tts_source_field_combo = QComboBox()
+        self.tts_voice_combo = QComboBox()
         self.use_global_temperature_check = QCheckBox("Use global temperature")
         self.temperature_spin = QDoubleSpinBox()
         self.preset_combo = QComboBox()
@@ -177,6 +200,7 @@ class TransformWithAIDialog(QDialog):
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._validate_and_accept)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
+        self.tts_check.toggled.connect(self._refresh_run_mode_ui)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.use_global_temperature_check.toggled.connect(self._refresh_temperature_ui)
 
@@ -186,27 +210,33 @@ class TransformWithAIDialog(QDialog):
     def processing_spec(self) -> ManualProcessingSpec | None:
         prompt = self._selected_prompt()
         system_prompt = self._selected_system_prompt()
+        tts_enabled = self.tts_check.isChecked()
         target_field = self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()
         write_mode = self.mode_combo.currentData() or WRITE_MODE_OVERWRITE
         model = self.model_combo.currentData() or self.model_combo.currentText().strip()
-        if not prompt or not system_prompt:
+        tts_source_field = self.tts_source_field_combo.currentData() or self.tts_source_field_combo.currentText().strip()
+        tts_voice = self.tts_voice_combo.currentData() or self.tts_voice_combo.currentText().strip()
+        if not tts_enabled and (not prompt or not system_prompt):
             return None
         if not self.multiple_target_fields_check.isChecked():
             if not isinstance(target_field, str) or not target_field.strip():
                 return None
         return ManualProcessingSpec(
-            prompt_name=prompt.name,
-            prompt_template=self.prompt_preview.toPlainText().strip(),
+            prompt_name=prompt.name if prompt else "TTS",
+            prompt_template="" if tts_enabled else self.prompt_preview.toPlainText().strip(),
             target_field="" if self.multiple_target_fields_check.isChecked() else target_field,
-            system_prompt_name=system_prompt.name,
-            system_prompt=self.system_prompt_preview.toPlainText().strip(),
+            system_prompt_name=system_prompt.name if system_prompt else "",
+            system_prompt="" if tts_enabled else self.system_prompt_preview.toPlainText().strip(),
             write_mode=str(write_mode),
             model=str(model),
-            temperature=self._selected_temperature(),
-            multiple_target_fields=self.multiple_target_fields_check.isChecked(),
-            convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
-            convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
+            temperature=None if tts_enabled else self._selected_temperature(),
+            multiple_target_fields=False if tts_enabled else self.multiple_target_fields_check.isChecked(),
+            convert_markdown_to_html=False if tts_enabled else self.convert_markdown_to_html_check.isChecked(),
+            convert_field_html_to_markdown=False if tts_enabled else self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or DEFAULT_MULTI_FIELD_DELIMITER,
+            tts_enabled=tts_enabled,
+            tts_source_field=str(tts_source_field or ""),
+            tts_voice=str(tts_voice or DEFAULT_TTS_VOICE),
         )
 
     def _build_ui(self) -> None:
@@ -233,6 +263,7 @@ class TransformWithAIDialog(QDialog):
 
         options_group = QGroupBox("Run Settings")
         options_form = QFormLayout(options_group)
+        self.options_form = options_form
 
         preset_row = QWidget()
         preset_layout = QHBoxLayout(preset_row)
@@ -270,6 +301,9 @@ class TransformWithAIDialog(QDialog):
         self.temperature_spin.setValue(self._config.temperature if self._config.temperature is not None else 0.2)
         self.use_global_temperature_check.setChecked(True)
         set_hover_help(self.model_combo, "Model used for this run. It can differ from the global default.", enabled=self._config.show_tooltips)
+        set_hover_help(self.tts_check, "Turn on text-to-speech mode. This uses one field as spoken input and writes a [sound:...] tag into the target field.", enabled=self._config.show_tooltips)
+        set_hover_help(self.tts_source_field_combo, "Field whose content should be spoken when TTS mode is enabled.", enabled=self._config.show_tooltips)
+        set_hover_help(self.tts_voice_combo, "Voice used for the generated speech when TTS mode is enabled.", enabled=self._config.show_tooltips)
         set_hover_help(self.use_global_temperature_check, "Use the global temperature from the add-on config instead of a run-specific value.", enabled=self._config.show_tooltips)
         set_hover_help(self.temperature_spin, "Lower values are steadier; higher values allow more variation.", enabled=self._config.show_tooltips)
         set_hover_help(self.multiple_target_fields_check, "Expect the model response to contain delimited sections that map to multiple note fields.", enabled=self._config.show_tooltips)
@@ -284,6 +318,9 @@ class TransformWithAIDialog(QDialog):
 
         options_form.addRow("Preset", preset_row)
         options_form.addRow("Model", self.model_combo)
+        options_form.addRow("", self.tts_check)
+        options_form.addRow("TTS source field", self.tts_source_field_combo)
+        options_form.addRow("Voice", self.tts_voice_combo)
         temperature_row = QWidget()
         temperature_layout = QHBoxLayout(temperature_row)
         temperature_layout.setContentsMargins(0, 0, 0, 0)
@@ -366,6 +403,12 @@ class TransformWithAIDialog(QDialog):
         self.note_count_label.setText(str(len(self._note_ids)))
         self.note_types_label.setText(self._field_summary["note_types"])
 
+        self.tts_source_field_combo.clear()
+        self.tts_voice_combo.clear()
+        for field_name in self._field_choices:
+            self.tts_source_field_combo.addItem(field_name, field_name)
+        for label, voice_id in TTS_VOICE_OPTIONS:
+            self.tts_voice_combo.addItem(label, voice_id)
         self._populate_model_combo()
         self._populate_preset_combo()
         self.target_field_combo.clear()
@@ -377,6 +420,7 @@ class TransformWithAIDialog(QDialog):
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
+        self._refresh_run_mode_ui()
         self._refresh_temperature_ui()
 
         has_prompt = bool(self._prompts)
@@ -388,15 +432,21 @@ class TransformWithAIDialog(QDialog):
         current_model = str(self._raw_config.get("model", "")).strip()
         if self._config.model:
             current_model = self._config.model
+        if self.tts_check.isChecked():
+            selected_model = self.model_combo.currentData() or self.model_combo.currentText().strip() or current_model
+            options = self._tts_model_options
+        else:
+            selected_model = self.model_combo.currentData() or self.model_combo.currentText().strip() or current_model
+            options = self._text_model_options
         self.model_combo.clear()
-        for option in self._model_options:
+        for option in options:
             self.model_combo.addItem(option.label, option.model_id)
-        if current_model:
-            index = self.model_combo.findData(current_model)
+        if selected_model:
+            index = self.model_combo.findData(selected_model)
             if index >= 0:
                 self.model_combo.setCurrentIndex(index)
             else:
-                self.model_combo.insertItem(0, current_model + " (Current selection)", current_model)
+                self.model_combo.insertItem(0, str(selected_model) + " (Current selection)", str(selected_model))
                 self.model_combo.setCurrentIndex(0)
 
     def _populate_preset_combo(self) -> None:
@@ -587,8 +637,34 @@ class TransformWithAIDialog(QDialog):
         if is_multi and self.mode_combo.currentData() == WRITE_MODE_SKIP_NONEMPTY:
             self._set_combo_to_data(self.mode_combo, WRITE_MODE_OVERWRITE)
 
+    def _refresh_run_mode_ui(self) -> None:
+        is_tts = self.tts_check.isChecked()
+        self._populate_model_combo()
+        for widget in (self.tts_source_field_combo, self.tts_voice_combo):
+            label = self.options_form.labelForField(widget)
+            if label is not None:
+                label.setVisible(is_tts)
+        self.tts_source_field_combo.setVisible(is_tts)
+        self.tts_voice_combo.setVisible(is_tts)
+        self.use_global_temperature_check.setEnabled(not is_tts)
+        self.temperature_spin.setEnabled((not is_tts) and (not self.use_global_temperature_check.isChecked()))
+        self.multiple_target_fields_check.setEnabled(not is_tts)
+        if is_tts:
+            self.multiple_target_fields_check.setChecked(False)
+        self.convert_markdown_to_html_check.setEnabled(not is_tts)
+        self.convert_field_html_to_markdown_check.setEnabled(not is_tts)
+        self.prompt_combo.setEnabled(not is_tts)
+        self.system_prompt_combo.setEnabled(not is_tts)
+        self.prompt_preview.setEnabled(not is_tts)
+        self.system_prompt_preview.setEnabled(not is_tts)
+        self.delimiter_label.setVisible((not is_tts) and self.multiple_target_fields_check.isChecked())
+        self.delimiter_edit.setVisible((not is_tts) and self.multiple_target_fields_check.isChecked())
+        self._refresh_target_mode_ui()
+
     def _refresh_temperature_ui(self) -> None:
-        self.temperature_spin.setEnabled(not self.use_global_temperature_check.isChecked())
+        self.temperature_spin.setEnabled(
+            (not self.tts_check.isChecked()) and (not self.use_global_temperature_check.isChecked())
+        )
 
     def _selected_preset(self) -> ProcessingPresetChoice | None:
         preset_id = self.preset_combo.currentData()
@@ -606,6 +682,7 @@ class TransformWithAIDialog(QDialog):
     def _apply_preset(self, preset: ProcessingPresetChoice) -> None:
         if preset.invalid_reason:
             return
+        self.tts_check.setChecked(preset.tts_enabled)
         self._set_combo_to_data(self.model_combo, preset.model)
         self._set_combo_to_data(self.prompt_combo, preset.prompt_id)
         self._set_combo_to_data(self.system_prompt_combo, preset.system_prompt_id)
@@ -615,11 +692,15 @@ class TransformWithAIDialog(QDialog):
         self.convert_markdown_to_html_check.setChecked(preset.convert_markdown_to_html)
         self.convert_field_html_to_markdown_check.setChecked(preset.convert_field_html_to_markdown)
         self.delimiter_edit.setText(preset.response_delimiter or "")
+        if preset.tts_source_field:
+            self._set_combo_to_data(self.tts_source_field_combo, preset.tts_source_field)
+        self._set_combo_to_data(self.tts_voice_combo, preset.tts_voice or DEFAULT_TTS_VOICE)
         if preset.target_field:
             self._set_target_field(preset.target_field)
         self._refresh_prompt_preview()
         self._refresh_system_prompt_preview()
         self._refresh_target_mode_ui()
+        self._refresh_run_mode_ui()
 
     def _browse_prompt_library(self) -> None:
         selected = _choose_prompt_from_library(
@@ -676,6 +757,11 @@ class TransformWithAIDialog(QDialog):
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
+            tts_enabled=self.tts_check.isChecked(),
+            tts_source_field=str(
+                self.tts_source_field_combo.currentData() or self.tts_source_field_combo.currentText().strip()
+            ),
+            tts_voice=str(self.tts_voice_combo.currentData() or DEFAULT_TTS_VOICE),
         )
         self._presets.append(preset)
         self._save_processing_presets()
@@ -728,6 +814,9 @@ class TransformWithAIDialog(QDialog):
                     convert_markdown_to_html=current.convert_markdown_to_html,
                     convert_field_html_to_markdown=current.convert_field_html_to_markdown,
                     response_delimiter=current.response_delimiter,
+                    tts_enabled=current.tts_enabled,
+                    tts_source_field=current.tts_source_field,
+                    tts_voice=current.tts_voice,
                 )
                 break
         self._save_processing_presets()
@@ -792,6 +881,9 @@ class TransformWithAIDialog(QDialog):
                 "convert_markdown_to_html": preset.convert_markdown_to_html,
                 "convert_field_html_to_markdown": preset.convert_field_html_to_markdown,
                 "response_delimiter": preset.response_delimiter,
+                "tts_enabled": preset.tts_enabled,
+                "tts_source_field": preset.tts_source_field,
+                "tts_voice": preset.tts_voice,
             }
             for preset in self._presets
         ]
@@ -815,6 +907,11 @@ class TransformWithAIDialog(QDialog):
             convert_markdown_to_html=self.convert_markdown_to_html_check.isChecked(),
             convert_field_html_to_markdown=self.convert_field_html_to_markdown_check.isChecked(),
             response_delimiter=self.delimiter_edit.text().strip() or None,
+            tts_enabled=self.tts_check.isChecked(),
+            tts_source_field=str(
+                self.tts_source_field_combo.currentData() or self.tts_source_field_combo.currentText().strip()
+            ),
+            tts_voice=str(self.tts_voice_combo.currentData() or DEFAULT_TTS_VOICE),
         )
 
     def _set_combo_to_data(self, combo: QComboBox, value: str | None) -> None:
@@ -1058,16 +1155,18 @@ class TransformWithAIDialog(QDialog):
 
     def _validate_and_accept(self) -> None:
         selected_preset = self._selected_preset()
+        is_tts = self.tts_check.isChecked()
         if selected_preset is not None and selected_preset.invalid_reason:
             showCritical(
                 f"Cannot run preset '{selected_preset.name}'. {selected_preset.invalid_reason}",
                 parent=self,
             )
             return
-        if not self._save_prompt_preview():
-            return
-        if not self._save_system_prompt_preview():
-            return
+        if not is_tts:
+            if not self._save_prompt_preview():
+                return
+            if not self._save_system_prompt_preview():
+                return
         is_multi = self.multiple_target_fields_check.isChecked()
         if not is_multi and not self._field_choices:
             showCritical("The selected notes do not share any common target field.", parent=self)
@@ -1081,14 +1180,17 @@ class TransformWithAIDialog(QDialog):
         if not (self.model_combo.currentData() or self.model_combo.currentText().strip()):
             showCritical("Choose a model before running.", parent=self)
             return
-        if self._selected_system_prompt() is None:
+        if not is_tts and self._selected_system_prompt() is None:
             showCritical("Choose or create a saved system prompt before running.", parent=self)
             return
-        if self._selected_prompt() is None:
+        if not is_tts and self._selected_prompt() is None:
             showCritical("Choose or create a saved prompt before running.", parent=self)
             return
         if not is_multi and not (self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()):
             showCritical("Choose a target field before running.", parent=self)
+            return
+        if is_tts and not (self.tts_source_field_combo.currentData() or self.tts_source_field_combo.currentText().strip()):
+            showCritical("Choose a source field for TTS before running.", parent=self)
             return
         self.accept()
 
@@ -1126,6 +1228,9 @@ def _preset_choices_from_saved_processing_presets(
             convert_markdown_to_html=preset.convert_markdown_to_html,
             convert_field_html_to_markdown=preset.convert_field_html_to_markdown,
             response_delimiter=preset.response_delimiter,
+            tts_enabled=preset.tts_enabled,
+            tts_source_field=preset.tts_source_field,
+            tts_voice=preset.tts_voice,
         )
         for preset in presets
     ]

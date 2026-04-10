@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- A Browser `Transform with AI` TTS mode that can read one selected note field aloud with a chosen OpenAI voice, save the generated audio into Anki media, and write the resulting `[sound:...]` tag into another field.
 - New release collateral under `docs/release/`, including Reddit copy and a YouTube description draft for launch/promo use.
 - A visible `MLR Tag AI Status` script workflow plus `scripts/add_ai_status_tags.py`, so the `MLR` group can derive uppercase `AI_STATUS::...` tags from the `AI Status` field after stripping HTML.
 - An optional `Convert field HTML to Markdown for placeholders` setting for Browser runs, presets, and workflows, so prompt placeholders can send cleaner Markdown text to the model instead of raw HTML.
@@ -34,6 +35,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- The Browser `Transform with AI` model picker now switches to TTS-capable models when the new `TTS` toggle is enabled, and Browser presets now remember the selected TTS source field and voice.
 - The Browser `Transform with AI` dialog now keeps prompt switching inside each prompt editor header, replaces prompt-edit actions with rename actions, adds direct system-prompt library browsing, and hides the multi-field response delimiter unless multiple target fields are enabled.
 - Multi-field Browser runs now default the response delimiter to `--{field-name}--`, show that format as the placeholder/tooltip hint, and accept the UI-facing `{field-name}` placeholder variant during parsing.
 - Workflow loading now tolerates deleted prompt references, shows affected workflows as missing in the workflow UI, and only raises an error when you actually try to run one of those stale workflows.

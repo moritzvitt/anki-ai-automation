@@ -48,6 +48,9 @@ class ProcessingPreset:
     convert_markdown_to_html: bool = True
     convert_field_html_to_markdown: bool = False
     response_delimiter: str | None = None
+    tts_enabled: bool = False
+    tts_source_field: str = ""
+    tts_voice: str | None = None
 
 
 @dataclass(frozen=True)

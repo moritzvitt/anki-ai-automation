@@ -11,6 +11,7 @@ class ModelPricing:
 
 
 BUILTIN_MODEL_PRICING: dict[str, ModelPricing] = {
+    "gpt-4o-mini-tts": ModelPricing(input_per_million_usd=0.6, output_per_million_usd=12.0),
     "gpt-5.2": ModelPricing(input_per_million_usd=1.75, cached_input_per_million_usd=0.175, output_per_million_usd=14.0),
     "gpt-5.2-chat-latest": ModelPricing(input_per_million_usd=1.75, cached_input_per_million_usd=0.175, output_per_million_usd=14.0),
     "gpt-5.2-pro": ModelPricing(input_per_million_usd=21.0, cached_input_per_million_usd=None, output_per_million_usd=168.0),
@@ -27,6 +28,8 @@ BUILTIN_MODEL_PRICING: dict[str, ModelPricing] = {
     "gpt-4o-mini": ModelPricing(input_per_million_usd=0.15, cached_input_per_million_usd=0.075, output_per_million_usd=0.6),
     "o3": ModelPricing(input_per_million_usd=2.0, cached_input_per_million_usd=0.5, output_per_million_usd=8.0),
     "o4-mini": ModelPricing(input_per_million_usd=1.1, cached_input_per_million_usd=0.275, output_per_million_usd=4.4),
+    "tts-1": ModelPricing(input_per_million_usd=15.0, output_per_million_usd=0.0),
+    "tts-1-hd": ModelPricing(input_per_million_usd=30.0, output_per_million_usd=0.0),
 }
 
 

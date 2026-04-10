@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 import math
+from pathlib import Path
 from threading import Event
+import tempfile
 from typing import Callable
+import uuid
 
 from aqt import mw
 from aqt.browser import Browser
@@ -36,12 +39,14 @@ from .processing_support import (
 )
 from .processing_text import parse_delimited_field_updates
 from .prompting import build_prompt_values, extract_placeholders, render_prompt
+from .prompting import strip_html_for_prompt
 from .usage_stats import record_usage_run
 from ..services.openai_client import (
     OpenAIClientError,
     count_request_input_tokens,
     count_request_input_tokens_for_text,
     request_field_updates,
+    request_tts_audio,
     request_text_response,
 )
 from ..services.pricing import estimate_cost_usd, resolve_model_pricing
@@ -313,6 +318,16 @@ def _build_manual_snapshots(
         note_type_name = str(note.note_type()["name"])
         available_fields = {field_name: note[field_name] for field_name in note.keys()}
 
+        if spec.tts_enabled and spec.multiple_target_fields:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason="TTS mode does not support multiple target fields.",
+                )
+            )
+            continue
+
         if spec.multiple_target_fields and spec.write_mode == WRITE_MODE_SKIP_NONEMPTY:
             failures.append(
                 NoteFailure(
@@ -333,6 +348,16 @@ def _build_manual_snapshots(
             )
             continue
 
+        if spec.tts_enabled and spec.tts_source_field not in available_fields:
+            failures.append(
+                NoteFailure(
+                    note_id=note_id,
+                    note_type_name=note_type_name,
+                    reason=f"TTS source field '{spec.tts_source_field}' does not exist on this note.",
+                )
+            )
+            continue
+
         if (
             not spec.multiple_target_fields
             and spec.write_mode == WRITE_MODE_SKIP_NONEMPTY
@@ -347,20 +372,32 @@ def _build_manual_snapshots(
             )
             continue
 
-        missing_fields = missing_prompt_fields(
-            prompt_fields=prompt_fields,
-            system_prompt_fields=system_prompt_fields,
-            available_fields=available_fields,
-        )
-        if missing_fields:
-            failures.append(
-                NoteFailure(
-                    note_id=note_id,
-                    note_type_name=note_type_name,
-                    reason="Referenced fields do not exist on the note: " + ", ".join(missing_fields),
+        if spec.tts_enabled:
+            source_text = strip_html_for_prompt(available_fields.get(spec.tts_source_field, ""))
+            if not source_text:
+                failures.append(
+                    NoteFailure(
+                        note_id=note_id,
+                        note_type_name=note_type_name,
+                        reason=f"TTS source field '{spec.tts_source_field}' is empty.",
+                    )
                 )
+                continue
+        else:
+            missing_fields = missing_prompt_fields(
+                prompt_fields=prompt_fields,
+                system_prompt_fields=system_prompt_fields,
+                available_fields=available_fields,
             )
-            continue
+            if missing_fields:
+                failures.append(
+                    NoteFailure(
+                        note_id=note_id,
+                        note_type_name=note_type_name,
+                        reason="Referenced fields do not exist on the note: " + ", ".join(missing_fields),
+                    )
+                )
+                continue
 
         snapshots.append(
             NoteSnapshot(
@@ -375,6 +412,9 @@ def _build_manual_snapshots(
                 convert_markdown_to_html=spec.convert_markdown_to_html,
                 convert_field_html_to_markdown=spec.convert_field_html_to_markdown,
                 response_delimiter=spec.response_delimiter,
+                tts_enabled=spec.tts_enabled,
+                tts_source_field=spec.tts_source_field,
+                tts_voice=spec.tts_voice,
             )
         )
 
@@ -537,6 +577,19 @@ def _estimate_processing(config: AddonConfig, snapshots: list[NoteSnapshot]) -> 
     input_tokens = 0
     heuristic_notes = 0
     render_plans: dict[tuple[str, str], PromptRenderPlan] = {}
+    if any(snapshot.tts_enabled for snapshot in snapshots):
+        input_tokens = sum(
+            _heuristic_token_count(strip_html_for_prompt(snapshot.fields.get(snapshot.tts_source_field, "")))
+            for snapshot in snapshots
+        )
+        return ProcessingEstimate(
+            input_tokens=input_tokens,
+            estimated_output_tokens=0,
+            estimated_total_tokens=input_tokens,
+            estimated_cost_usd=None,
+            heuristic_notes=len(snapshots),
+            pricing_available=False,
+        )
     for snapshot in snapshots:
         system_prompt, prompt = _render_snapshot_prompts(snapshot, config, render_plans=render_plans)
         try:
@@ -588,44 +641,64 @@ def _process_single_snapshot(
 ) -> tuple[NoteUpdate | None, NoteFailure | None]:
     pricing = resolve_model_pricing(config.model, config.model_pricing)
     try:
-        system_prompt, prompt = _render_snapshot_prompts(snapshot, config, render_plan=render_plan)
         warning_lines: list[str] = []
-        if snapshot.multiple_target_fields:
-            text_result = request_text_response(
+        if snapshot.tts_enabled:
+            source_text = strip_html_for_prompt(snapshot.fields.get(snapshot.tts_source_field, ""))
+            tts_result = request_tts_audio(
                 api_key=config.api_key,
                 model=config.model,
-                system_prompt=system_prompt,
-                user_prompt=prompt,
+                voice=snapshot.tts_voice,
+                input_text=source_text,
                 timeout_seconds=config.request_timeout_seconds,
                 max_retries=config.max_retries,
                 retry_backoff_seconds=config.retry_backoff_seconds,
-                temperature=config.temperature,
-                reasoning_effort=config.reasoning_effort,
-                use_chat_completions_api=config.use_chat_completions_api,
             )
-            field_updates, parser_warnings = parse_delimited_field_updates(
-                response_text=text_result.output_text,
-                response_delimiter=snapshot.response_delimiter,
-                available_fields=list(snapshot.fields.keys()),
+            media_filename = _store_tts_audio(
+                note_id=snapshot.note_id,
+                voice=snapshot.tts_voice,
+                media_type=tts_result.media_type,
+                audio_bytes=tts_result.audio_bytes,
             )
-            warning_lines.extend(parser_warnings)
-            usage = text_result.usage
+            field_updates = {snapshot.output_fields[0]: f"[sound:{media_filename}]"}
+            usage = tts_result.usage
         else:
-            structured_result = request_field_updates(
-                api_key=config.api_key,
-                model=config.model,
-                system_prompt=system_prompt,
-                user_prompt=prompt,
-                output_fields=snapshot.output_fields,
-                timeout_seconds=config.request_timeout_seconds,
-                max_retries=config.max_retries,
-                retry_backoff_seconds=config.retry_backoff_seconds,
-                temperature=config.temperature,
-                reasoning_effort=config.reasoning_effort,
-                use_chat_completions_api=config.use_chat_completions_api,
-            )
-            field_updates = structured_result.field_updates
-            usage = structured_result.usage
+            system_prompt, prompt = _render_snapshot_prompts(snapshot, config, render_plan=render_plan)
+            if snapshot.multiple_target_fields:
+                text_result = request_text_response(
+                    api_key=config.api_key,
+                    model=config.model,
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    timeout_seconds=config.request_timeout_seconds,
+                    max_retries=config.max_retries,
+                    retry_backoff_seconds=config.retry_backoff_seconds,
+                    temperature=config.temperature,
+                    reasoning_effort=config.reasoning_effort,
+                    use_chat_completions_api=config.use_chat_completions_api,
+                )
+                field_updates, parser_warnings = parse_delimited_field_updates(
+                    response_text=text_result.output_text,
+                    response_delimiter=snapshot.response_delimiter,
+                    available_fields=list(snapshot.fields.keys()),
+                )
+                warning_lines.extend(parser_warnings)
+                usage = text_result.usage
+            else:
+                structured_result = request_field_updates(
+                    api_key=config.api_key,
+                    model=config.model,
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    output_fields=snapshot.output_fields,
+                    timeout_seconds=config.request_timeout_seconds,
+                    max_retries=config.max_retries,
+                    retry_backoff_seconds=config.retry_backoff_seconds,
+                    temperature=config.temperature,
+                    reasoning_effort=config.reasoning_effort,
+                    use_chat_completions_api=config.use_chat_completions_api,
+                )
+                field_updates = structured_result.field_updates
+                usage = structured_result.usage
         if not field_updates:
             warning_lines.append("The response did not contain any matching field sections.")
             return None, NoteFailure(
@@ -736,3 +809,41 @@ def _heuristic_token_count(text: str) -> int:
     if not text:
         return 0
     return max(1, math.ceil(len(text) / 4))
+
+
+def _store_tts_audio(*, note_id: int, voice: str, media_type: str, audio_bytes: bytes) -> str:
+    assert mw is not None and mw.col is not None
+    media = getattr(mw.col, "media", None)
+    if media is None:
+        raise OpenAIClientError("Anki media collection is not available.")
+
+    extension = _audio_extension_for_media_type(media_type)
+    filename = f"ai-tts-note-{note_id}-{voice}-{uuid.uuid4().hex[:8]}.{extension}"
+    write_data = getattr(media, "write_data", None)
+    if callable(write_data):
+        write_data(filename, audio_bytes)
+        return filename
+
+    add_file = getattr(media, "add_file", None)
+    if callable(add_file):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as handle:
+            handle.write(audio_bytes)
+            temp_path = handle.name
+        try:
+            added = add_file(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+        return str(added or filename)
+
+    raise OpenAIClientError("This Anki version does not expose a supported media-write API.")
+
+
+def _audio_extension_for_media_type(media_type: str) -> str:
+    lowered = media_type.lower()
+    if "wav" in lowered:
+        return "wav"
+    if "flac" in lowered:
+        return "flac"
+    if "ogg" in lowered or "opus" in lowered:
+        return "ogg"
+    return "mp3"
