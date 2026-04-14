@@ -39,6 +39,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 ### Changed
 
 - Moved the main-window AI Automation menu into the shared `Moritz Add-ons -> AI-Automation` submenu while keeping the Browser-specific menu intact.
+- Moved the Browser top-level AI Automation menu into the shared Browser `Moritz Add-ons -> AI Automation` submenu so it reuses the same shared menu point as your other add-ons.
 - The Browser `Transform with AI` dialog now keeps prompt switching inside each prompt editor header, replaces prompt-edit actions with rename actions, adds direct system-prompt library browsing, and hides the multi-field response delimiter unless multiple target fields are enabled.
 - Multi-field Browser runs now default the response delimiter to `--{field-name}--`, show that format as the placeholder/tooltip hint, and accept the UI-facing `{field-name}` placeholder variant during parsing.
 - Workflow loading now tolerates deleted prompt references, shows affected workflows as missing in the workflow UI, and only raises an error when you actually try to run one of those stale workflows.

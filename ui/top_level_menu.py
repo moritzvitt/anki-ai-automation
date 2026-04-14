@@ -19,7 +19,7 @@ from .usage_menu import _show_usage_report
 from .workflow import _open_workflow_manager
 
 
-MAIN_MENU_TITLE = "AI-Automation"
+MAIN_MENU_TITLE = "AI Automation"
 
 
 def register_top_level_menus() -> None:
@@ -66,16 +66,8 @@ def _ensure_main_window_menu() -> None:
 
 
 def _ensure_browser_menu(browser: Browser) -> None:
-    menu_bar = browser.menuBar() if hasattr(browser, "menuBar") else None
-    if menu_bar is None:
-        return
-    existing = _find_menu(menu_bar, MAIN_MENU_TITLE)
-    if existing is not None:
-        existing.clear()
-        menu = existing
-    else:
-        menu = QMenu(MAIN_MENU_TITLE, browser)
-        _insert_before_help(menu_bar, menu)
+    menu = shared_menu.get_browser_addon_submenu(browser, MAIN_MENU_TITLE)
+    menu.clear()
 
     _add_action(
         menu,
