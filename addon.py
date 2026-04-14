@@ -8,8 +8,6 @@ from .core.workflow_triggers import register_workflow_triggers
 from .ui.browser_menu import register_browser_menu
 from .ui.config_dialog import register_config_action
 from .ui.top_level_menu import register_top_level_menus
-from .ui.usage_menu import register_usage_menu
-from .ui.workflow import register_workflow_menu
 
 
 def _register_external_browser_extensions() -> None:
@@ -38,6 +36,4 @@ def register() -> None:
     register_top_level_menus()
     register_browser_menu()
     _register_external_browser_extensions()
-    register_usage_menu()
-    register_workflow_menu()
     register_workflow_triggers()

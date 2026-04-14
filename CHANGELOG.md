@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- Bundled a reusable `shared_menu.py` helper so this add-on can participate in the shared `Moritz Add-ons` top-level Anki menu without depending on another installed add-on.
 - MkDocs configuration for the shared add-on documentation site so this repo's docs can be included in the combined GitHub Pages build.
 - A Browser `Transform with AI` TTS mode that can read one selected note field aloud with a chosen OpenAI voice, save the generated audio into Anki media, and write the resulting `[sound:...]` tag into another field.
 - A cleaner HyperTTS-inspired `Transform with AI` Browser dialog layout with a guided step-by-step flow for generation type, source fields, target fields, model settings, prompts, system prompts, and final review, including Back/Next navigation and a final save-as-preset action before running.
@@ -37,6 +38,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Moved the main-window AI Automation menu into the shared `Moritz Add-ons -> AI-Automation` submenu while keeping the Browser-specific menu intact.
 - The Browser `Transform with AI` dialog now keeps prompt switching inside each prompt editor header, replaces prompt-edit actions with rename actions, adds direct system-prompt library browsing, and hides the multi-field response delimiter unless multiple target fields are enabled.
 - Multi-field Browser runs now default the response delimiter to `--{field-name}--`, show that format as the placeholder/tooltip hint, and accept the UI-facing `{field-name}` placeholder variant during parsing.
 - Workflow loading now tolerates deleted prompt references, shows affected workflows as missing in the workflow UI, and only raises an error when you actually try to run one of those stale workflows.

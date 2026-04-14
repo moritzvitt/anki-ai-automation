@@ -6,6 +6,7 @@ from aqt import gui_hooks, mw
 from aqt.browser import Browser
 from aqt.qt import QAction, QMenu, QWidget
 
+from .. import shared_menu
 from .automation import open_browser_settings_dialog
 from .browser_menu import (
     _populate_workflows_menu,
@@ -30,16 +31,8 @@ def register_top_level_menus() -> None:
 def _ensure_main_window_menu() -> None:
     if mw is None:
         return
-    menu_bar = mw.menuBar()
-    if menu_bar is None:
-        return
-    existing = _find_menu(menu_bar, MAIN_MENU_TITLE)
-    if existing is not None:
-        existing.clear()
-        menu = existing
-    else:
-        menu = QMenu(MAIN_MENU_TITLE, mw)
-        _insert_before_help(menu_bar, menu)
+    menu = shared_menu.get_addon_submenu(MAIN_MENU_TITLE)
+    menu.clear()
 
     _add_action(
         menu,
