@@ -110,6 +110,7 @@ class AddonConfig:
     saved_prompts: list[SavedPrompt]
     saved_system_prompts: list[SavedSystemPrompt]
     processing_presets: list[ProcessingPreset]
+    editor_default_workflow_group_id: str | None
     workflow_groups: list[WorkflowGroup]
     workflows: list[Workflow]
 

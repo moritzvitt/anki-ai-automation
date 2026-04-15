@@ -7,6 +7,7 @@ import sys
 from .core.workflow_triggers import register_workflow_triggers
 from .ui.browser_menu import register_browser_menu
 from .ui.config_dialog import register_config_action
+from .ui.editor_actions import register_editor_actions
 from .ui.top_level_menu import register_top_level_menus
 
 
@@ -35,5 +36,6 @@ def register() -> None:
     register_config_action()
     register_top_level_menus()
     register_browser_menu()
+    register_editor_actions()
     _register_external_browser_extensions()
     register_workflow_triggers()

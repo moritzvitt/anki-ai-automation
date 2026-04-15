@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- Editor toolbar controls for running a selected workflow group on the current note, with a `Create` button, a group dropdown, and a configurable default group in `AI Automation -> General Settings`.
 - Bundled a reusable `shared_menu.py` helper so this add-on can participate in the shared `Moritz Add-ons` top-level Anki menu without depending on another installed add-on.
 - MkDocs configuration for the shared add-on documentation site so this repo's docs can be included in the combined GitHub Pages build.
 - A Browser `Transform with AI` TTS mode that can read one selected note field aloud with a chosen OpenAI voice, save the generated audio into Anki media, and write the resulting `[sound:...]` tag into another field.
@@ -38,6 +39,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Editor-triggered group runs now warn when some workflows target fields that do not exist on the current note type, and let you abort or continue while skipping those incompatible workflows.
 - Moved the main-window AI Automation menu into the shared `Moritz Add-ons -> AI-Automation` submenu while keeping the Browser-specific menu intact.
 - Moved the Browser top-level AI Automation menu into the shared Browser `Moritz Add-ons -> AI Automation` submenu so it reuses the same shared menu point as your other add-ons.
 - The Browser `Transform with AI` dialog now keeps prompt switching inside each prompt editor header, replaces prompt-edit actions with rename actions, adds direct system-prompt library browsing, and hides the multi-field response delimiter unless multiple target fields are enabled.

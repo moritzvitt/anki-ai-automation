@@ -58,7 +58,7 @@ def _ensure_main_window_menu() -> None:
     menu.addSeparator()
     _add_action(
         menu,
-        "Settings",
+        "General Settings",
         "Open the main AI Automation settings dialog.",
         _open_config_dialog,
         mw,

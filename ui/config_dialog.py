@@ -22,7 +22,7 @@ from aqt.qt import (
 )
 from aqt.utils import showCritical, showInfo
 
-from ..core.config import ADDON_NAME
+from ..core.config import ADDON_NAME, ConfigError, load_config
 from ..services.model_catalog import ModelOption, fallback_model_options, fetch_model_options
 from .automation import open_browser_settings_dialog
 from .tooltips import set_hover_help
@@ -67,6 +67,8 @@ class ConfigDialog(QDialog):
         self.open_workflows_button = QPushButton("Open Workflow Settings")
         self.open_browser_settings_button = QPushButton("Open Browser Settings")
         self.open_live_config_button = QPushButton("Open Live Config")
+        self.editor_default_group_combo = QComboBox()
+        self._workflow_groups = self._load_workflow_groups()
 
         self._build_ui()
         self._populate_fields()
@@ -136,14 +138,25 @@ class ConfigDialog(QDialog):
         return group
 
     def _build_navigation_group(self) -> QGroupBox:
-        group = QGroupBox("Other Settings")
+        group = QGroupBox("General Settings")
         layout = QVBoxLayout(group)
 
         help_text = QLabel(
-            "Open the dedicated dialogs for reusable workflows and Browser AI run settings, or open the live stored config file."
+            "Choose the default workflow group for the editor toolbar, open the reusable workflow and Browser settings dialogs, or inspect the live stored config."
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
+
+        self.editor_default_group_combo.setMinimumWidth(280)
+        set_hover_help(
+            self.editor_default_group_combo,
+            "Choose which workflow group is preselected in the editor toolbar's Create dropdown.",
+            enabled=bool(self._config.get("show_tooltips", True)),
+        )
+        group_row = QHBoxLayout()
+        group_row.addWidget(QLabel("Default editor workflow group"))
+        group_row.addWidget(self.editor_default_group_combo, stretch=1)
+        layout.addLayout(group_row)
 
         buttons_row = QHBoxLayout()
         self.open_workflows_button.clicked.connect(self._open_workflow_settings)
@@ -186,6 +199,13 @@ class ConfigDialog(QDialog):
         self.model_status_label.setText(
             "Showing a curated flashcard-writing model list. Click Refresh Models to load the current shortlist from OpenAI."
         )
+        self.editor_default_group_combo.clear()
+        self.editor_default_group_combo.addItem("No default group", "")
+        for group in self._workflow_groups:
+            self.editor_default_group_combo.addItem(group["name"], group["group_id"])
+        current_group_id = str(self._config.get("editor_default_workflow_group_id") or "")
+        current_index = self.editor_default_group_combo.findData(current_group_id)
+        self.editor_default_group_combo.setCurrentIndex(current_index if current_index >= 0 else 0)
 
     def _save(self) -> None:
         self._config.update(
@@ -195,6 +215,7 @@ class ConfigDialog(QDialog):
                 "use_chat_completions_api": self.use_chat_completions_checkbox.isChecked(),
                 "openai_api_key": self.api_key_edit.text().strip(),
                 "model": self.model_combo.currentData() or self.model_combo.currentText().strip(),
+                "editor_default_workflow_group_id": self.editor_default_group_combo.currentData() or None,
                 "show_estimate_before_sending": False,
                 "field_mappings": list(self._config.get("field_mappings", [])),
             }
@@ -207,6 +228,8 @@ class ConfigDialog(QDialog):
     def _open_workflow_settings(self) -> None:
         dialog = WorkflowManagerDialog(parent=self)
         dialog.exec()
+        self._workflow_groups = self._load_workflow_groups()
+        self._populate_fields()
 
     def _open_browser_settings(self) -> None:
         open_browser_settings_dialog(self)
@@ -256,6 +279,16 @@ class ConfigDialog(QDialog):
         if not isinstance(config, dict):
             return {}
         return dict(config)
+
+    def _load_workflow_groups(self) -> list[dict[str, str]]:
+        try:
+            parsed_config = load_config()
+        except ConfigError:
+            return []
+        return [
+            {"group_id": group.group_id, "name": group.name}
+            for group in sorted(parsed_config.workflow_groups, key=lambda item: item.name.lower())
+        ]
 
     def _load_model_options(
         self,

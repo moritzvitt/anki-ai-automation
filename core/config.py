@@ -126,6 +126,8 @@ def load_config() -> AddonConfig:
         saved_system_prompts=saved_system_prompts,
     )
     workflow_groups = _read_workflow_groups(raw)
+    configured_editor_default_group_id = read_optional_string(raw, "editor_default_workflow_group_id")
+    valid_group_ids = {group.group_id for group in workflow_groups}
     workflows = _read_workflows(
         raw,
         saved_prompts=saved_prompts,
@@ -156,6 +158,11 @@ def load_config() -> AddonConfig:
         saved_prompts=saved_prompts,
         saved_system_prompts=saved_system_prompts,
         processing_presets=processing_presets,
+        editor_default_workflow_group_id=(
+            configured_editor_default_group_id
+            if configured_editor_default_group_id in valid_group_ids
+            else None
+        ),
         workflow_groups=workflow_groups,
         workflows=workflows,
     )

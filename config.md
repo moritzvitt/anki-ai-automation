@@ -102,6 +102,12 @@ Optional pricing overrides keyed by model name. Use this when you select a model
 
 List of previously saved prompt templates. This is maintained by the custom config window so you can quickly restore an older prompt version.
 
+### `editor_default_workflow_group_id`
+
+Optional workflow-group id used as the preselected choice in the editor toolbar's `Create` dropdown.
+
+If the configured group no longer exists, the editor falls back to no configured default and uses the first available enabled group instead.
+
 ### `field_mappings`
 
 List of per-note-type processing rules.
