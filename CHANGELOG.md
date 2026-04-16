@@ -40,6 +40,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Updated the bundled `shared_menu.py` helper so the shared `Rate me` action now opens a chooser for installed Moritz add-ons instead of jumping straight to one fixed AnkiWeb page.
 - Refreshed the root README and AnkiWeb product page copy to use a clearer add-on overview and align with the shared repository documentation standard.
 - Applied shared dialog styling to more AI Automation dialogs and hid the editor workflow-group controls while the Add Cards screen is active.
 - Added a `Global Styling & Gamification` section to the main settings dialog so the shared theme and central gamification preset can be opened directly from AI Automation.
