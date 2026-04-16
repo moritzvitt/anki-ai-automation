@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Added
 
+- Added an `ARCHITECTURE.md` technical overview for repository-level implementation details.
 - Editor toolbar controls for running a selected workflow group on the current note, with a `Create` button, a group dropdown, and a configurable default group in `AI Automation -> General Settings`.
 - Bundled a reusable `shared_menu.py` helper so this add-on can participate in the shared `Moritz Add-ons` top-level Anki menu without depending on another installed add-on.
 - MkDocs configuration for the shared add-on documentation site so this repo's docs can be included in the combined GitHub Pages build.
@@ -39,6 +40,9 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ### Changed
 
+- Refreshed the root README and AnkiWeb product page copy to use a clearer add-on overview and align with the shared repository documentation standard.
+- Applied shared dialog styling to more AI Automation dialogs and hid the editor workflow-group controls while the Add Cards screen is active.
+- Added a `Global Styling & Gamification` section to the main settings dialog so the shared theme and central gamification preset can be opened directly from AI Automation.
 - Editor-triggered group runs now warn when some workflows target fields that do not exist on the current note type, and let you abort or continue while skipping those incompatible workflows.
 - Moved the main-window AI Automation menu into the shared `Moritz Add-ons -> AI-Automation` submenu while keeping the Browser-specific menu intact.
 - Moved the Browser top-level AI Automation menu into the shared Browser `Moritz Add-ons -> AI Automation` submenu so it reuses the same shared menu point as your other add-ons.

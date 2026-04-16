@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from aqt.qt import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from ..services.openai_client import TokenUsage
+from .. import shared_styling
 
 
 WRITE_MODE_APPEND = "append"
@@ -124,6 +125,7 @@ class ProcessingInterruptDialog(QDialog):
         self.interrupt_button = QPushButton("Interrupt")
         self.interrupt_button.setVisible(self._can_interrupt)
         layout.addWidget(self.interrupt_button)
+        shared_styling.apply_dialog_theme(self)
 
     def set_progress(self, completed_count: int) -> None:
         self.progress_bar.setValue(completed_count)

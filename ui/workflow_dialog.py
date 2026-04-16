@@ -37,6 +37,7 @@ from .automation import (
     _prompt_relative_path_label,
 )
 from .tooltips import set_hover_help, show_tooltip
+from .. import shared_styling
 from ..core.config import (
     DEFAULT_PROMPTS_DIR,
     ProcessingPreset,
@@ -166,6 +167,7 @@ class WorkflowDialog(QDialog):
 
         self._build_ui()
         self._populate(workflow)
+        shared_styling.apply_dialog_theme(self)
 
 
 class ScriptWorkflowDialog(QDialog):
@@ -206,6 +208,7 @@ class ScriptWorkflowDialog(QDialog):
             self.query_edit.setText(workflow.query)
             self.enabled_check.setChecked(workflow.enabled)
             self.script_edit.setPlainText(workflow.script_command or "")
+        shared_styling.apply_dialog_theme(self)
 
     def draft(self) -> ScriptWorkflowDraft:
         return ScriptWorkflowDraft(

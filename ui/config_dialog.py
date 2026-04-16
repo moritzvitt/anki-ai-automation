@@ -27,6 +27,7 @@ from ..services.model_catalog import ModelOption, fallback_model_options, fetch_
 from .automation import open_browser_settings_dialog
 from .tooltips import set_hover_help
 from .workflow import WorkflowManagerDialog
+from .. import shared_styling
 
 
 def register_config_action() -> None:
@@ -73,6 +74,7 @@ class ConfigDialog(QDialog):
         self._build_ui()
         self._populate_fields()
         self._refresh_model_options()
+        shared_styling.apply_dialog_theme(self)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -91,6 +93,13 @@ class ConfigDialog(QDialog):
         layout.addWidget(header)
         layout.addWidget(self._build_main_settings_group())
         layout.addWidget(self._build_navigation_group())
+        layout.addWidget(
+            shared_styling.build_global_preferences_group(
+                self,
+                addon_name="AI Automation",
+                intro="Global Styling controls the shared theme and gamification level used by supported Moritz add-ons. AI Automation keeps its own local settings if the global add-on is missing or turned off.",
+            )
+        )
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._save)

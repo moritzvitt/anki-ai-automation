@@ -48,6 +48,7 @@ from ..core.workflow_engine import (
 )
 from ..core.processing import ProcessingInterruptDialog
 from .tooltips import set_action_hover_help, set_hover_help, show_tooltip
+from .. import shared_styling
 
 
 @dataclass
@@ -102,6 +103,7 @@ class WorkflowManagerDialog(QDialog):
 
         self._build_ui()
         self._populate()
+        shared_styling.apply_dialog_theme(self)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)

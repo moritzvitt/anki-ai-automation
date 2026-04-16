@@ -1,0 +1,15 @@
+{
+  "title": "AI Automation",
+  "ankiweb_id": "1186735228",
+  "github_url": "https://github.com/moritzvitt/ai-automation",
+  "support_url": "https://github.com/moritzvitt/ai-automation/issues",
+  "description_source": "docs/release/ankiweb-product-page.md",
+  "artifact_patterns": [
+    "anki-ai-automation.ankiaddon",
+    "build/*.ankiaddon"
+  ],
+  "build_command": [
+    "python3",
+    "tools/package_ankiaddon.py"
+  ]
+}

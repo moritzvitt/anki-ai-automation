@@ -53,6 +53,7 @@ from ..core.processing import (
     run_manual_ai_processing,
 )
 from .tooltips import set_hover_help, show_tooltip
+from .. import shared_styling
 
 DEFAULT_MULTI_FIELD_DELIMITER = "--{field-name}--"
 
@@ -208,6 +209,7 @@ class TransformWithAIDialog(QDialog):
 
         self._build_ui()
         self._populate()
+        shared_styling.apply_dialog_theme(self)
 
     def processing_spec(self) -> ManualProcessingSpec | None:
         prompt = self._selected_prompt()
@@ -1434,6 +1436,7 @@ class SavedPromptDialog(QDialog):
         if prompt is not None:
             self.name_edit.setText(prompt.name)
             self.prompt_edit.setPlainText(prompt.prompt_text)
+        shared_styling.apply_dialog_theme(self)
 
     def prompt_choice(self, existing_id: str | None = None) -> PromptChoice | None:
         name = self.name_edit.text().strip()

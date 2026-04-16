@@ -1,33 +1,46 @@
 # AI Automation
 
-<img src="https://raw.githubusercontent.com/moritzvitt/anki-ai-automation/main/docs/release/media/images.webp" alt="AI Automation logo" width="128" />
+<p align="center">
+  <a href="https://buymeacoffee.com/moritzowitsch">
+    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=000000" alt="Buy Me a Coffee" />
+  </a>
+  <a href="https://github.com/moritzvitt">
+    <img src="https://img.shields.io/badge/GitHub-moritzvitt-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub moritzvitt" />
+  </a>
+</p>
 
-AI Automation is an Anki add-on for running OpenAI-powered note updates from the Browser or from saved workflows.
+AI Automation is an Anki add-on for updating note fields with OpenAI from the Browser or from saved workflows. It is intended for batch cleanup, rewriting, tagging, transformation, and field generation tasks where the input can be rendered from note data.
 
-You can select Browser rows and choose `Transform with AI`, or build reusable workflows that run against Anki searches, workflow groups, Browser selections, and startup/query triggers. The add-on renders prompts from note fields, sends them to OpenAI, and writes the result back into one or more note fields with configurable safety checks.
+## What It Does
 
-## Demo Video
+- runs AI-powered note transformations from Browser selections
+- saves reusable workflows for repeated collection queries
+- supports single-field and multi-field output targets
+- includes prompt, preset, and workflow management dialogs
+- supports startup and query-based workflow triggers
 
-[![Watch the demo video](https://img.youtube.com/vi/80O47uk6LCI/hqdefault.jpg)](https://youtu.be/80O47uk6LCI)
+## Typical Uses
 
-Watch the add-on in action on YouTube: https://youtu.be/80O47uk6LCI
+- rewrite or clean imported note fields
+- generate new content from existing fields
+- append AI output into dedicated target fields
+- standardize note formatting across a deck
 
-## Features
+## Installation
 
-- Browser right-click action for selected notes or cards
-- Workflow manager for saved query-based runs and workflow groups
-- Visible custom script steps that can run inside workflow groups in normal execution order
-- Optional workflow triggers on startup or when query counts reach a threshold
-- Saved prompt, system prompt, and processing preset libraries
-- Browser and workflow settings dialogs for managing prompts, presets, and defaults outside active runs
-- Single-field or multi-field output modes
-- `append`, `overwrite`, and `skip if target field not empty` write modes
-- Chat Completions or Responses API support
-- Batching, bounded concurrency, retries, timeout controls, and incremental note updates during Browser runs
-- Optional token/cost estimate before sending
-- Local usage tracking plus an OpenAI spend lookup view when the API key has access
+Install the add-on from AnkiWeb if a release is available, or install it manually from a packaged `.ankiaddon` file.
 
-## File Structure
+This add-on requires your own OpenAI API key.
+
+## Related Add-ons
+
+If you want a more polished and consistent look across my add-ons, you can also install my `Global Styling` add-on. It lets you apply a shared design on top of supported add-ons without changing their functionality.
+
+## Links
+
+- Demo video: https://youtu.be/80O47uk6LCI
+- AnkiWeb: https://ankiweb.net/shared/info/1186735228
+- Technical details: [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ```text
 ai-automation/

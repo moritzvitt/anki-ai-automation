@@ -3,7 +3,7 @@ from __future__ import annotations
 from html import escape
 
 from aqt import gui_hooks
-from aqt.editor import Editor
+from aqt.editor import Editor, EditorMode
 from aqt.qt import QMessageBox
 from aqt.utils import showCritical
 
@@ -21,6 +21,9 @@ def register_editor_actions() -> None:
 
 
 def _add_editor_group_controls(buttons: list[str], editor: Editor) -> None:
+    if editor.editorMode == EditorMode.ADD_CARDS:
+        return
+
     try:
         config = load_config()
     except ConfigError:
