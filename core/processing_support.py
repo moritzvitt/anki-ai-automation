@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from threading import Event
 from typing import Callable
 
@@ -55,6 +56,38 @@ def format_failure_report(failures: list[NoteFailure]) -> str:
         lines.append(f"- Note {failure.note_id} ({failure.note_type_name}): {failure.reason}")
     if len(failures) > 20:
         lines.append(f"- ...and {len(failures) - 20} more")
+    return "\n".join(lines)
+
+
+def format_compact_processing_report(
+    *,
+    applied: int,
+    failures: list[NoteFailure],
+    request_count: int,
+    total_tokens: int,
+    estimated_cost_usd: float | None,
+    was_cancelled: bool,
+) -> str:
+    lines: list[str] = []
+    if was_cancelled:
+        lines.append("⚠️ AI run interrupted.")
+    else:
+        lines.append("✨ AI run finished. ⭐")
+    lines.append(f"✅ Updated notes: {applied:,}")
+    if request_count:
+        lines.append(f"🤖 Processed requests: {request_count:,}")
+    if failures:
+        lines.append(f"⏭️ Skipped notes: {len(failures):,}")
+    if total_tokens:
+        lines.append(f"Tokens used: {total_tokens:,}")
+    if estimated_cost_usd is not None:
+        lines.append(f"Estimated cost: ${estimated_cost_usd:.4f}")
+    if failures:
+        reason_counts = Counter(failure.reason.strip() or "Unknown reason" for failure in failures)
+        lines.append("")
+        lines.append("Most common skip reasons:")
+        for reason, count in reason_counts.most_common(4):
+            lines.append(f"- {count}x {reason}")
     return "\n".join(lines)
 
 
@@ -206,5 +239,19 @@ def apply_result(
         elif applied:
             show_tooltip(f"AI Automation updated {applied} note(s).", parent=browser)
 
-        if result.failures:
-            showInfo(format_failure_report(result.failures), parent=browser)
+        if usage_totals["request_count"] or applied or result.failures:
+            showInfo(
+                format_compact_processing_report(
+                    applied=applied,
+                    failures=result.failures,
+                    request_count=int(usage_totals["request_count"]),
+                    total_tokens=int(usage_totals["total_tokens"]),
+                    estimated_cost_usd=(
+                        float(usage_totals["estimated_cost_usd"])
+                        if usage_totals["estimated_cost_usd"] is not None
+                        else None
+                    ),
+                    was_cancelled=result.was_cancelled,
+                ),
+                parent=browser,
+            )

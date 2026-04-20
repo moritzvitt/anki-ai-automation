@@ -6,10 +6,13 @@ import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARCHIVE_PATH = REPO_ROOT / f"{REPO_ROOT.name}.ankiaddon"
-EMPTY_DIR_ENTRIES = ("prompt_library/user_prompts/",)
+EMPTY_DIR_ENTRIES = ()
 SKIP_EXACT = {
     ".DS_Store",
     "meta.json",
+}
+INCLUDE_EXACT = {
+    "user_files/README.txt",
 }
 SKIP_TOP_LEVEL_DIRS = {
     ".git",
@@ -32,9 +35,13 @@ def should_include(relative_path: Path) -> bool:
     parts = relative_path.parts
     if not parts:
         return False
+    if relative_path.as_posix() in INCLUDE_EXACT:
+        return True
     if relative_path.as_posix() in SKIP_EXACT:
         return False
     if parts[0] in SKIP_TOP_LEVEL_DIRS:
+        return False
+    if parts[0] == "user_files":
         return False
     if any(part in SKIP_DIR_NAMES for part in parts):
         return False

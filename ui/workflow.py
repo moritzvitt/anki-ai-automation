@@ -812,7 +812,6 @@ class WorkflowManagerDialog(QDialog):
                 on_done=on_done,
             ),
         )
-        op.with_progress(label=f"Running workflow {index + 1}/{len(workflows)}: {workflow.name}")
         op.run_in_background()
 
     def _on_workflow_finished(
@@ -860,16 +859,23 @@ class WorkflowManagerDialog(QDialog):
 
         if not show_dialog:
             return
-        report_lines = ["Workflow run summary:", ""]
-        report_lines.extend(f"- {line}" for line in summary.workflow_reports)
+        report_lines = ["✨ Workflow run finished. ⭐", ""]
+        if summary.workflow_reports:
+            report_lines.append("Per workflow:")
+            report_lines.extend(f"- {line}" for line in summary.workflow_reports)
+        if summary.updated_requests:
+            report_lines.extend(["", f"🤖 Processed requests: {summary.updated_requests:,}"])
         if summary.skipped:
-            report_lines.extend(["", "Skipped:"])
-            report_lines.extend(summary.skipped)
+            report_lines.extend(["", f"⏭️ Skipped workflow steps: {len(summary.skipped):,}"])
+            for item in summary.skipped[:5]:
+                report_lines.append(item)
+            if len(summary.skipped) > 5:
+                report_lines.append(f"- ...and {len(summary.skipped) - 5} more")
         if summary.failures:
-            report_lines.extend(["", "Failures:"])
-            report_lines.extend(summary.failures[:40])
-            if len(summary.failures) > 40:
-                report_lines.append(f"- ...and {len(summary.failures) - 40} more")
+            report_lines.extend(["", f"⚠️ Problems: {len(summary.failures):,}"])
+            report_lines.extend(summary.failures[:5])
+            if len(summary.failures) > 5:
+                report_lines.append(f"- ...and {len(summary.failures) - 5} more")
         showInfo("\n".join(report_lines), parent=self)
 
     def _group_id_for_name(self, group_name: str | None) -> str | None:

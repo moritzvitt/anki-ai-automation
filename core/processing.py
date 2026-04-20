@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from dataclasses import replace
 import math
 from threading import Event
@@ -179,7 +180,6 @@ def start_prepared_manual_processing(
             already_applied_count=already_applied_count,
         ),
     )
-    op.with_progress(label=progress_label or f"Processing {len(prepared.snapshots)} note(s) with AI...")
     op.run_in_background()
 
 
@@ -672,14 +672,18 @@ def _confirm_and_start_processing(
     overwrite_fields: set[str],
     estimate: ProcessingEstimate | None,
 ) -> None:
-    confirmation_lines = [f"Ready to process {len(snapshots)} note(s) with model {config.model}."]
+    confirmation_lines = [
+        "✨ Ready to run AI Automation. ⭐",
+        f"✅ Notes that can be processed: {len(snapshots):,}",
+        f"Model: {config.model}",
+    ]
     has_multi_target_mode = any(snapshot.multiple_target_fields for snapshot in snapshots)
 
     if estimate is not None:
         confirmation_lines.extend(
             [
                 "",
-                "Estimated usage before sending:",
+                "Estimated usage:",
                 f"- Input tokens: {estimate.input_tokens:,}",
                 f"- Output tokens: {estimate.estimated_output_tokens:,}",
                 f"- Total tokens: {estimate.estimated_total_tokens:,}",
@@ -696,13 +700,23 @@ def _confirm_and_start_processing(
             confirmation_lines.append(f"- {estimate.heuristic_notes} note(s) used a heuristic input-token estimate")
 
     if failures:
-        confirmation_lines.extend(["", f"{len(failures)} note(s) will be skipped due to config or note issues."])
+        reason_counts = Counter(failure.reason.strip() or "Unknown reason" for failure in failures)
+        confirmation_lines.extend(
+            [
+                "",
+                f"⏭️ Notes that will be skipped: {len(failures):,}",
+                "Most common reasons:",
+            ]
+        )
+        for reason, count in reason_counts.most_common(3):
+            confirmation_lines.append(f"- {count}x {reason}")
 
     if overwrite_count:
         confirmation_lines.extend(
             [
                 "",
-                f"{overwrite_count} note(s) already contain data in output field(s): {', '.join(sorted(overwrite_fields))}.",
+                f"⚠️ Notes with existing content in output fields: {overwrite_count:,}",
+                f"Fields: {', '.join(sorted(overwrite_fields))}",
                 "Continuing may overwrite existing content.",
             ]
         )

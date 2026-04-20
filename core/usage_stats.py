@@ -3,19 +3,23 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 
-_USER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "user_data")
-_USAGE_FILE = os.path.join(_USER_DATA_DIR, "usage_stats.json")
+_ADDON_ROOT = Path(__file__).resolve().parent.parent
+_USER_DATA_DIR = _ADDON_ROOT / "user_files" / "user_data"
+_USAGE_FILE = _USER_DATA_DIR / "usage_stats.json"
+_LEGACY_USAGE_FILE = _ADDON_ROOT / "user_data" / "usage_stats.json"
 
 
 def load_usage_stats() -> dict[str, Any]:
-    if not os.path.exists(_USAGE_FILE):
+    _migrate_legacy_usage_file()
+    if not _USAGE_FILE.exists():
         return _default_usage_stats()
 
     try:
-        with open(_USAGE_FILE, "r", encoding="utf-8") as handle:
+        with _USAGE_FILE.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, json.JSONDecodeError):
         return _default_usage_stats()
@@ -38,6 +42,7 @@ def record_usage_run(
     estimated_cost_usd: float | None,
     history_limit: int,
 ) -> None:
+    _migrate_legacy_usage_file()
     stats = load_usage_stats()
     _increment_totals(
         stats["totals"],
@@ -81,9 +86,16 @@ def record_usage_run(
     )
     stats["recent_runs"] = stats["recent_runs"][:history_limit]
 
-    os.makedirs(_USER_DATA_DIR, exist_ok=True)
-    with open(_USAGE_FILE, "w", encoding="utf-8") as handle:
+    _USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with _USAGE_FILE.open("w", encoding="utf-8") as handle:
         json.dump(stats, handle, indent=2, sort_keys=True)
+
+
+def _migrate_legacy_usage_file() -> None:
+    if not _LEGACY_USAGE_FILE.exists() or _USAGE_FILE.exists():
+        return
+    _USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _USAGE_FILE.write_bytes(_LEGACY_USAGE_FILE.read_bytes())
 
 
 def build_usage_report(stats: dict[str, Any]) -> str:

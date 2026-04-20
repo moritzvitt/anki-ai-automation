@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aqt.qt import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from aqt.qt import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTimer, QVBoxLayout, QWidget
 
 from ..services.openai_client import TokenUsage
 from .. import shared_styling
@@ -110,11 +110,19 @@ class ProcessingInterruptDialog(QDialog):
         self._note_count = note_count
         self._action_label = action_label
         self._can_interrupt = can_interrupt
+        self._spinner_frames = ("◜", "◠", "◝", "◞", "◡", "◟")
+        self._spinner_index = 0
 
         layout = QVBoxLayout(self)
+        header = QHBoxLayout()
         self.status_label = QLabel(self._status_text(0, interrupted=False))
         self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
+        header.addWidget(self.status_label, 1)
+
+        self.spinner_label = QLabel(self._spinner_frames[0])
+        self.spinner_label.setStyleSheet("font-size: 18px; color: palette(text);")
+        header.addWidget(self.spinner_label)
+        layout.addLayout(header)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
@@ -125,6 +133,10 @@ class ProcessingInterruptDialog(QDialog):
         self.interrupt_button = QPushButton("Interrupt")
         self.interrupt_button.setVisible(self._can_interrupt)
         layout.addWidget(self.interrupt_button)
+
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.timeout.connect(self._advance_spinner)
+        self._spinner_timer.start(120)
         shared_styling.apply_dialog_theme(self)
 
     def set_progress(self, completed_count: int) -> None:
@@ -135,6 +147,14 @@ class ProcessingInterruptDialog(QDialog):
         self.interrupt_button.setEnabled(False)
         self.interrupt_button.setText("Interrupt Requested")
         self.status_label.setText(self._status_text(self.progress_bar.value(), interrupted=True))
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._spinner_timer.stop()
+        super().closeEvent(event)
+
+    def _advance_spinner(self) -> None:
+        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+        self.spinner_label.setText(self._spinner_frames[self._spinner_index])
 
     def _status_text(self, completed_count: int, *, interrupted: bool) -> str:
         status = (

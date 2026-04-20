@@ -32,6 +32,7 @@ from aqt.utils import showCritical
 from ..core.config import (
     ConfigError,
     DEFAULT_PROMPTS_DIR,
+    MODIFIED_DEFAULT_PROMPTS_DIR,
     PROMPT_LIBRARY_ROOT,
     ProcessingPreset,
     SavedPrompt,
@@ -53,6 +54,7 @@ from ..core.processing import (
     WRITE_MODE_SKIP_NONEMPTY,
     run_manual_ai_processing,
 )
+from ..core.prompting import extract_placeholders
 from .tooltips import set_hover_help, show_tooltip
 from .. import shared_styling
 
@@ -194,7 +196,7 @@ class TransformWithAIDialog(QDialog):
         self.back_button.clicked.connect(self._go_to_previous_page)
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self._handle_primary_action)
-        self.save_preset_footer_button = QPushButton("Save Current Configuration as Preset")
+        self.save_preset_footer_button = QPushButton("New")
         self.save_preset_footer_button.clicked.connect(self._save_current_as_preset)
         self.multiple_target_fields_check.toggled.connect(self._refresh_target_mode_ui)
         self.multiple_target_fields_check.toggled.connect(self._refresh_final_check_summary)
@@ -268,12 +270,12 @@ class TransformWithAIDialog(QDialog):
         preset_picker_layout = QHBoxLayout(preset_picker_row)
         preset_picker_layout.setContentsMargins(0, 0, 0, 0)
         preset_picker_layout.addWidget(self.preset_combo, stretch=1)
-        save_preset_button = QPushButton("Save")
+        save_preset_button = QPushButton("New")
         edit_preset_button = QPushButton("Edit")
         update_preset_button = QPushButton("Update")
         delete_preset_button = QPushButton("Delete")
         set_hover_help(self.preset_combo, "Load a saved Browser-processing preset.", enabled=self._config.show_tooltips)
-        set_hover_help(save_preset_button, "Save the current run settings as a reusable preset.", enabled=self._config.show_tooltips)
+        set_hover_help(save_preset_button, "Create a new preset from the current run settings.", enabled=self._config.show_tooltips)
         set_hover_help(edit_preset_button, "Edit the selected preset name and description.", enabled=self._config.show_tooltips)
         set_hover_help(update_preset_button, "Overwrite the selected preset with the current run settings.", enabled=self._config.show_tooltips)
         set_hover_help(delete_preset_button, "Delete the selected preset.", enabled=self._config.show_tooltips)
@@ -429,7 +431,7 @@ class TransformWithAIDialog(QDialog):
         rename_prompt_button = QPushButton("Rename")
         new_prompt_button = QPushButton("New")
         delete_prompt_button = QPushButton("Delete")
-        save_prompt_button = QPushButton("Save")
+        save_prompt_button = QPushButton("Update Prompt")
         set_hover_help(choose_prompt_button, "Browse the prompt library folders and select a markdown prompt file.", enabled=self._config.show_tooltips)
         set_hover_help(rename_prompt_button, "Rename the selected saved user prompt without changing its prompt text.", enabled=self._config.show_tooltips)
         set_hover_help(new_prompt_button, "Create a new saved user prompt from the text currently shown in the prompt editor.", enabled=self._config.show_tooltips)
@@ -706,18 +708,24 @@ class TransformWithAIDialog(QDialog):
             return True
         if self._is_default_prompt(prompt.prompt_id) and updated_text != prompt.prompt_text:
             replacement = PromptChoice(
-                prompt_id=new_object_id("prompt"),
-                name=self._forked_prompt_name(prompt.name),
+                prompt_id=prompt.prompt_id,
+                name=prompt.name,
                 prompt_text=updated_text,
             )
-            self._prompts.append(replacement)
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
             self._save_prompts()
             self._populate_prompt_combo()
             index = self.prompt_combo.findData(replacement.prompt_id)
             if index >= 0:
                 self.prompt_combo.setCurrentIndex(index)
             self._refresh_prompt_preview()
-            show_tooltip(f"Saved as new user prompt '{replacement.name}'.", parent=self)
+            show_tooltip(
+                f"Saved modified default prompt '{replacement.name}' to modified-default-prompts.",
+                parent=self,
+            )
             return True
         for index, current in enumerate(self._prompts):
             if current.prompt_id == prompt.prompt_id:
@@ -809,7 +817,7 @@ class TransformWithAIDialog(QDialog):
         model = self.model_combo.currentData() or self.model_combo.currentText().strip() or "Not selected"
         temperature = "Global default" if self.use_global_temperature_check.isChecked() else str(self.temperature_spin.value())
         delimiter = self.delimiter_edit.text().strip() or DEFAULT_MULTI_FIELD_DELIMITER
-        source_fields = ", ".join(self._field_choices) if self._field_choices else "No shared fields"
+        source_fields = ", ".join(self._active_source_fields(prompt, system_prompt))
         summary = (
             f"<b>1. Generate:</b> {generation_type}<br>"
             f"<b>2. Source fields:</b> {source_fields}<br>"
@@ -821,6 +829,24 @@ class TransformWithAIDialog(QDialog):
         if self.multiple_target_fields_check.isChecked():
             summary += f"<br><b>Multi-field delimiter:</b> {delimiter}"
         self.final_check_summary_label.setText(summary)
+
+    def _active_source_fields(
+        self,
+        prompt: PromptChoice | None,
+        system_prompt: PromptChoice | None,
+    ) -> list[str]:
+        placeholder_fields: list[str] = []
+        seen: set[str] = set()
+        for template in (
+            prompt.prompt_text if prompt is not None else "",
+            system_prompt.prompt_text if system_prompt is not None else "",
+        ):
+            for placeholder in extract_placeholders(template):
+                if placeholder == "NoteType" or placeholder not in self._field_choices or placeholder in seen:
+                    continue
+                placeholder_fields.append(placeholder)
+                seen.add(placeholder)
+        return placeholder_fields or (["No prompt field placeholders"] if not self._field_choices else ["No field placeholders used"])
 
     def _refresh_preset_summary(self) -> None:
         preset = self._selected_preset()
@@ -1526,7 +1552,7 @@ def _choose_prompt_from_library(
     prompt_id = _prompt_id_from_library_path(Path(selected_path))
     if not prompt_id:
         showCritical(
-            "Choose a markdown file inside prompt_library/default_prompts or prompt_library/user_prompts.",
+            "Choose a markdown file from the add-on's prompt library.",
             parent=parent,
         )
         return None
@@ -1578,7 +1604,7 @@ def _prompt_file_path(prompt_id: str) -> Path | None:
     if not parts:
         return None
     relative_path = Path(*parts).with_suffix(".md")
-    for root in (USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
+    for root in (MODIFIED_DEFAULT_PROMPTS_DIR, USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
         candidate = root / relative_path
         if candidate.exists():
             return candidate
@@ -1587,7 +1613,7 @@ def _prompt_file_path(prompt_id: str) -> Path | None:
 
 def _prompt_id_from_library_path(path: Path) -> str | None:
     resolved_path = path.resolve()
-    for root in (USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
+    for root in (MODIFIED_DEFAULT_PROMPTS_DIR, USER_PROMPTS_DIR, DEFAULT_PROMPTS_DIR):
         try:
             relative_path = resolved_path.relative_to(root.resolve())
         except ValueError:

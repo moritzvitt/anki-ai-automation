@@ -9,11 +9,12 @@ from .prompt_files import read_prompt_markdown, write_prompt_markdown
 def load_prompt_files(
     *,
     default_prompts_dir: Path,
+    modified_default_prompts_dir: Path,
     user_prompts_dir: Path,
 ) -> tuple[dict[str, SavedPrompt], list[str]]:
     merged: dict[str, SavedPrompt] = {}
     order: list[str] = []
-    for directory in (default_prompts_dir, user_prompts_dir):
+    for directory in (default_prompts_dir, modified_default_prompts_dir, user_prompts_dir):
         if not directory.exists():
             continue
         for path in sorted(directory.rglob("*.md")):
@@ -46,21 +47,37 @@ def import_legacy_prompts_to_files(
     return imported
 
 
-def target_prompt_path(prompt_id: str, *, default_prompts_dir: Path, user_prompts_dir: Path) -> Path:
+def target_prompt_path(
+    prompt_id: str,
+    *,
+    default_prompts_dir: Path,
+    modified_default_prompts_dir: Path,
+    user_prompts_dir: Path,
+) -> Path:
     default_path = prompt_path_for_id(default_prompts_dir, prompt_id)
     if default_path.exists():
-        return default_path
+        return prompt_path_for_id(modified_default_prompts_dir, prompt_id)
     return prompt_path_for_id(user_prompts_dir, prompt_id)
 
 
-def prune_removed_user_prompt_files(active_prompt_ids: set[str], *, user_prompts_dir: Path) -> None:
-    if not user_prompts_dir.exists():
+def prune_removed_user_prompt_files(
+    active_prompt_ids: set[str],
+    *,
+    modified_default_prompts_dir: Path,
+    user_prompts_dir: Path,
+) -> None:
+    _prune_prompt_tree(active_prompt_ids, root=modified_default_prompts_dir)
+    _prune_prompt_tree(active_prompt_ids, root=user_prompts_dir)
+
+
+def _prune_prompt_tree(active_prompt_ids: set[str], *, root: Path) -> None:
+    if not root.exists():
         return
-    for path in user_prompts_dir.rglob("*.md"):
-        prompt_id = path.relative_to(user_prompts_dir).with_suffix("").as_posix()
+    for path in root.rglob("*.md"):
+        prompt_id = path.relative_to(root).with_suffix("").as_posix()
         if prompt_id not in active_prompt_ids:
             path.unlink()
-    for directory in sorted(user_prompts_dir.rglob("*"), reverse=True):
+    for directory in sorted(root.rglob("*"), reverse=True):
         if directory.is_dir():
             try:
                 directory.rmdir()

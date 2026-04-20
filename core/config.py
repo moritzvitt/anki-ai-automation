@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from typing import Any
 
 from aqt import mw
@@ -60,17 +61,23 @@ from .prompt_files import read_prompt_order, write_prompt_markdown
 
 
 ADDON_NAME = __name__.split(".")[0]
-PROMPT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "prompt_library"
+ADDON_ROOT = Path(__file__).resolve().parent.parent
+PROMPT_LIBRARY_ROOT = ADDON_ROOT / "prompt_library"
 DEFAULT_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "default_prompts"
-USER_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "user_prompts"
+LEGACY_USER_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "user_prompts"
+USER_FILES_ROOT = ADDON_ROOT / "user_files"
+MODIFIED_DEFAULT_PROMPTS_DIR = USER_FILES_ROOT / "prompt_library" / "modified-default-prompts"
+USER_PROMPTS_DIR = USER_FILES_ROOT / "prompt_library" / "user_prompts"
 SYSTEM_PROMPTS_DIR = PROMPT_LIBRARY_ROOT / "system_prompts"
 SAVED_PROMPT_ORDER_KEY = "saved_prompt_order"
 SAVED_SYSTEM_PROMPT_ORDER_KEY = "saved_system_prompt_order"
-AUTOMATION_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "automation_library"
+AUTOMATION_LIBRARY_ROOT = ADDON_ROOT / "automation_library"
 DEFAULT_GROUPS_DIR = AUTOMATION_LIBRARY_ROOT / "groups"
 DEFAULT_WORKFLOWS_DIR = AUTOMATION_LIBRARY_ROOT / "workflows"
-USER_GROUPS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "groups"
-USER_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "user_data" / "workflows"
+LEGACY_USER_DATA_DIR = ADDON_ROOT / "user_data"
+USER_DATA_ROOT = USER_FILES_ROOT / "user_data"
+USER_GROUPS_DIR = USER_DATA_ROOT / "groups"
+USER_WORKFLOWS_DIR = USER_DATA_ROOT / "workflows"
 WORKFLOW_GROUP_ORDER_KEY = "workflow_group_order"
 WORKFLOW_ORDER_KEY = "workflow_order"
 DEFAULT_SYSTEM_PROMPT_ID = "default-system-prompt"
@@ -80,6 +87,7 @@ def load_config() -> AddonConfig:
     if mw is None:
         raise ConfigError("Anki main window is not available.")
 
+    _migrate_legacy_user_storage()
     raw = mw.addonManager.getConfig(ADDON_NAME)
     if not isinstance(raw, dict):
         raise ConfigError("The add-on config could not be loaded.")
@@ -172,6 +180,7 @@ def load_raw_config() -> dict[str, Any]:
     if mw is None:
         raise ConfigError("Anki main window is not available.")
 
+    _migrate_legacy_user_storage()
     raw = mw.addonManager.getConfig(ADDON_NAME)
     if not isinstance(raw, dict):
         raise ConfigError("The add-on config could not be loaded.")
@@ -181,12 +190,41 @@ def load_raw_config() -> dict[str, Any]:
 def save_raw_config(raw_config: dict[str, Any]) -> None:
     if mw is None:
         raise ConfigError("Anki main window is not available.")
+    _migrate_legacy_user_storage()
     config_scope = prompt_config_scope(raw_config)
     config_scope.pop("saved_prompts", None)
     config_scope.pop("saved_system_prompts", None)
     config_scope.pop("prompt_template", None)
     config_scope.pop("system_prompt", None)
     mw.addonManager.writeConfig(ADDON_NAME, raw_config)
+
+
+def _migrate_legacy_user_storage() -> None:
+    _migrate_tree(LEGACY_USER_PROMPTS_DIR, USER_PROMPTS_DIR)
+    _migrate_tree(LEGACY_USER_DATA_DIR / "groups", USER_GROUPS_DIR)
+    _migrate_tree(LEGACY_USER_DATA_DIR / "workflows", USER_WORKFLOWS_DIR)
+    _migrate_file(LEGACY_USER_DATA_DIR / "usage_stats.json", USER_DATA_ROOT / "usage_stats.json")
+
+
+def _migrate_tree(source: Path, target: Path) -> None:
+    if not source.exists():
+        return
+    for path in sorted(source.rglob("*")):
+        relative_path = path.relative_to(source)
+        destination = target / relative_path
+        if path.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists():
+            shutil.copy2(path, destination)
+
+
+def _migrate_file(source: Path, target: Path) -> None:
+    if not source.exists() or target.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
 
 
 def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
@@ -203,6 +241,7 @@ def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
             target_prompt_path(
                 prompt_id,
                 default_prompts_dir=DEFAULT_PROMPTS_DIR,
+                modified_default_prompts_dir=MODIFIED_DEFAULT_PROMPTS_DIR,
                 user_prompts_dir=USER_PROMPTS_DIR,
             ),
             name,
@@ -212,7 +251,11 @@ def save_saved_prompts(raw_config: dict[str, Any], prompts: list[Any]) -> None:
             ordered_ids.append(prompt_id)
             seen_ids.add(prompt_id)
 
-    prune_removed_user_prompt_files(seen_ids, user_prompts_dir=USER_PROMPTS_DIR)
+    prune_removed_user_prompt_files(
+        seen_ids,
+        modified_default_prompts_dir=MODIFIED_DEFAULT_PROMPTS_DIR,
+        user_prompts_dir=USER_PROMPTS_DIR,
+    )
     config_scope["saved_prompts"] = []
     config_scope[SAVED_PROMPT_ORDER_KEY] = ordered_ids
     if ordered_ids:
@@ -277,6 +320,7 @@ def save_workflow_state(
 def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template: str) -> list[SavedPrompt]:
     file_prompts, file_order = load_prompt_files(
         default_prompts_dir=DEFAULT_PROMPTS_DIR,
+        modified_default_prompts_dir=MODIFIED_DEFAULT_PROMPTS_DIR,
         user_prompts_dir=USER_PROMPTS_DIR,
     )
     config_scope = prompt_config_scope(raw_config)
@@ -290,6 +334,7 @@ def _read_saved_prompts(raw_config: dict[str, Any], *, fallback_prompt_template:
         if imported:
             file_prompts, file_order = load_prompt_files(
                 default_prompts_dir=DEFAULT_PROMPTS_DIR,
+                modified_default_prompts_dir=MODIFIED_DEFAULT_PROMPTS_DIR,
                 user_prompts_dir=USER_PROMPTS_DIR,
             )
         config_scope["saved_prompts"] = []

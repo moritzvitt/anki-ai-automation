@@ -419,7 +419,7 @@ class ScriptWorkflowDialog(QDialog):
         prompt_preview_header_layout.addWidget(QLabel("Prompt"))
         prompt_preview_header_layout.addStretch(1)
         save_prompt_button = QPushButton("Save Prompt")
-        set_hover_help(save_prompt_button, "Save the edited prompt text to the selected prompt. Shipped default prompts are forked into a new user prompt instead of being overwritten.", enabled=self._show_tooltips)
+        set_hover_help(save_prompt_button, "Save the edited prompt text to the selected prompt. Edited default prompts are stored under modified-default-prompts instead of overwriting the shipped file.", enabled=self._show_tooltips)
         save_prompt_button.clicked.connect(self._save_prompt_preview)
         prompt_preview_header_layout.addWidget(save_prompt_button)
         prompt_layout_group.addWidget(prompt_preview_header)
@@ -713,12 +713,10 @@ class ScriptWorkflowDialog(QDialog):
             prompt_text=updated_text,
         )
         if self._is_default_prompt(prompt.prompt_id):
-            replacement = PromptChoice(
-                prompt_id=new_object_id("prompt"),
-                name=self._forked_prompt_name(prompt.name),
-                prompt_text=updated_text,
-            )
-            self._prompts.append(replacement)
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
         else:
             for index, current in enumerate(self._prompts):
                 if current.prompt_id == prompt.prompt_id:
@@ -730,9 +728,9 @@ class ScriptWorkflowDialog(QDialog):
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
         self._refresh_prompt_preview()
-        if replacement.prompt_id != prompt.prompt_id:
+        if self._is_default_prompt(prompt.prompt_id):
             show_tooltip(
-                f"Saved as new user prompt '{replacement.name}'.",
+                f"Saved modified default prompt '{replacement.name}' to modified-default-prompts.",
                 parent=self,
             )
         else:
@@ -1120,18 +1118,19 @@ class ScriptWorkflowDialog(QDialog):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        replacement = dialog.prompt_choice(
-            existing_id=None if self._is_default_prompt(prompt.prompt_id) else prompt.prompt_id
-        )
+        replacement = dialog.prompt_choice(existing_id=prompt.prompt_id)
         if replacement is None:
             return
         if self._is_default_prompt(prompt.prompt_id):
             replacement = PromptChoice(
-                prompt_id=replacement.prompt_id,
-                name=self._forked_prompt_name(prompt.name),
+                prompt_id=prompt.prompt_id,
+                name=replacement.name,
                 prompt_text=replacement.prompt_text,
             )
-            self._prompts.append(replacement)
+            for index, current in enumerate(self._prompts):
+                if current.prompt_id == prompt.prompt_id:
+                    self._prompts[index] = replacement
+                    break
         else:
             for index, current in enumerate(self._prompts):
                 if current.prompt_id == prompt.prompt_id:
@@ -1143,6 +1142,11 @@ class ScriptWorkflowDialog(QDialog):
         if index >= 0:
             self.prompt_combo.setCurrentIndex(index)
         self._refresh_prompt_preview()
+        if self._is_default_prompt(prompt.prompt_id):
+            show_tooltip(
+                f"Saved modified default prompt '{replacement.name}' to modified-default-prompts.",
+                parent=self,
+            )
 
     def _delete_prompt(self) -> None:
         prompt = self._selected_prompt()
