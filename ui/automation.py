@@ -41,6 +41,7 @@ from ..core.config import (
     load_config,
     load_raw_config,
     new_object_id,
+    save_raw_config,
     save_saved_prompts,
     save_saved_system_prompts,
 )
@@ -150,6 +151,8 @@ class TransformWithAIDialog(QDialog):
         self._system_prompts = _prompt_choices_from_saved_system_prompts(config.saved_system_prompts)
         self._presets = _preset_choices_from_saved_processing_presets(config.processing_presets)
         self._field_choices, self._field_summary = _collect_common_fields(note_ids)
+        self._target_tab_index = 2
+        self._pending_target_field_warning: str | None = None
         self._model_options = fallback_model_options(
             current_model=config.model,
             pricing_overrides=config.model_pricing,
@@ -545,6 +548,12 @@ class TransformWithAIDialog(QDialog):
         for field_name in self._field_choices:
             self.target_field_combo.addItem(field_name, field_name)
 
+        if self.target_field_combo.count() > 0:
+            self.target_field_combo.setCurrentIndex(0)
+        else:
+            self.target_field_combo.setCurrentIndex(-1)
+
+        self._refresh_note_type_summary()
         self._populate_prompt_combo()
         self._populate_system_prompt_combo()
         self._refresh_prompt_preview()
@@ -817,6 +826,8 @@ class TransformWithAIDialog(QDialog):
         preset = self._selected_preset()
         if preset is None:
             self.preset_summary_label.setText("No preset selected. Pick one, or configure the sections below and save a new preset.")
+            self._pending_target_field_warning = None
+            self._refresh_note_type_summary()
             return
         details: list[str] = []
         if preset.description:
@@ -834,7 +845,9 @@ class TransformWithAIDialog(QDialog):
             system_prompt = self._system_prompt_by_id(preset.system_prompt_id or "")
             if system_prompt is not None:
                 details.append(f"System: {system_prompt.name}")
+        self._pending_target_field_warning = self._preset_target_field_warning(preset)
         self.preset_summary_label.setText(" | ".join(details) if details else "Preset selected.")
+        self._refresh_note_type_summary()
 
     def _selected_preset(self) -> ProcessingPresetChoice | None:
         preset_id = self.preset_combo.currentData()
@@ -1101,7 +1114,31 @@ class TransformWithAIDialog(QDialog):
         if index >= 0:
             self.target_field_combo.setCurrentIndex(index)
             return
-        self.target_field_combo.setEditText(field_name)
+        self.target_field_combo.setCurrentIndex(-1)
+
+    def _refresh_note_type_summary(self) -> None:
+        note_type_text = self._field_summary.get("note_types", "Unknown")
+        warning = self._pending_target_field_warning
+        if warning:
+            self.note_types_label.setText(f"{note_type_text}<br><span style='color:#b34700;'><b>Warning:</b> {warning}</span>")
+        else:
+            self.note_types_label.setText(note_type_text)
+
+    def _preset_target_field_warning(self, preset: ProcessingPresetChoice) -> str | None:
+        if preset.invalid_reason or preset.multiple_target_fields or not preset.target_field:
+            return None
+        if preset.target_field in self._field_choices:
+            return None
+        note_types = self._field_summary.get("note_types", "Unknown note type")
+        note_type_count = len(
+            [item.strip() for item in note_types.split(",") if item.strip()]
+        )
+        if note_type_count > 1:
+            return (
+                f"More than one note type is selected. At least one selected note type does not have the target field "
+                f"'{preset.target_field}'."
+            )
+        return f"The selected note type does not have the target field '{preset.target_field}'."
 
     def _create_prompt(self) -> None:
         prompt_text = self.prompt_preview.toPlainText().strip()
@@ -1335,7 +1372,16 @@ class TransformWithAIDialog(QDialog):
         if self._selected_prompt() is None:
             showCritical("Choose or create a saved prompt before running.", parent=self)
             return
+        target_field_warning = self._pending_target_field_warning
+        if not is_multi and target_field_warning:
+            self.pages.setCurrentIndex(self._target_tab_index)
+            showCritical(
+                f"{target_field_warning}\n\nChoose a valid target field on the Target Field step before running.",
+                parent=self,
+            )
+            return
         if not is_multi and not (self.target_field_combo.currentData() or self.target_field_combo.currentText().strip()):
+            self.pages.setCurrentIndex(self._target_tab_index)
             showCritical("Choose a target field before running.", parent=self)
             return
         self.accept()
